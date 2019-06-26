@@ -1,10 +1,16 @@
 # Custom Taxonomy Databases (CTDB)
-(Supported sources in version v0.1.0: QIIME, NCBI, CanSNPer, TSV)
+
 Custom Taxonomy Databases - A cross platform tool for customization and merging of various taxonomic classification sources.
+
+Supported sources in version v0.1.0: 
+* QIIME
+* NCBI
+* CanSNPer
+* TSV
 
 The custom_taxonomy_databases (ctdb) script allows customization of databases from NCBI, QIIME or CanSNPer sources and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation). The script was initially written to allow the use of GTDB with some custom modifications to allow increased resolution of selected subgroups. GTDB was created by an Australian group aimed to restructure the taxonomy relation from the NCBI taxonomy tree to strictly follow a phylogenetic structure (http://gtdb.ecogenomic.org/) this script can use the taxonomy.tsv files from the GTDB downloads page as input (with the --taxonomy_type selected as QIIME). By default the script will read a Tab separated file containing parent and child (defined by column headers). The script also allows customization of the database using multiple sources and databases can be merged at a selected node(s) there is also an option to add resolution to certain subgroups (ie combine the different database types) using a tab separated file (format described below).
 
-All data is kept in a sqlite3 database (.ctdb by default) and can be dumped to NCBI formatted names and nodes.dmp files. Supported export formats in version 0.2 is NCBI and TSV). The TSV dump format is similar to the NCBI dump except that it contains a header (parent<tab>child), has parent on the left and only uses tab to separate each column (not \<tab\>|\<tab\>).
+All data is kept in a sqlite3 database (.ctdb by default) and can be dumped to NCBI formatted names and nodes.dmp files. Supported export formats are NCBI and TSV). The TSV dump format is similar to the NCBI dump except that it contains a header (parent<tab>child), has parent on the left and only uses tab to separate each column (not \<tab\>|\<tab\>).
 
 # Installation
 ```
