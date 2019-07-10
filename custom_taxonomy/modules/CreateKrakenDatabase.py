@@ -23,10 +23,10 @@ def zopen(path,*args, **kwargs):
 	else:
 		return open(path,*args,**kwargs)
 
-class KrakenAddGenomes(object):
-	"""docstring for KrakenAddGenomes."""
+class CreateKrakenDatabase(object):
+	"""docstring for CreateKrakenDatabase."""
 	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,krakenversion="kraken2"):
-		super(KrakenAddGenomes, self).__init__()
+		super(CreateKrakenDatabase, self).__init__()
 		self.krakenversion = krakenversion
 		self.database = DatabaseFunctions(database)
 		if outdir == "":

@@ -30,6 +30,7 @@ __date__ = "2019-06-15"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/davve2/custom-taxonomy-databases"
+__programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge"]
 
 ###################################--system imports--####################################
 import os, sys
@@ -68,6 +69,16 @@ def main():
         else:
             print("--- process finished in {} {} {} seconds---\n".format(minutes,mtext, seconds))
         return current
+
+    def get_read_modules():
+        '''Find (ReadTaxonomy) modules and return options'''
+        read_modules = []
+        for script in os.listdir(BASE_DIR+"/modules"):
+            if script.startswith("ReadTaxonomy"):
+                modname = script.lstrip("ReadTaxonomy").rstrip(".py")
+                if modname != "":
+                    read_modules.append(modname)
+        return read_modules
     #########################################################################################
     ##################################--error functions--###################################¤
 
@@ -90,26 +101,28 @@ def main():
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory")
     basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
     basic.add_argument('--log', metavar="", default = None,   help="use a log file instead of stdout")
+    basic.add_argument("--dump", action='store_true', help="Write database to names.dmp and nodes.dmp")
 
+    rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
-    read_opts.add_argument('--taxonomy_file',metavar="", default=None, help="Taxonomy source file")
-    read_opts.add_argument('--taxonomy_type',metavar="", default="", choices=["NCBI", "CanSNPer", "QIIME"], help="Source format of taxonomy input file (NCBI, CanSNPer, QIIME)")
+    read_opts.add_argument('-tf', '--taxonomy_file',metavar="", default=None, help="Taxonomy source file")
+    read_opts.add_argument('-tt', '--taxonomy_type',metavar="", default="", choices=rmodules, help="Source format of taxonomy input file ({modules})".format(modules=",".join(rmodules)))
     read_opts.add_argument('--taxid_base', metavar="", type=int, default=1, help="The base for internal taxonomy ID numbers, when using NCBI as base select base at minimum 3000000 (default = 1)")
 
     mod_opts = parser.add_argument_group('mod_opts', "Database modification options")
-    mod_opts.add_argument('--mod_file', metavar="", default=False, help="File contaning modifications parent,child,(taxonomy level)")
-    mod_opts.add_argument('--mod_database', metavar="",default=False, help="Database file containing modifications")
-    mod_opts.add_argument('--genomeid2taxid', metavar="", default=False, help="File that lists which node a genome should be assigned to")
-    mod_opts.add_argument('--genomes_path', metavar="",default=None,  help='Path to genome folder is required when using NCBI_taxonomy as source')
-    mod_opts.add_argument('--parent',metavar="", default=False, help="Parent from which to replace branch")
+    mod_opts.add_argument('-mf','--mod_file', metavar="", default=False, help="File contaning modifications parent,child,(taxonomy level)")
+    mod_opts.add_argument('-md', '--mod_database', metavar="",default=False, help="Database file containing modifications")
+    mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False, help="File that lists which node a genome should be assigned to")
+    mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,  help='Path to genome folder is required when using NCBI_taxonomy as source')
+    mod_opts.add_argument('-p', '--parent',metavar="", default=False, help="Parent from which to replace branch")
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
-    out_opts.add_argument("--dump", action='store_true', help="Write database to names.dmp and nodes.dmp")
+    out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__, help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
     out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes", help="change dump prefix reqires two names default(names,nodes)")
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t", help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
     out_opts.add_argument('--dump_mini', metavar="", default=False, help="Dump minimal file with tab as separator")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
-    out_opts.add_argument("--taxDB", action='store_true',help="This file is required when running krakenuniq (is it?)")
+    out_opts.add_argument("--taxDB", action='store_true',help="This file is required when running krakenuniq (is it?)") ## added of krakenuniq
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
@@ -219,7 +232,7 @@ def main():
         '''Create print out object'''
         if verbose: print("Loading module: WriteTaxonomy".format(type=args.taxonomy_type))
         write_module = dynamic_import("modules", "WriteTaxonomy")
-        write_obj = write_module(args.outdir, database=args.database,verbose=verbose,prefix=args.dump_prefix,separator=args.dump_sep,minimal=args.dump_mini,desc=args.dump_descriptions)
+        write_obj = write_module(args.outdir, database=args.database,verbose=verbose,prefix=args.dump_prefix,separator=args.dump_sep,minimal=args.dump_mini,desc=args.dump_descriptions,dbprogram=args.dbprogram)
 
         '''Print database to file'''
         if args.taxonomy_type == "NCBI":

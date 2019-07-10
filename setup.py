@@ -62,7 +62,7 @@ setup(
     entry_points={
         'console_scripts': [
             'custom_taxonomy_databases=custom_taxonomy.custom_taxonomy_databases:main',
-			'create_kraken_database=custom_taxonomy.create_kraken_databases:main',
+			'create_databases=custom_taxonomy.create_databases:main',
         ],
     },
 )
