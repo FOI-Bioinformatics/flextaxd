@@ -25,9 +25,9 @@ def zopen(path,*args, **kwargs):
 
 class CreateKrakenDatabase(object):
 	"""docstring for CreateKrakenDatabase."""
-	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,krakenversion="kraken2"):
+	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params=""):
 		super(CreateKrakenDatabase, self).__init__()
-		self.krakenversion = krakenversion
+		self.krakenversion = dbprogram
 		self.database = DatabaseFunctions(database)
 		if outdir == "":
 			outdir = "./"
@@ -37,6 +37,7 @@ class CreateKrakenDatabase(object):
 		self.genomes_path = genomes_path
 		self.accession_to_taxid = self.database.get_genomes(self.database , limit=limit)
 		self.files = []
+		self.params = params
 		self.processes = processes
 		self.krakendb= kraken_database
 		self.ncbi_rewrite_speed = "fastest"
@@ -70,13 +71,15 @@ class CreateKrakenDatabase(object):
 				with open(self.seqid2taxid, "a") as seqidtotaxid:
 					for line in f:
 						if line.startswith(">"):
-							row = line.split(" ")
+							row = line.strip().split(" ")
+							if len(row) == 1:
+								row.append("")
 							if not self.krakenversion == "krakenuniq":
 								line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## If kraken2 add kraken header (nessesary?)
 							print(row[0].lstrip(">"), taxid, " ".join(row[1:]),end="", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
 						print(line, end="", file=tmpfile)
 			tmpfile.close()
-			output = self.krakendb.strip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
+			output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
 			os.rename(tmppath, output)
 			os.system(self.krakenversion+"-build --add-to-library {file} --db {krakendb} >/dev/null 2>&1".format(file=output,krakendb=self.krakendb))
 			# command = self.krakenversion+"-build"
@@ -90,6 +93,7 @@ class CreateKrakenDatabase(object):
 		self.GCF_names = []
 		print("Number of genomes annotated in database",len(id_dict))
 		count = 0
+		self.notused = set()
 		for root, dirs, files in os.walk(self.genomes_path,followlinks=True):
 			for file in files:
 				if file.endswith(".fna.gz"):
@@ -102,14 +106,15 @@ class CreateKrakenDatabase(object):
 						self.GCF_names.append(GCF_name.strip())
 						count+=1
 					except KeyError:
-						pass
+						self.notused.add(GCF_name)
+						if self.verbose: print("#Warning {gcf} could not be matched to database entry!".format(gcf=GCF_name.strip()))
 				else:
 					pass
-
 		processes = self.processes
 		self.files = self.split(self.files,processes)
 		self.GCF_names = self.split(self.GCF_names,processes)
-		print( self.kraken_fasta_header_multiproc(self.files,self.GCF_names))
+		self.kraken_fasta_header_multiproc(self.files,self.GCF_names)
+		if self.verbose: print("#Warning {gcf} genomes could not be matched to database entry!".format(gcf=len(self.notused)))
 		print("Number of genomes added to {krakenversion} database: {count}".format(count=count,krakenversion=self.krakenversion))
 		return self.files
 
@@ -127,8 +132,8 @@ class CreateKrakenDatabase(object):
 		os.system("cp {outdir}/*nodes.dmp {krakendb}/taxonomy/nodes.dmp".format(outdir=outdir,krakendb=self.krakendb))
 		if self.krakenversion != "kraken2": os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 		if self.verbose: print("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
-		if self.verbose: print(self.krakenversion+"-build --build --db {krakendb} --threads {threads}".format(krakendb=self.krakendb, threads=self.processes))
-		os.system(self.krakenversion+"-build --build --db {krakendb} --threads {threads}".format(krakendb=self.krakendb, threads=self.processes))
+		if self.verbose: print(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.processes, params=self.params))
+		os.system(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.processes, params=self.params))
 		if not keep:
 			## Since kraken2 is removing too much on clean it might be better to do this manually so certain log files can be saved
 			#os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))

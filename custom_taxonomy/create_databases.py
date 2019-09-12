@@ -87,6 +87,7 @@ def main():
     classifier_opts.add_argument('--genomes_path', metavar="",default=None,  help='path to genomes')
     classifier_opts.add_argument('--db_name', metavar="",default=None, help="database directory (fullpath)")
     classifier_opts.add_argument('--create_db', action ='store_true',  help="Start create db after loading databases")
+    classifier_opts.add_argument('--params', metavar="", default="",  help="Add extra params to create command (supports kraken*)")
     classifier_opts.add_argument('--test', action='store_true', help="test database structure, only use 100 seqs")
     classifier_opts.add_argument('-p', '--processes',metavar="",type=int, default = 8, help="Use multiple cores")
     classifier_opts.add_argument('--keep', action='store_true', help="Keep temporary files")
@@ -142,14 +143,19 @@ def main():
         limit = 0
         if args.test:
             limit = 500
-        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram)
+        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params)
         if verbose: current_time = report_time(current_time)
         classifierDB.process_folder()
+        print("Done")
 
     ''' 4. Create database'''
     if args.create_db:
         if verbose: current_time = report_time(current_time)
-        classifierDB.create_database(args.outdir,args.keep)
+        if verbose: print("Create database")
+        try:
+            classifierDB.create_database(args.outdir,args.keep)
+        except UnboundLocalError:
+            exit("#Error: No kraken database name was given!")
 
     if verbose: report_time(start_time,final=True)
 

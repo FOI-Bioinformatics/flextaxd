@@ -100,11 +100,19 @@ class DatabaseConnection(object):
 			SET {set_column} = ?
 			WHERE {where_column} = ?
 		'''.format(table=table,set_column=data["set_column"],where_column=data["where_column"])
-		###  UPDATE genomes SET id = newnode WHERE genome = oldname
-		if self.verbose: print(UPDATE_QUERY,data)
-		#print(UPDATE_QUERY, data)
-		data = tuple([data["set_value"],data["where"]])
-		return self.query(UPDATE_QUERY,data,error=True)
+		udata = tuple([data["set_value"],data["where"]])
+		if self.verbose: print(UPDATE_QUERY,udata)
+		#print(UPDATE_QUERY, udata)
+		res = self.query(UPDATE_QUERY,udata,error=True)
+		'''If the genome does not exist, it should instead be inserted in the database'''
+
+		if self.rowcount() == 0:
+			res = self.insert({data["set_column"]:data["set_value"],data["where_column"]:data["where"]}, table)
+			return False
+		return True
+
+	def rowcount(self):
+		return self.cursor.rowcount
 
 class DatabaseFunctions(DatabaseConnection):
 	"""docstring for DatabaseFunctions."""

@@ -25,12 +25,13 @@ def zopen(path,*args, **kwargs):
 
 class CreateGanonDB(object):
 	"""docstring for CreateGanonDB."""
-	def __init__(self, database, ganon_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="ganon"):
+	def __init__(self, database, ganon_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="ganon",params=""):
 		super(CreateGanonDB, self).__init__()
 		self.database = DatabaseFunctions(database)
 		if outdir == "":
 			outdir = "./"
 		self.outdir = outdir
+		self.params=params
 		self.seqid2taxid = self.outdir+"/seqid2taxid.map"
 		if os.path.exists(self.outdir+"/seqid2taxid.map"): open(self.seqid2taxid,"w").close() ## clean existing map if file exists
 		self.genomes_path = genomes_path

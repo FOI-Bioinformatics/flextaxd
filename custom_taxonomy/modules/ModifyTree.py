@@ -16,13 +16,12 @@ class InputError(Exception):
 
 class ModifyTree(object):
 	"""docstring for ModifyTree."""
-	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, separator="\t",verbose=False,parent=False):
+	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, separator="\t",verbose=False,parent=False,replace=False):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
 		if self.verbose: print("Modify Tree")
-
+		self.replace = replace  ## if node should be replaced this must be true, otherwise nodes in modfile are added to existing database
 		self.sep = separator
-		self.verbose = verbose
 		self.taxonomy = {}
 		self.names = {}
 
@@ -174,9 +173,11 @@ class ModifyTree(object):
 			"where": ""
 		}
 		updated = 0
+		added = 0
 		with open(genomeid2taxid) as f:
 			for row in f:
 				genome,name = row.strip().split(self.sep)
+				if self.verbose: print(genome,name)
 				try:
 					id = self.nodeDict[name.strip()]
 				except KeyError:
@@ -185,12 +186,16 @@ class ModifyTree(object):
 					## If no exception occured add genome
 					update["set_value"] = id
 					update["where"] = genome.strip()
-					self.taxonomydb.update_genome(update)
-					self.taxonomydb.commit()
-					updated += 1
+					res = self.taxonomydb.update_genome(update)
+					if self.taxonomydb.rowcount()!=0:
+						if res:
+							updated += 1
+						else:
+							added += 1
+					#self.taxonomydb.commit()
 		self.taxonomydb.commit()
 		gid = self.taxonomydb.get_genomes()
-		if self.verbose: print("{updated} genome annotations were updated!".format(updated=updated))
+		if self.verbose: print("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
 
 	def update_genomes(self):
@@ -202,6 +207,7 @@ class ModifyTree(object):
 			"where": ""
 		}
 		updated = 0
+		added = 0
 		'''Database has been updated, so the internal nodeDict needs to be updated'''
 		self.nodeDict = self.taxonomydb.get_nodes()
 		for genome in self.mod_genomes:
@@ -209,20 +215,26 @@ class ModifyTree(object):
 			id,genomeid = self.nodeDict[self.dbmod_annotation[self.mod_genomes[genome]].strip()],genome.strip()
 			update["set_value"] = id
 			update["where"] = genomeid
-			self.taxonomydb.update_genome(update)
-			updated += 1
+			res = self.taxonomydb.update_genome(update)
+			if self.taxonomydb.rowcount()!=0:
+				if res:
+					updated += 1
+				else:
+					added += 1
 		self.taxonomydb.commit()
-		if self.verbose: print("{updated} genome annotations were updated!".format(updated=updated))
+		if self.verbose: print("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
 
 	def update_database(self):
 		'''Update the database file'''
-		self.taxonomydb.delete_links(self.modified_links)
-		self.taxonomydb.delete_nodes(self.old_nodes)
-		if self.verbose: print("Deleted nodes {nodes}".format(nodes=self.old_nodes))
+		if self.replace:
+			self.taxonomydb.delete_links(self.modified_links)
+			self.taxonomydb.delete_nodes(self.old_nodes)
+			if self.verbose: print("Deleted nodes {nodes}".format(nodes=self.old_nodes))
 		added,nodes = self.taxonomydb.add_links(self.new_links)
 		if added + len(nodes) + len(self.modified_links) > 0:
-			print("Deleting {n} links and {n2} nodes that are no longer valid".format(n=len(self.modified_links),n2=len(self.old_nodes)))
+			if self.replace:
+				print("Deleting {n} links and {n2} nodes that are no longer valid".format(n=len(self.modified_links),n2=len(self.old_nodes)))
 			print("Adding {n} new nodes".format(n=len(nodes)))
 			print("Adding {n} updated and/or new links".format(n=added))
 
