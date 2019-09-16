@@ -16,7 +16,7 @@ with open(path.join(localpath, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='custom_taxonomy_databases',
+    name='FlexTaxD',
     ##Global version, does not nessesarily follow script versions
     version=__version__,
 
@@ -25,7 +25,7 @@ setup(
     long_description_content_type="text/markdown",
 
     # The project's main homepage.
-    url='https://github.com/davve2/custom-taxonomy-databases',
+    url='https://github.com/FOI-Bioinformatics/flextaxd',
 
     # Author details
     author='David Sundell',
@@ -48,21 +48,15 @@ setup(
 		'Programming Language :: Python :: 3.7'
     ],
 
-    keywords='taxonomy NCBI CanSNPer GTDB customization',
+    keywords='taxonomy NCBI CanSNPer customization GTDB',
 
     # You can just specify the packages manually here if your project is
-    # simple. Or you can use find_packages().
-    #packages=find_packages(exclude=['contrib', 'docs', 'test*']),
+    # simple. Or you can use find_packages().,
 	packages=find_packages(exclude=['contrib', 'docs', 'test*']),
-	#py_modules=["custom_taxonomy.create_taxonomy_databases"]
-	#packages=['source','modules'],
-    # To provide executable scripts, use entry points in preference to the
-    # "scripts" keyword. Entry points provide cross-platform support and allow
-    # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'custom_taxonomy_databases=custom_taxonomy.custom_taxonomy_databases:main',
-			'create_databases=custom_taxonomy.create_databases:main',
+            'flextaxd=custom_taxonomy.custom_taxonomy_databases:main',
+			'flextaxd-create=custom_taxonomy.create_databases:main',
         ],
     },
 )

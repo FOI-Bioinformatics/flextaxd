@@ -91,6 +91,7 @@ def main():
     classifier_opts.add_argument('--test', action='store_true', help="test database structure, only use 100 seqs")
     classifier_opts.add_argument('-p', '--processes',metavar="",type=int, default = 8, help="Use multiple cores")
     classifier_opts.add_argument('--keep', action='store_true', help="Keep temporary files")
+    classifier_opts.add_argument('--skip', metavar="", default="", help="Do not include genomes within this taxonomy (child tree) in the database (works for kraken)")
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
@@ -143,7 +144,7 @@ def main():
         limit = 0
         if args.test:
             limit = 500
-        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params)
+        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip)
         if verbose: current_time = report_time(current_time)
         classifierDB.process_folder()
         print("Done")

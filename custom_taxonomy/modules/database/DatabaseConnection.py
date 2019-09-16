@@ -111,6 +111,16 @@ class DatabaseConnection(object):
 			return False
 		return True
 
+	# def delete(self,nodes,table):
+	# 	'''Deleting a node should make sure all related data is also removed'''
+	# 	DELETE_QUERY = '''
+	# 			DELETE FROM {table}
+	# 				WHERE id in({values})
+	# 	'''.format(table=table,
+	# 				values=','.join(["?" for x in nodes])
+	# 	)
+	# 	return self.query(DELETE_QUERY,insert_val=values)
+
 	def rowcount(self):
 		return self.cursor.rowcount
 

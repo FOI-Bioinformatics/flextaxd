@@ -25,7 +25,7 @@ def zopen(path,*args, **kwargs):
 
 class CreateKrakenDatabase(object):
 	"""docstring for CreateKrakenDatabase."""
-	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params=""):
+	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip=""):
 		super(CreateKrakenDatabase, self).__init__()
 		self.krakenversion = dbprogram
 		self.database = DatabaseFunctions(database)
@@ -42,6 +42,8 @@ class CreateKrakenDatabase(object):
 		self.krakendb= kraken_database
 		self.ncbi_rewrite_speed = "fastest"
 		self.verbose = verbose
+		self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
+
 		if verbose: print("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
 		if not os.path.exists("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb)):
 			os.system("mkdir -p {krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
@@ -67,26 +69,38 @@ class CreateKrakenDatabase(object):
 			tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")#self.outdir+"/.tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
 			tmpfile = zopen(tmppath,"w")
 			taxid = self.accession_to_taxid[genome]
-			with zopen(filepath,"r") as f:
-				with open(self.seqid2taxid, "a") as seqidtotaxid:
-					for line in f:
-						if line.startswith(">"):
-							row = line.strip().split(" ")
-							if len(row) == 1:
-								row.append("")
-							if not self.krakenversion == "krakenuniq":
-								line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## If kraken2 add kraken header (nessesary?)
-							print(row[0].lstrip(">"), taxid, " ".join(row[1:]),end="", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
-						print(line, end="", file=tmpfile)
-			tmpfile.close()
-			output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
-			os.rename(tmppath, output)
-			os.system(self.krakenversion+"-build --add-to-library {file} --db {krakendb} >/dev/null 2>&1".format(file=output,krakendb=self.krakendb))
+			if taxid not in self.skiptax:
+				with zopen(filepath,"r") as f:
+					with open(self.seqid2taxid, "a") as seqidtotaxid:
+						for line in f:
+							if line.startswith(">"):
+								row = line.strip().split(" ")
+								if len(row) == 1:
+									row.append("")
+								if not self.krakenversion == "krakenuniq":
+									line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## If kraken2 add kraken header (nessesary?)
+								print(row[0].lstrip(">"), taxid, " ".join(row[1:]),end="", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
+							print(line, end="", file=tmpfile)
+				tmpfile.close()
+				output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
+				os.rename(tmppath, output)
+				os.system(self.krakenversion+"-build --add-to-library {file} --db {krakendb} >/dev/null 2>&1".format(file=output,krakendb=self.krakendb))
 			# command = self.krakenversion+"-build"
 			# parameters = " --add-to-library {file} --db {krakendb}".format(file=output,krakendb=self.krakendb)
 			# p = Popen((command, parameters) ,stdout=PIPE,stderr=PIPE)
 			# p.wait()
 		return
+
+	def get_skip_list(self):
+		'''get taxonomy ids not wanted'''
+		return self.skiptax
+
+	def parse_skip(self,skip):
+		'''Skip allows a list of tax ids to be passed and then excluded from the database'''
+		skiptax = []
+		for t in skip:
+			skiptax += self.taxonomydb.get_children()
+		return skiptax
 
 	def process_folder(self):
 		id_dict = self.accession_to_taxid

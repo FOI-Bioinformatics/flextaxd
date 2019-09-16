@@ -95,7 +95,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     required = parser.add_argument_group('required', 'Required')
-    required.add_argument('-db', '--database',metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file (fullpath)")
+    required.add_argument('-db', '--database',metavar="", type=str, default=".ftd" , help="Custom taxonomy sqlite3 database file (fullpath)")
 
     basic = parser.add_argument_group('basic', 'Basic commands')
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory")

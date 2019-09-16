@@ -16,11 +16,10 @@ class InputError(Exception):
 
 class ModifyTree(object):
 	"""docstring for ModifyTree."""
-	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, separator="\t",verbose=False,parent=False,replace=False):
+	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, separator="\t",verbose=False,parent=False):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
 		if self.verbose: print("Modify Tree")
-		self.replace = replace  ## if node should be replaced this must be true, otherwise nodes in modfile are added to existing database
 		self.sep = separator
 		self.taxonomy = {}
 		self.names = {}
@@ -227,13 +226,13 @@ class ModifyTree(object):
 
 	def update_database(self):
 		'''Update the database file'''
-		if self.replace:
+		if self.skip:
 			self.taxonomydb.delete_links(self.modified_links)
 			self.taxonomydb.delete_nodes(self.old_nodes)
 			if self.verbose: print("Deleted nodes {nodes}".format(nodes=self.old_nodes))
 		added,nodes = self.taxonomydb.add_links(self.new_links)
 		if added + len(nodes) + len(self.modified_links) > 0:
-			if self.replace:
+			if self.skip:
 				print("Deleting {n} links and {n2} nodes that are no longer valid".format(n=len(self.modified_links),n2=len(self.old_nodes)))
 			print("Adding {n} new nodes".format(n=len(nodes)))
 			print("Adding {n} updated and/or new links".format(n=added))
