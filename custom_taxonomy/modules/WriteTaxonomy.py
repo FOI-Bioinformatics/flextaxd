@@ -19,11 +19,17 @@ class WriteTaxonomy(object):
 		### Allows a minimal output file with only nessesary fields default is NCBI id | name | empty | scientific name
 		self.minimal = minimal
 		if self.minimal:
-			self.separator = self.minimal
-			if self.separator =="\\t":
+			if dbprogram:
+				print("# WARNING: dbprogram cannot be used in combination with dump_mini, parameter ignored! (use --dump)")
+			self.dbprogram = False
+			if separator != "\t|\t":
+				self.separator = separator
+			else:
 				self.separator = "\t"
+		else:
+			self.dbprogram  = dbprogram
 		self.parent = False ## Default print is NCBI structure with child in the first column
-		self.dbprogram  = dbprogram
+
 
 	def set_separator(self,sep):
 		self.separator=sep
@@ -77,7 +83,7 @@ class WriteTaxonomy(object):
 		'''Write node annotations to names.dmp'''
 		if self.verbose: print('Write annotations to: {}{}.dmp'.format(self.path,self.prefix[0]))
 		end = "\n"
-		if self.dbprogram == "ganon":
+		if self.dbprogram == "ganon" or self.dbprogram == "krakenuniq":
 			end = "\t|\n"
 		with open('{}{}.dmp'.format(self.path,self.prefix[0]),"w") as outputfile:
 			## Retrieve all nodes that exists in the database

@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -29,7 +29,7 @@ __email__ = ["bioinformatics@foi.se","david.sundell@foi.se"]
 __date__ = "2019-09-11"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
-__github__="https://github.com/davve2/custom-taxonomy-databases"
+__github__="https://github.com/davve2/flextaxd"
 __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge"]
 
 ###################################--system imports--####################################
@@ -102,6 +102,7 @@ def main():
     basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
     basic.add_argument('--log', metavar="", default = None,   help="use a log file instead of stdout")
     basic.add_argument("--dump", action='store_true', help="Write database to names.dmp and nodes.dmp")
+    basic.add_argument('--dump_mini', action='store_true', help="Dump minimal file with tab as separator")
     basic.add_argument("--force", action='store_true', help="use when script is implemented in pipeline to avoid security questions on overwrite!")
 
     rmodules = get_read_modules()
@@ -115,16 +116,14 @@ def main():
     mod_opts.add_argument('-md', '--mod_database', metavar="",default=False, help="Database file containing modifications")
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False, help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,  help='Path to genome folder is required when using NCBI_taxonomy as source')
-    mod_opts.add_argument('-p', '--parent',metavar="", default=False, help="Parent from which to replace branch")
-    mod_opts.add_argument('--replace', metavar="", default=False, help="Add if existing children of parents should be removed!")
+    mod_opts.add_argument('-p', '--parent',metavar="", default=False, help="Parent from which to add (replace see below) branch")
+    mod_opts.add_argument('--replace', action='store_true', help="Add if existing children of parents should be removed!")
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
     out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__, help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
     out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes", help="change dump prefix reqires two names default(names,nodes)")
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t", help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
-    out_opts.add_argument('--dump_mini', metavar="", default=False, help="Dump minimal file with tab as separator")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
-    out_opts.add_argument("--taxDB", action='store_true',help="This file is required when running krakenuniq (is it?)") ## added of krakenuniq
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
@@ -175,8 +174,8 @@ def main():
         logfile = open(args.log, "w")
         sys.stdout = logfile
 
-    if force:
-        '''Remove database if force is turned on'''
+    if force and args.taxonomy_file:
+        '''Remove database if force is turned on and new source file is given'''
         if os.path.exists(args.database):
             os.system("rm {database}".format(database=args.database))
 
@@ -204,9 +203,11 @@ def main():
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 
             '''Parse genome2taxid file'''                                                       ## Fix at some point only one function should be needed
-            if args.taxonomy_type == "NCBI" and args.genomeid2taxid:
+            if not args.genomeid2taxid:
+                print("Warning no genomeid2taxid file given!")
+            elif args.taxonomy_type == "NCBI" and args.genomeid2taxid:
                 read_obj.parse_genomeid2taxid(args.genomes_path,args.genomeid2taxid)
-            if args.taxonomy_type == "CanSNPer":
+            elif args.taxonomy_type == "CanSNPer":
                 read_obj.parse_genomeid2taxid(args.genomeid2taxid)
 
             if verbose: print("Nodes in taxonomy tree {n} number of taxonomies {k}".format(n=read_obj.length, k=read_obj.ids))
@@ -214,9 +215,11 @@ def main():
 
     ''' 1. Modify database, if datasource for modification of current database is supplied process this data'''
     if args.mod_file or args.mod_database:
+        if args.mod_file and not args.genomeid2taxid:
+            exit("No genomeid2taxid file given!")
         if verbose: print("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,verbose=verbose,parent=args.parent)
+        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,verbose=verbose,parent=args.parent,replace=args.replace)
         modify_obj.update_database()
         if args.mod_file:
             if verbose: current_time = report_time(current_time)
@@ -224,10 +227,10 @@ def main():
         if verbose: current_time = report_time(current_time)
 
     ''' 2. Dump custom taxonomy database into NCBI/kraken readable format)'''
-    if args.dump:
+    if args.dump or args.dump_mini:
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
         nameprefix,nodeprefix = args.dump_prefix.split(",")
-        if os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp"):
+        if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp")) and not force:
             if args.log: sys.stdout = original_sysout ## If log file is used, make sure the input reaches the user terminal
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:
@@ -244,7 +247,7 @@ def main():
             write_obj.set_minimal()
         write_obj.nodes()
         write_obj.names()
-        if args.taxDB:
+        if False: #args.taxDB:
             write_obj.set_separator("\t")
             write_obj.set_prefix("names,taxDB")
             write_obj.set_order(True)

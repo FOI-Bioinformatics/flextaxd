@@ -16,7 +16,7 @@ with open(path.join(localpath, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='FlexTaxD',
+    name='flextaxd',
     ##Global version, does not nessesarily follow script versions
     version=__version__,
 

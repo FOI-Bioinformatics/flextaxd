@@ -8,6 +8,12 @@ class ConnectionError(Exception):
 	def __str__(self):
 		return repr(self.value)
 
+class NameError(Exception):
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
+
 class DatabaseConnection(object):
 	"""docstring for DatabaseConnection"""
 	def __init__(self, database, verbose=False):
@@ -254,6 +260,7 @@ class DatabaseFunctions(DatabaseConnection):
 	def delete_links(self,links, table="tree",hold=False):
 		'''This function deletes all links given in links'''
 		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child}"
+		if self.verbose: print(QUERY.format(table=table,parent="",child=""), links)
 		for parent,child,rank in links:
 			res = self.query(QUERY.format(table=table, parent=parent, child=child))
 
@@ -264,6 +271,7 @@ class DatabaseFunctions(DatabaseConnection):
 	def delete_nodes(self, nodes, table="nodes",hold=False):
 		'''This function deletes all nodes given in nodes'''
 		QUERY = "DELETE FROM {table} WHERE id = {node}"
+		if self.verbose: print(QUERY.format(table=table,node=""), nodes)
 		for node in nodes:
 			res = self.query(QUERY.format(table=table, node=node))
 		## Commit changes
@@ -312,7 +320,11 @@ class ModifyFunctions(DatabaseFunctions):
 	def get_id(self,name):
 		'''get node id from name'''
 		QUERY = '''SELECT id FROM nodes WHERE name = "{node}"'''.format(node=name)
-		res = self.query(QUERY).fetchone()[0]
+		try:
+			res = self.query(QUERY).fetchone()[0]
+		except TypeError:
+			print(QUERY)
+			raise NameError("Name not found in the database! {name}".format(name=name))
 		return res
 
 

@@ -149,8 +149,7 @@ flextaxd-create
     --skip "taxid"                      ## exclude genomes in taxid see details below
 ```
 
-
-## Remove branches, the --skip parameter was implemented for benchmarking purposes as an option to remove branches by taxid
-## all children of the given taxid will be excluded.
+### Exclude genomes in taxid on database creation
+Remove branches, the --skip parameter was implemented for benchmarking purposes as an option to remove branches by taxid, all children of the given taxid will be excluded.
 
 flextaxd-create --skip "taxid,taxid2"

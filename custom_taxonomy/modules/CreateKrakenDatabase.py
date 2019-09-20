@@ -42,8 +42,10 @@ class CreateKrakenDatabase(object):
 		self.krakendb= kraken_database
 		self.ncbi_rewrite_speed = "fastest"
 		self.verbose = verbose
-		self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
-
+		if skip:
+			self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
+		else:
+			self.skiptax = []
 		if verbose: print("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
 		if not os.path.exists("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb)):
 			os.system("mkdir -p {krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
