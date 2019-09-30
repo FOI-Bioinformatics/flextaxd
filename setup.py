@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
 from os import path
-from custom_taxonomy.custom_taxonomy_databases import __version__
+from flextaxd.custom_taxonomy_databases import __version__
 
 import sys
 if sys.version_info.major < 3 and sys.version_info.minor < 5:
@@ -36,27 +36,23 @@ setup(
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
-        'Development Status :: Beta',
+        'Programming Language :: Python :: 3',
 
-        'Intended Audience :: Developers bioinformatics',
-        'Topic :: Software Development :: Build Tools',
+        #'Intended Audience :: Developers bioinformatics',
+        #'Topic :: Software Development :: Build Tools',
 
-        'License :: OSI Approved ::  GNU GENERAL PUBLIC LICENSE version 3 License',
-
-        'Programming Language :: Python :: 3.5',
-		'Programming Language :: Python :: 3.6',
-		'Programming Language :: Python :: 3.7'
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+        "Operating System :: OS Independent"
     ],
-
+    python_requires='>=3.6',
     keywords='taxonomy NCBI CanSNPer customization GTDB',
-
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().,
 	packages=find_packages(exclude=['contrib', 'docs', 'test*']),
     entry_points={
         'console_scripts': [
-            'flextaxd=custom_taxonomy.custom_taxonomy_databases:main',
-			'flextaxd-create=custom_taxonomy.create_databases:main',
+            'flextaxd=flextaxd.custom_taxonomy_databases:main',
+			'flextaxd-create=flextaxd.create_databases:main',
         ],
     },
 )

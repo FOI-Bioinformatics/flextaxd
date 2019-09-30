@@ -2,7 +2,7 @@
 
 Flexible Taxonomy Databases - A cross platform tool for customization and merging of various taxonomic classification sources.
 
-Supported sources in version v0.1.1:
+Supported sources in version v0.1.3:
 * QIIME
 * NCBI
 * CanSNPer
