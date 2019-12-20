@@ -112,10 +112,10 @@ def main():
     if args.log:
         global original_sysout
         original_sysout = sys.stdout
-        if os.path.exists(args.log) and not force:
+        if os.path.exists(args.log):
             ans = input("Warning the logfile already exist, overwrite? (y/n)")
             if ans not in ["y", "Y", "yes", "Yes"]:
-                exit("Abort logfile already exists, remove file or use --force")
+                exit("Abort logfile already exists, remove file or choose a different name to continue!")
         if verbose:
             print("All log output will be written to {file}".format(file=args.log))
         logfile = open(args.log, "w")

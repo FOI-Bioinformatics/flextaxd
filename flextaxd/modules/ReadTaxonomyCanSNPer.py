@@ -17,7 +17,7 @@ from .ReadTaxonomy import ReadTaxonomy
 
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="Francisella",verbose=False):
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="Francisellaceae",verbose=False):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=False)
 		self.input = taxonomy_file
 		self.taxonomy = {}
