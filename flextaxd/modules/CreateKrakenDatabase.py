@@ -42,6 +42,7 @@ class CreateKrakenDatabase(object):
 		self.krakendb= kraken_database
 		self.ncbi_rewrite_speed = "fastest"
 		self.verbose = verbose
+		self.debug = True
 		if skip:
 			self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
 		else:
@@ -55,6 +56,7 @@ class CreateKrakenDatabase(object):
 		jobs = []
 		for i in range(self.processes):
 			p = Process(target=self.kraken_fasta_header, args=(filepaths[i],genomes[i]))
+			p.daemon=True
 			p.start()
 			jobs.append(p)
 		for job in jobs:
@@ -67,6 +69,7 @@ class CreateKrakenDatabase(object):
 		count = 0
 		for i in range(len(filepaths)):
 			genome = genomes[i]
+			#print("genome_name: "+gcf_name)
 			filepath = filepaths[i]
 			kraken_header = "kraken:taxid"
 			tmpname = ".tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
@@ -75,20 +78,20 @@ class CreateKrakenDatabase(object):
 			try:
 				taxid = self.accession_to_taxid[genome]
 			except KeyError:
-				#print("No match from genome name------>>  ",genome,filepath)
-				try:
-					taxid = self.accession_to_taxid[genome.replace("GCA","GCF")]
-				except KeyError:
-					#print("Not GCF nor GCA--------------------------")
-					try:
-						'''This happens if the file is not named according to refseq or genbank'''
-						genome = filepath.rsplit("/")[-1].strip(".fasta")
-						#print(genome)
-						taxid = self.accession_to_taxid[genome]
-					except KeyError:
-						if self.verbose: print("#Warning kraken header could not be added to {gcf}! {count}".format(gcf=genome,count=count))
-						count +=1
-						continue
+				# try:
+				# 	taxid = self.accession_to_taxid[genome.replace("GCA","GCF")]
+				# except KeyError:
+				# 	try:
+				# 		'''This happens if the file is not named according to refseq or genbank'''
+				# 		if filepath.endswith(".gz"):
+				# 			filepath = filepath.rstrip(".gz")
+				# 		genome = filepath.rsplit("/")[-1].rstrip(".fna").rstrip(".fasta")
+				# 		print(genome)
+				# 		taxid = self.accession_to_taxid[genome]
+				# 	except KeyError:
+				if self.verbose: print("#Warning kraken header could not be added to {gcf}! Total: {count}".format(gcf=genome,count=count))
+				count +=1
+				continue
 			tmpfile = zopen(tmppath,"w")
 			if taxid not in self.skiptax:
 				with zopen(filepath,"r") as f:
@@ -128,45 +131,57 @@ class CreateKrakenDatabase(object):
 
 	def process_folder(self):
 		id_dict = self.accession_to_taxid
-		self.GCF_names = []
+		self.genome_names = []
 		print("Number of genomes annotated in database",len(id_dict))
 		count = 0
-		ext = [".fna.gz",".fasta.gz",".fa.gz",".fna",".fasta",".fa"]
+		ref_ext = [".fna"]
+		oth_ext = [".fasta",".fa"]
+		ext = ref_ext+oth_ext
 		self.notused = set()
 		for root, dirs, files in os.walk(self.genomes_path,followlinks=True):
 			for file in files:
-				if file.endswith(tuple(ext)):
-					if file.startswith("GCF_") or file.startswith("GCA_"):
-						GCF_name = file.split("_",2)
-						GCF_name = GCF_name[0]+"_"+GCF_name[1]
+				fname = file.strip(".gz") ## remove gz if present
+				if fname.endswith(tuple(ext)):
+					if (fname.startswith("GCF_") or fname.startswith("GCA_")) and fname.endswith(tuple(ref_ext)):
+						## Rename file to only GCF_name as this is what would be present
+						genome_name = fname.split("_",2)
+						genome_name = genome_name[0]+"_"+genome_name[1]
 					else:
-						GCF_name = file.rstrip(".fasta")
-					'''Temporary fix'''
+						genome_name = fname.rstrip(".fastan") ## strip .fa .fasta or .fna from name
 					try:
-						taxid = id_dict[GCF_name.strip()]
+						'''If file contains GCF in the start and fna in the end it is most likely
+							from refseq try match do genomeid2taxid dictionary
+							otherwise the name should match the full name of the sequence file minus fa,fasta,fna
+						'''
+						taxid = id_dict[genome_name.strip()]
 					except KeyError:
 						try:
-							taxid = id_dict[GCF_name.strip().replace("GCA","GCF")]
-						except:
+							'''The file was neither a refseq file nor a custom fasta or fa file,
+								try if the file is a genbank file (GCA instead of GCF although not 100%)
+							'''
+							taxid = id_dict[genome_name.strip().replace("GCA","GCF")]
+						except KeyError:
 							try:
-								GCF_name = file.rstrip(".fasta")
-								taxid = id_dict[GCF_name.strip()]
+								'''Final try does the file have a GCF/GCA start ends with fna but is still a custom named genome'''
+								taxid = id_dict[fname.rstrip(".fastan")] ## strip .fa .fasta or .fna from base filename
 							except KeyError:
-								self.notused.add(GCF_name)
-								#print(file)
-								if self.verbose: print("#Warning {gcf} could not be matched to database entry!".format(gcf=GCF_name.strip()))
+								'''This file had no match in the reference folder, perhaps it is not annotated in the database'''
+								self.notused.add(genome_name)
+								if self.debug: print("#Warning {gcf} could not be matched to a database entry!".format(gcf=genome_name.strip()))
 								continue
-					filepath = os.path.join(root, file)
+					filepath = os.path.join(root, file)  ## Save the path to the file
 					self.files.append(filepath)
-					self.GCF_names.append(GCF_name.strip())
+					self.genome_names.append(genome_name.strip())
 					count+=1
-				else:
+				elif file.endswith("MD5SUMS"):
 					pass
+				else:
+					if self.debug: print("#Warning {gcf} does not have a valid file ending".format(gcf=file))
 		processes = self.processes
 		self.files = self.split(self.files,processes)
-		self.GCF_names = self.split(self.GCF_names,processes)
-		self.kraken_fasta_header_multiproc(self.files,self.GCF_names)
-		if self.verbose and len(self.notused) > 0: print("#Warning {gcf} genomes could not be matched to database entry!".format(gcf=len(self.notused)))
+		self.genome_names = self.split(self.genome_names,processes)
+		self.kraken_fasta_header_multiproc(self.files,self.genome_names)
+		if self.verbose and len(self.notused) > 0: print("#Warning {gcf} genomes could not be matched to any database entry!".format(gcf=len(self.notused)))
 		print("Number of genomes added to {krakenversion} database: {count}".format(count=count,krakenversion=self.krakenversion))
 		return self.files
 
@@ -190,5 +205,5 @@ class CreateKrakenDatabase(object):
 			## Since kraken2 is removing too much on clean it might be better to do this manually so certain log files can be saved
 			#os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
 			if self.verbose: print("Cleaning up tmp files")
-			os.system('find {krakendb} -maxdepth 1 -name "*.fna" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
+			os.system('find {krakendb} -maxdepth 1 -name "*.f*a" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
 		if self.verbose: print("{krakenversion} database created".format(krakenversion=self.krakenversion))
