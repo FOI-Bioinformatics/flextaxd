@@ -76,7 +76,7 @@ class DatabaseConnection(object):
 				## UNIQUE constraint is an accepted error as it keeps multiple edges from being added
 				print("Error in DatabaseConnection query")
 				if self.verbose: print(query)
-				#if self.verbose: print("Insert val", insert_val)
+				if self.verbose: print("Insert val: ", insert_val)
 				sys.stderr.write(str(e))
 
 			return(e)
@@ -218,12 +218,13 @@ class DatabaseFunctions(DatabaseConnection):
 		if self.verbose: print("link added: ",child,parent,rank)
 		return self.insert(info, table="tree")
 
-	def add_genome(self, id, genome):
+	def add_genome(self, genome, _id=False):
 		'''Add genome annotation to nodes'''
 		info = {
-			"id": id,
 			"genome": genome
 		}
+		if _id:
+			info["id"] = _id
 		return self.insert(info, table="genomes")
 
 	def add_links(self,links, table="tree",hold=False):
