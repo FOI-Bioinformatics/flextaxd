@@ -25,7 +25,7 @@ def zopen(path,*args, **kwargs):
 
 class CreateKrakenDatabase(object):
 	"""docstring for CreateKrakenDatabase."""
-	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip=""):
+	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip="",create_db=False,debug=False):
 		super(CreateKrakenDatabase, self).__init__()
 		self.krakenversion = dbprogram
 		self.database = DatabaseFunctions(database)
@@ -42,7 +42,8 @@ class CreateKrakenDatabase(object):
 		self.krakendb= kraken_database
 		self.ncbi_rewrite_speed = "fastest"
 		self.verbose = verbose
-		self.debug = True
+		self.create_db = create_db
+		self.debug = debug
 		if skip:
 			self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
 		else:
@@ -78,44 +79,27 @@ class CreateKrakenDatabase(object):
 			try:
 				taxid = self.accession_to_taxid[genome]
 			except KeyError:
-				# try:
-				# 	taxid = self.accession_to_taxid[genome.replace("GCA","GCF")]
-				# except KeyError:
-				# 	try:
-				# 		'''This happens if the file is not named according to refseq or genbank'''
-				# 		if filepath.endswith(".gz"):
-				# 			filepath = filepath.rstrip(".gz")
-				# 		genome = filepath.rsplit("/")[-1].rstrip(".fna").rstrip(".fasta")
-				# 		print(genome)
-				# 		taxid = self.accession_to_taxid[genome]
-				# 	except KeyError:
 				if self.verbose: print("#Warning kraken header could not be added to {gcf}! Total: {count}".format(gcf=genome,count=count))
 				count +=1
 				continue
-			tmpfile = zopen(tmppath,"w")
-			if taxid not in self.skiptax:
-				with zopen(filepath,"r") as f:
-					with open(self.seqid2taxid, "a") as seqidtotaxid:
-						for line in f:
-							if line.startswith(">"):
-								row = line.strip().split(" ")
-								if len(row) == 1:
-									row.append("")
-								if not self.krakenversion == "krakenuniq":
-									line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## If kraken2 add kraken header (nessesary?)
-								print(row[0].lstrip(">"), taxid, " ".join(row[1:]),end="\n", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
-							print(line, end="", file=tmpfile)
-				tmpfile.close()
-				output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
-				os.rename(tmppath, output)
-				if True:
+			if self.create_db:
+				tmpfile = zopen(tmppath,"w")
+				if taxid not in self.skiptax:
+					with zopen(filepath,"r") as f:
+						with open(self.seqid2taxid, "a") as seqidtotaxid:
+							for line in f:
+								if line.startswith(">"):
+									row = line.strip().split(" ")
+									if len(row) == 1:
+										row.append("")
+									if not self.krakenversion == "krakenuniq":
+										line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## If kraken2 add kraken header (nessesary?)
+									print(row[0].lstrip(">"), taxid, " ".join(row[1:]),end="\n", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
+								print(line, end="", file=tmpfile)
+					tmpfile.close()
+					output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
+					os.rename(tmppath, output)
 					os.system(self.krakenversion+"-build --add-to-library {file} --db {krakendb} >/dev/null 2>&1".format(file=output,krakendb=self.krakendb))
-
-
-			# command = self.krakenversion+"-build"
-			# parameters = " --add-to-library {file} --db {krakendb}".format(file=output,krakendb=self.krakendb)
-			# p = Popen((command, parameters) ,stdout=PIPE,stderr=PIPE)
-			# p.wait()
 		return
 
 	def get_skip_list(self):
@@ -173,7 +157,7 @@ class CreateKrakenDatabase(object):
 					self.files.append(filepath)
 					self.genome_names.append(genome_name.strip())
 					count+=1
-				elif file.endswith("MD5SUMS"):
+				elif file == "MD5SUMS":
 					pass
 				else:
 					if self.debug: print("#Warning {gcf} does not have a valid file ending".format(gcf=file))
