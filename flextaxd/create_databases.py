@@ -78,6 +78,7 @@ def main():
 
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
     basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
+    basic.add_argument('-d','--debug', action='store_true',   help="debug output")
     basic.add_argument('--log', metavar="",default = None,   help="use a log file instead of stdout")
     basic.add_argument('-db', '--database',metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
 
@@ -106,16 +107,18 @@ def main():
     '''Global vars'''
     global verbose
     verbose = args.verbose
+    if args.debug:  ## If debug mode is on verbose will always be on
+        verbose = True
     modify_module = False
 
     '''Log file and verbose options'''
     if args.log:
         global original_sysout
         original_sysout = sys.stdout
-        if os.path.exists(args.log) and not force:
+        if os.path.exists(args.log):
             ans = input("Warning the logfile already exist, overwrite? (y/n)")
             if ans not in ["y", "Y", "yes", "Yes"]:
-                exit("Abort logfile already exists, remove file or use --force")
+                exit("Abort logfile already exists, remove file or choose a different name to continue!")
         if verbose:
             print("All log output will be written to {file}".format(file=args.log))
         logfile = open(args.log, "w")
@@ -124,6 +127,8 @@ def main():
     if verbose:
         print("Script parameters:")
         print(args)
+        if not args.create_db:
+            print("\n\n\nCreate db not on, script will only produce a complete log file but not handle any files!\n\n\n")
 
 
     '''
@@ -144,7 +149,7 @@ def main():
         limit = 0
         if args.test:
             limit = 500
-        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip)
+        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip,create_db=args.create_db,debug=args.debug)
         if verbose: current_time = report_time(current_time)
         classifierDB.process_folder()
         print("Done")

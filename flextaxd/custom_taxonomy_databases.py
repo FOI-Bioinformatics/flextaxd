@@ -2,7 +2,7 @@
 
 '''
 This script is built to handle import and modification of different taxonomy sources
-versions later than v0.1.1 supports (NCBI, QIIME(GTDB) and CanSNPer sources)
+v0.1.1 (NCBI, QIIME(GTDB), CanSNPer)
 
 The custom_taxonomy_databases script contains a parser and a database handler to allow customization of databases
 from NCBI, QIIME or CanSNPer sources and supports export functions into NCBI formatted names and nodes.dmp files
@@ -20,13 +20,13 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
 __maintainer__ = "FOI bioinformatics group"
 __email__ = ["bioinformatics@foi.se","david.sundell@foi.se"]
-__date__ = "2019-09-30"
+__date__ = "2020-01-15"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"

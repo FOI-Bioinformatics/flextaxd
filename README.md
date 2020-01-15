@@ -12,13 +12,17 @@ The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIM
 
 All data is kept in a sqlite3 database (.ftd by default) and can be dumped to NCBI formatted names and nodes.dmp files. Supported export formats are NCBI and TSV). The TSV dump format is similar to the NCBI dump except that it contains a header (parent<tab>child), has parent on the left and only uses tab to separate each column (not \<tab\>|\<tab\>).
 
+# Reqirements
+Python >=3.6
+
+
 # Installation
 ```
 ## Using pip or conda
 pip3 install flextaxd
-conda install flextaxd
+conda install (-c conda-forge -c bioconda -c defaults) flextaxd
 
-## Using python
+## Using python - download git release https://github.com/FOI-Bioinformatics/flextaxd and run
 python setup.py install
 ```
 # Usage
@@ -117,7 +121,7 @@ flextaxd --dump
 Finally there is a quick option to create a kraken2 or a krakenuniq database using your custom taxonomy database by only supplying genome names matching your annotation table given as --genomeid2taxid
 Requirements: kraken2 or krakenuniq needs to be installed, For the FlexTaxD standard database, source data from genbank or refseq is required (for genomeid2taxid match)
 
-Note: If your genome names are different, you can create a custom genome2taxid file and import into your database to match the names of your genome fasta/fna/fa files. Note that the genome files needs to be gzipped (and end with .gz) in their stored location.
+Note: If your genome names are different, you can create a custom genome2taxid file and import into your database to match the names of your genome fasta/fa please avoid naming custom fasta files fna as this will be used to detect if genome names are formatted using refseq/genbank naming. Note that the refseq/genbank genomefiles needs to be gzipped (and end with .gz) in their stored location.
 
 ### Create Kraken DB
 First dump your CTDB into names.dmp and nodes.dmp (default) if that was not already done.
@@ -130,7 +134,7 @@ Add genomes to a kraken database <my_custom_krakendb> (and create the kraken dat
 flextaxd-create --kraken_db my_custom_krakendb --genomes_path /path/to/genomes/folder --create_db --krakenversion kraken2
 ```
 
-The script will find all fasta, fna, fa files in the given path and then add them to the krakendb, if --create_db parameter is given
+The script will find all custom fasta, fa and refseq/genbank fna files in the given path and then add them to the krakendb, if --create_db parameter is given
 the script will execute the kraken-build --build command.
 
 ### Create kraken2 NCBI database (approx 60min with 40 cores with complete bacterial genomes from genbank may 2019 (~9000))  
