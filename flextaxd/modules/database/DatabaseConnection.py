@@ -23,7 +23,7 @@ class DatabaseConnection(object):
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
 			if self.verbose:
-				print("python CreateDatabase.py {database}".format(database=self.database))
+				print("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 		self.conn = self.connect(self.database)
 		self.cursor = self.create_cursor(self.conn)
@@ -147,11 +147,11 @@ class DatabaseFunctions(DatabaseConnection):
 			res += 1
 		return res
 
-	def get_genomes(self, database=False,limit=0):
+	def get_genomes(self, database=False,limit=0,table="genomes"):
 		'''Get the list of genomes in the database'''
 		## This is a many to many relation, so all genomes has to be put in a set for each taxonomy id
 		genomeDict = {}
-		QUERY = '''SELECT id,genome FROM {table}'''.format(table="genomes")
+		QUERY = '''SELECT id,genome FROM {table}'''.format(table=table)
 		if limit > 0:
 			QUERY += " LIMIT {limit}".format(limit=limit)
 		for id,genome in self.query(QUERY).fetchall():
@@ -197,6 +197,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		taxid_base = self.insert(info, table="nodes")
+		if self.verbose: print("node added: ",info, taxid_base)
 		return taxid_base
 
 	def add_rank(self, rank,id=False):
@@ -206,6 +207,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		rank_id = self.insert(info, table="rank")
+		if self.verbose: print("rank added: ",info)
 		return rank_id
 
 	def add_link(self, child, parent, rank=1, table="tree"):

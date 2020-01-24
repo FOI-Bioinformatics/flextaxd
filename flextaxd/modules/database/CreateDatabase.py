@@ -13,11 +13,9 @@ class ConnectionError(Exception):
 
 class CreateDatabase(object):
     """docstring for CreateDatabase"""
-    def __init__(self, database, verbose):
+    def __init__(self, verbose=False):
         super().__init__()
         self.verbose=verbose
-        self.database_name = database
-
         self.sql_create_nodes_table = """ CREATE TABLE IF NOT EXISTS nodes (
                                             id integer PRIMARY KEY,
                                             name text NOT NULL
@@ -86,7 +84,7 @@ class CreateDatabase(object):
             self.create_table(self.sql_create_genomes_table)
             # create rank tables
             self.create_table(self.sql_create_rank_table)
-            
+
             self.conn.commit()
         else:
             raise ConnectionError("Error! cannot connet to the database {db}".format(db=database))

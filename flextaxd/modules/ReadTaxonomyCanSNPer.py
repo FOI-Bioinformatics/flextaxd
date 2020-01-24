@@ -10,49 +10,65 @@ __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
 __maintainer__ = "FOI bioinformatics group"
 __email__ = "bioinformatics@foi.se"
-__date__ = "2019-03-11"
+__date__ = "2020-01-17"
 __status__ = "Production"
 
 from .ReadTaxonomy import ReadTaxonomy
 
+class ImportFormatError(Exception):
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
+
+
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="Francisellaceae",verbose=False):
-		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=False)
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="Francisellaceae",rank="family", verbose=False):
+		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
 		self.taxonomy = {}
 		self.taxid_base = taxid_base
 		## Initiate database
+		if self.verbose: print("Adding first node {node}!".format(node=root_name))
 		root_i = self.add_node(root_name)
-		self.taxid_base -=1 ## reset
+		if self.verbose: print(root_i)
+		self.taxid_base =taxid_base ## reset
+		if self.verbose: print("Adding ranks!")
+		self.add_rank(rank,ncbi=True)
 		self.add_rank("no rank",ncbi=True)
-		self.add_link(root_i, root_i,rank="no rank")
+		self.add_link(root_i, root_i,rank=rank)
 		#self.database.commit()
 		self.names = {}
 		self.root = root_i
 		self.length = 0
 		self.ids = 0
+		self.database.commit()
+		if self.verbose: print(self.root, self.taxid_base)
 
 	def add_SNP(self,nodes,i):
 		'''Add name of node to database'''
 		name = nodes[i].strip()
-		node_i = self.add_node(name)  ## Add node
+		if self.verbose: print("Parent did not exit Add parent: ", name)
+
 		#i-=1 ## Check next parent
 		try:
 			parent_i = self.taxonomy[nodes[i-1]]  ## check if current nodes parent exists
-		except KeyError:  						## Parent did not exist, keep walking up the tree and add all parents until root!
+		except KeyError:                          ## Parent did not exist, keep walking up the tree and add all parents until root!
 			if i < -len(nodes):
-				return self.root				## The root has been reached return index of root
-			else:								## Parent didn't exist again, add parent to this node and then add the link to that parent
+				return self.root                ## The root has been reached return index of root
+			else:                                ## Parent didn't exist again, add parent to this node and then add the link to that parent
 				parent_i = self.add_SNP(nodes,i-1)## Add node of parent
-		self.add_link(node_i, parent_i)			## Add link to next parent
-		return node_i 	##  index of child
+		node_i = self.add_node(name)  ## Add node
+		self.add_link(node_i, parent_i)            ## Add link to next parent
+		return node_i     ##  index of child
 
 	def parse_taxonomy(self):
 		'''Retrieve node description from CanSNPer formatted tree'''
 		if self.verbose: print("Parse CanSNP tree file")
 		with open(self.taxonomy_file,"r") as f:
 			for row in f:
+				row = row.strip().replace("\t",";")  ## Also accept tab separated tree files
 				nodes = row.strip().split(";")  ## get node and all its parents in a list
 				child = nodes[-1]  ## get name of child node
 				'''If the tree was not properly formatted an a parent is missing make sure that function works anyway by adding any parent node above child'''
@@ -68,6 +84,6 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 				'''Now all parents exists, add new child node and add the link'''
 				child_i = self.add_node(child)
 				self.database.add_link(child_i,parent_i)
-		self.database.commit()									## Commit changes to database
-		self.length = self.taxid_base - self.root				## Check number of new nodes added
+		self.database.commit()                                    ## Commit changes to database
+		self.length = self.taxid_base - self.root                ## Check number of new nodes added
 		print("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
