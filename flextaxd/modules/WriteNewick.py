@@ -5,6 +5,8 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .database.DatabaseConnection import DatabaseConnection
+import logging
+logger = logging.getLogger(__name__)
 
 class WriteNewick(object):
 	"""docstring for WriteNewick."""
@@ -12,6 +14,7 @@ class WriteNewick(object):
 		super(WriteNewick, self).__init__()
 		self.verbose = verbose
 		self.database = self.set_database(self.open_database(database))
+		logger.info("Load WriteNewick")
 
 	def get(self, table, select="*"):
 		QUERY = "SELECT {select} FROM {table}".format(select=select, table=table)
@@ -27,5 +30,6 @@ class WriteNewick(object):
 
 	def print_newick_tree(self):
 		'''Print a newick formatted tree from the database of a species'''
+		logger.info("Print Tree")
 		tree = self.get("tree")
 		nodes = self.get("nodes")

@@ -1,6 +1,8 @@
 import sys
 import os
 import sqlite3
+import logging
+logger = logging.getLogger(__name__)
 
 class ConnectionError(Exception):
 	def __init__(self, value):
@@ -23,10 +25,16 @@ class DatabaseConnection(object):
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
 			if self.verbose:
-				print("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
+				logger.info("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
-		self.conn = self.connect(self.database)
-		self.cursor = self.create_cursor(self.conn)
+		try:
+			self.conn
+		except AttributeError:
+			self.conn = self.connect(self.database)
+			self.cursor = self.create_cursor(self.conn)
+			logger.info("DB init connect do database...")
+		else:
+			logger.info("Connected to database {database}".format(self.database))
 
 	def __str__(self):
 		return "Object of class DatabaseConnection, connected to {database}".format(database=self.database)
@@ -41,7 +49,7 @@ class DatabaseConnection(object):
 		'''Create database connection'''
 		try:
 			conn = sqlite3.connect(database)
-			if self.verbose: print("{database} opened successfully.".format(database=database))
+			logger.info("{database} opened successfully.".format(database=database))
 			return conn
 		except Exception as e:
 			sys.stderr.write(str(e))
@@ -51,8 +59,7 @@ class DatabaseConnection(object):
 		'''Create a db cursor'''
 		try:
 			cursor = conn.cursor()
-			if self.verbose:
-				print("cursor created.")
+			logger.debug("cursor created.")
 			return cursor
 		except Exception as e:
 			sys.stderr.write(str(e))
@@ -77,9 +84,9 @@ class DatabaseConnection(object):
 		except Exception as e:
 			if "UNIQUE constraint failed" not in str(e):
 				## UNIQUE constraint is an accepted error as it keeps multiple edges from being added
-				print("Error in DatabaseConnection query")
-				if self.verbose: print(query)
-				if self.verbose: print("Insert val: ", insert_val)
+				logger.warning("Error in DatabaseConnection query")
+				logger.debug(query)
+				logger.debug("Insert val: ", insert_val)
 				sys.stderr.write(str(e))
 			return(e)
 
@@ -109,8 +116,7 @@ class DatabaseConnection(object):
 			WHERE {where_column} = ?
 		'''.format(table=table,set_column=data["set_column"],where_column=data["where_column"])
 		udata = tuple([data["set_value"],data["where"]])
-		if self.verbose: print(UPDATE_QUERY,udata)
-		#print(UPDATE_QUERY, udata)
+		logger.info(UPDATE_QUERY,udata)
 		res = self.query(UPDATE_QUERY,udata,error=True)
 
 		if self.rowcount() == 0:
@@ -135,7 +141,7 @@ class DatabaseFunctions(DatabaseConnection):
 	"""docstring for DatabaseFunctions."""
 	def __init__(self, database, verbose=False):
 		super().__init__(database, verbose)
-		if self.verbose: print("Load DatabaseFunctions")
+		logger.info("Load DatabaseFunctions")
 
 	'''Get functions of class'''
 	def get_all(self, database=False, table=False):
@@ -198,7 +204,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		taxid_base = self.insert(info, table=table)
-		if self.verbose: print("node added: ",info, taxid_base)
+		logger.debug("node added [description {}, taxid base {}]: ".format(info, taxid_base))
 		return taxid_base
 
 	def add_rank(self, rank,id=False):
@@ -208,7 +214,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		rank_id = self.insert(info, table="rank")
-		if self.verbose: print("rank added: ",info)
+		logger.debug("rank added: {}".format(info))
 		return rank_id
 
 	def add_link(self, child, parent, rank=1, table="tree"):
@@ -218,7 +224,7 @@ class DatabaseFunctions(DatabaseConnection):
 			"parent": parent,
 			"rank_i": rank
 		}
-		if self.verbose: print("link added: ",child,parent,rank)
+		logger.debug("link added: [ child {}, parent {}, rank {}] ".format(child,parent,rank))
 		return self.insert(info, table="tree")
 
 	def add_genome(self, genome, _id=False):
@@ -235,7 +241,7 @@ class DatabaseFunctions(DatabaseConnection):
 		added_links = 0
 		nodes = set()
 		for parent,child,rank in links:
-			#print(parent,child,rank)
+			logger.debug("{}-{} rank: {} deleted!".format([parent,child,rank]))
 			res = self.add_link(child,parent,rank,table=table)
 			### Check if the link already exist in the database, this overlap may occur when a large new branch is added
 			if "UNIQUE constraint failed" not in str(res):
@@ -264,10 +270,10 @@ class DatabaseFunctions(DatabaseConnection):
 	def delete_links(self,links, table="tree",hold=False):
 		'''This function deletes all links given in links'''
 		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child}"
-		if self.verbose: print(QUERY.format(table=table,parent="",child=""), links)
+		logger.info(QUERY+" number of links {nlinks}".format(table=table,parent="",child="",nlinks=len(links)))
 		for parent,child,rank in links:
+			logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
 			res = self.query(QUERY.format(table=table, parent=parent, child=child))
-
 		## Commit changes
 		if not hold:
 			self.commit()
@@ -275,8 +281,9 @@ class DatabaseFunctions(DatabaseConnection):
 	def delete_nodes(self, nodes, table="nodes",hold=False):
 		'''This function deletes all nodes given in nodes'''
 		QUERY = "DELETE FROM {table} WHERE id = {node}"
-		if self.verbose: print(QUERY.format(table=table,node=""), nodes)
+		logger.info(QUERY+" number of nodes {nnodes}".format(table=table,node="", nnodes=len(nodes)))
 		for node in nodes:
+			logger.debug("Adding node {node}".format(node=node))
 			res = self.query(QUERY.format(table=table, node=node))
 		## Commit changes
 		if not hold:
@@ -292,7 +299,7 @@ class ModifyFunctions(DatabaseFunctions):
 	"""ModifyFunctions adds a few important functions only nessesary when modifying a database"""
 	def __init__(self, database, verbose=False):
 		super().__init__(database, verbose)
-		if self.verbose: print("Load ModifyFunctions")
+		logger.info("Load ModifyFunctions")
 
 	def get_rank(self,col=1):
 		'''Get rank index from database'''
@@ -327,7 +334,7 @@ class ModifyFunctions(DatabaseFunctions):
 		try:
 			res = self.query(QUERY).fetchone()[0]
 		except TypeError:
-			print(QUERY)
+			logger.debug(QUERY)
 			raise NameError("Name not found in the database! {name}".format(name=name))
 		return res
 

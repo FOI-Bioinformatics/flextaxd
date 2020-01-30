@@ -5,6 +5,8 @@ Modify tree from database or source
 '''
 
 from .database.DatabaseConnection import ModifyFunctions
+import logging
+logger = logging.getLogger(__name__)
 #from .database.database import database
 
 class InputError(Exception):
@@ -19,7 +21,7 @@ class ModifyTree(object):
 	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, separator="\t",verbose=False,parent=False,replace=False):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
-		if self.verbose: print("Modify Tree")
+		logger.info("Modify Tree")
 		self.sep = separator
 		self.taxonomy = {}
 		self.names = {}
@@ -85,9 +87,8 @@ class ModifyTree(object):
 		child_i = self.get_id(child)
 		self.new_nodes.add(child_i)
 		## add link
-		if self.verbose:
-			print(parent,child,rank)
-			print(parent_i,child_i,rank)
+		logger.debug(parent,child,rank)
+		#logger.debug(parent_i,child_i,rank)
 		self.new_links.add((parent_i,child_i,rank))
 
 	def parse_mod_database(self, database):
@@ -165,7 +166,7 @@ class ModifyTree(object):
 
 	def update_annotations(self, genomeid2taxid):
 		'''Function that adds annotation of genome ids to nodes'''
-		if self.verbose: print("Update genome to taxid annotations using {genomeid2taxid}".format(genomeid2taxid=genomeid2taxid))
+		logger.info("Update genome to taxid annotations using {genomeid2taxid}".format(genomeid2taxid=genomeid2taxid))
 		update = {
 			"set_column": "id",
 			"where_column": "genome",
@@ -177,11 +178,11 @@ class ModifyTree(object):
 		with open(genomeid2taxid) as f:
 			for row in f:
 				genome,name = row.strip().split(self.sep)
-				if self.verbose: print(genome,name)
+				logger.info(genome,name)
 				try:
 					id = self.nodeDict[name.strip()]
 				except KeyError:
-					if self.verbose: print("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
+					logger.info("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
 				else:
 					## If no exception occured add genome
 					update["set_value"] = id
@@ -195,7 +196,7 @@ class ModifyTree(object):
 					#self.taxonomydb.commit()
 		self.taxonomydb.commit()
 		gid = self.taxonomydb.get_genomes()
-		if self.verbose: print("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
+		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
 
 	def update_genomes(self):
@@ -222,7 +223,7 @@ class ModifyTree(object):
 				else:
 					added += 1
 		self.taxonomydb.commit()
-		if self.verbose: print("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
+		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
 
 	def update_database(self):
@@ -231,20 +232,20 @@ class ModifyTree(object):
 			self.taxonomydb.delete_links(self.modified_links)
 			self.taxonomydb.delete_links(self.existing_links-set(self.parent_link))  ## delete existing links from old nodes, except parent
 			self.taxonomydb.delete_nodes(self.old_nodes)
-			if self.verbose: print("Deleted nodes {nodes}".format(nodes=self.old_nodes))
+			logger.info("Deleted nodes {nodes}".format(nodes=self.old_nodes))
 		added,nodes = self.taxonomydb.add_links(self.new_links)
 		if added + len(nodes) + len(self.modified_links) > 0:
 			if self.replace:
-				print("Deleting {n} links and {n2} nodes that are no longer valid".format(n=len(self.modified_links & self.existing_links),n2=len(self.old_nodes)))
-			print("Adding {n} new nodes".format(n=len(nodes)))
-			print("Adding {n} updated and/or new links".format(n=added))
+				logger.info("Deleting {n} links and {n2} nodes that are no longer valid".format(n=len(self.modified_links & self.existing_links),n2=len(self.old_nodes)))
+			logger.info("Adding {n} new nodes".format(n=len(nodes)))
+			logger.info("Adding {n} updated and/or new links".format(n=added))
 
 			''' Commit changes (only commit once both deletion and addition of new nodes and links are completed!)'''
 			self.taxonomydb.commit()
 			self.nodeDict = self.taxonomydb.get_nodes()
 			if self.mod_genomes:
-				print("Transfering genomeid2taxid annotation from incoming database")
+				logger.info("Transfering genomeid2taxid annotation from incoming database")
 				self.update_genomes()
 		else:
-			print("All updates already found in database, nothing has been changed!")
+			logger.info("All updates already found in database, nothing has been changed!")
 		return

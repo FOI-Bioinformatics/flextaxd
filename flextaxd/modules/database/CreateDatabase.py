@@ -2,6 +2,8 @@
 import sys
 import os
 import sqlite3
+import logging
+logger = logging.getLogger(__name__)
 
 class ConnectionError(Exception):
     def __init__(self, value):
@@ -52,7 +54,7 @@ class CreateDatabase(object):
             conn = sqlite3.connect(db_file)
             return conn
         except Exception as e:
-            print(e)
+            logger.debug(e)
         return None
 
     def create_table(self,create_table_sql):
@@ -65,7 +67,7 @@ class CreateDatabase(object):
             c = self.conn.cursor()
             c.execute(create_table_sql)
         except Exception as e:
-            print(e)
+            logger.debug(e)
 
     def add_table(self,table):
         self.create_table(table)

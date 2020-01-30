@@ -37,6 +37,8 @@ import os, sys
 import argparse
 from importlib import import_module
 import time
+import logging
+import logging.config
 
 ## If script is executed run pipeline of selected options
 def main():
@@ -65,9 +67,9 @@ def main():
         if minutes != 1:
             mtext +="s"
         if final:
-            print("--- Time summary  {} {} {} seconds---".format(minutes,mtext, seconds))
+            logger.info("--- Time summary  {} {} {} seconds---".format(minutes,mtext, seconds))
         else:
-            print("--- process finished in {} {} {} seconds---\n".format(minutes,mtext, seconds))
+            logger.info("--- process finished in {} {} {} seconds---\n".format(minutes,mtext, seconds))
         return current
 
     def get_read_modules():
@@ -99,8 +101,8 @@ def main():
 
     basic = parser.add_argument_group('basic', 'Basic commands')
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory")
-    basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
-    basic.add_argument('--log', metavar="", default = None,   help="use a log file instead of stdout")
+    #basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
+    #basic.add_argument('--log', metavar="", default = None,   help="use a log file instead of stdout")
     basic.add_argument("--dump", action='store_true', help="Write database to names.dmp and nodes.dmp")
     basic.add_argument('--dump_mini', action='store_true', help="Dump minimal file with tab as separator")
     basic.add_argument("--force", action='store_true', help="use when script is implemented in pipeline to avoid security questions on overwrite!")
@@ -125,6 +127,14 @@ def main():
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t", help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
 
+    debugopts = parser.add_argument_group("Logging and debug options")
+    #debugopts.add_argument('--tmpdir', 			metavar='', default="/tmp/FlexTaxD",			help="Specify reference directory")
+    debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
+    debugopts.add_argument('--verbose',			action='store_const', const=logging.INFO,				help="Verbose output")
+    debugopts.add_argument('--debug',				action='store_const', const=logging.DEBUG,				help="Debug output")
+    debugopts.add_argument('--supress',				action='store_const', const=logging.ERROR,	default=logging.WARNING,			help="Supress warnings")
+    #debugopts.add_argument('--version',			action='store_true', 				help=argparse.SUPPRESS)
+
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
@@ -134,6 +144,36 @@ def main():
         print("Maintaner group: {maintaner} ({email})".format(maintaner=__maintainer__,email=", ".join(__email__)))
         print("Github: {github}".format(github=__github__))
         exit()
+
+    ### Setup logging
+
+    logval = args.supress
+    if args.debug:
+    	logval = args.debug
+    elif args.verbose:
+    	logval = args.verbose
+
+    from datetime import date,time
+    t = time()
+    today = date.today()
+    logpath = args.logs+"FlexTaxD-"+today.strftime("%b-%d-%Y")+"{}.log"
+    if os.path.exists(logpath):
+    	logpath=logpath.format("-{:%H:%M}".format(t))
+    else: logpath = logpath.format("")
+
+
+    logging.basicConfig(
+    		#filename=logpath,
+    		level=logval,
+    		format="%(asctime)s %(module)s [%(levelname)-5.5s]  %(message)s",
+    	    handlers=[
+    	        logging.FileHandler(logpath),
+    	        logging.StreamHandler()
+    	    ])
+    logger = logging.getLogger(__name__)
+    logger.info("FlexTaxD logging initiated!")
+
+    ### Run pipeline
 
     force = False
 
@@ -156,32 +196,30 @@ def main():
         if not args.genomes_path:
             raise InputError("To annotate genomes to the NCBI database a path to genbank or refseq genomes folder needs to be given --genomes_path")
 
-    '''Global vars'''
-    global verbose
-    verbose = args.verbose
-    modify_module = False
+    # '''Global vars'''
+    # global verbose
+    # verbose = args.verbose
+    #modify_module = False
 
-    '''Log file and verbose options'''
-    if args.log:
-        global original_sysout
-        original_sysout = sys.stdout
-        if os.path.exists(args.log) and not force:
-            ans = input("Warning the logfile already exist, overwrite? (y/n)")
-            if ans not in ["y", "Y", "yes", "Yes"]:
-                exit("Abort logfile already exists, remove file or use --force")
-        if verbose:
-            print("All log output will be written to {file}".format(file=args.log))
-        logfile = open(args.log, "w")
-        sys.stdout = logfile
+    # '''Log file and verbose options'''
+    # if args.log:
+    #     global original_sysout
+    #     original_sysout = sys.stdout
+    #     if os.path.exists(args.log) and not force:
+    #         ans = input("Warning the logfile already exist, overwrite? (y/n)")
+    #         if ans not in ["y", "Y", "yes", "Yes"]:
+    #             exit("Abort logfile already exists, remove file or use --force")
+    #     logger.info(    #         print("All log output will be written to {file}".format(file=args.log))
+    #     logfile = open(args.log, "w")
+    #     sys.stdout = logfile
 
     if force and args.taxonomy_file:
         '''Remove database if force is turned on and new source file is given'''
         if os.path.exists(args.database):
             os.system("rm {database}".format(database=args.database))
 
-    if verbose:
-        print("Script parameters:")
-        print(args)
+    logger.debug("Script parameters:")
+    logger.debug(args)
 
     '''
         Custom taxonomy databases pipeline
@@ -195,50 +233,48 @@ def main():
     if args.taxonomy_file:
         if not os.path.exists(args.database) or force:
             '''Load taxonomy module'''
-            if verbose: print("Loading module: ReadTaxonomy{type}".format(type=args.taxonomy_type))
+            logger.info("Loading module: ReadTaxonomy{type}".format(type=args.taxonomy_type))
             read_module = dynamic_import("modules", "ReadTaxonomy{type}".format(type=args.taxonomy_type))
             read_obj = read_module(args.taxonomy_file, database=args.database)
             read_obj.verbose = verbose                                                          ## Set verbose mode
-            if verbose: print("Parse taxonomy")
+            logger.info("Parse taxonomy")
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 
             '''Parse genome2taxid file'''                                                       ## Fix at some point only one function should be needed
             if not args.genomeid2taxid:
-                print("Warning no genomeid2taxid file given!")
+                logger.warning("Warning no genomeid2taxid file given!")
             elif args.taxonomy_type == "NCBI" and args.genomeid2taxid:
                 read_obj.parse_genomeid2taxid(args.genomes_path,args.genomeid2taxid)
             elif args.taxonomy_type == "CanSNPer":
                 read_obj.parse_genomeid2taxid(args.genomeid2taxid)
 
-            if verbose: print("Nodes in taxonomy tree {n} number of taxonomies {k}".format(n=read_obj.length, k=read_obj.ids))
-            if verbose: current_time = report_time(current_time)
+            logger.info("Nodes in taxonomy tree {n} number of taxonomies {k}".format(n=read_obj.length, k=read_obj.ids))
+            logger.info(current_time = report_time(current_time))
 
     ''' 1. Modify database, if datasource for modification of current database is supplied process this data'''
     if args.mod_file or args.mod_database:
         if args.mod_file and not args.genomeid2taxid:
-            exit("No genomeid2taxid file given!")
-        if verbose: print("Loading module: ModifyTree")
+            logger.critical("No genomeid2taxid file given!")
+        logger.info("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
         modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,verbose=verbose,parent=args.parent,replace=args.replace)
         modify_obj.update_database()
         if args.mod_file:
-            if verbose: current_time = report_time(current_time)
+            logger.info(current_time = report_time(current_time))
             modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
-        if verbose: current_time = report_time(current_time)
+        logger.info(current_time = report_time(current_time))
 
     ''' 2. Dump custom taxonomy database into NCBI/kraken readable format)'''
     if args.dump or args.dump_mini:
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
         nameprefix,nodeprefix = args.dump_prefix.split(",")
         if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp")) and not force:
-            if args.log: sys.stdout = original_sysout ## If log file is used, make sure the input reaches the user terminal
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:
                 exit("Dump already exists, abort!")
-            if args.log:  sys.stdout = logfile ## Continue to write to log file
 
         '''Create print out object'''
-        if verbose: print("Loading module: WriteTaxonomy".format(type=args.taxonomy_type))
+        logger.info("Loading module: WriteTaxonomy".format(type=args.taxonomy_type))
         write_module = dynamic_import("modules", "WriteTaxonomy")
         write_obj = write_module(args.outdir, database=args.database,verbose=verbose,prefix=args.dump_prefix,separator=args.dump_sep,minimal=args.dump_mini,desc=args.dump_descriptions,dbprogram=args.dbprogram)
 
@@ -253,10 +289,7 @@ def main():
             write_obj.set_order(True)
             write_obj.nodes()
 
-    if verbose: report_time(start_time,final=True)
-
-    if args.log:
-        sys.stdout = original_sysout
+    logger.info(report_time(start_time,final=True))
 
 if __name__ == '__main__':
     main()
