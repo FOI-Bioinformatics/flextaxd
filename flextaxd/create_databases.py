@@ -21,6 +21,7 @@ import argparse
 from importlib import import_module
 import time
 from flextaxd.custom_taxonomy_databases import __version__
+import logging
 
 ## If script is executed run pipeline of selected options
 def main():
@@ -49,9 +50,9 @@ def main():
         if minutes != 1:
             mtext +="s"
         if final:
-            print("--- Time summary  {} {} {} seconds---".format(minutes,mtext, seconds))
+            logger.info("--- Time summary  {} {} {} seconds---".format(minutes,mtext, seconds))
         else:
-            print("--- process finished in {} {} {} seconds---\n".format(minutes,mtext, seconds))
+            logger.info("--- process finished in {} {} {} seconds---\n".format(minutes,mtext, seconds))
         return current
     #########################################################################################
     ##################################--error functions--###################################¤
@@ -62,8 +63,6 @@ def main():
         def __init__(self,  message,expression=""):
             self.expression = expression
             self.message = message
-
-
     #########################################################################################
 
     '''
@@ -71,7 +70,6 @@ def main():
     '''
 
     programs = ["kraken2", "krakenuniq","ganon"]
-
 
     parser = argparse.ArgumentParser()
     basic = parser.add_argument_group('basic', 'Basic commands')
@@ -94,6 +92,13 @@ def main():
     classifier_opts.add_argument('--keep', action='store_true', help="Keep temporary files")
     classifier_opts.add_argument('--skip', metavar="", default="", help="Do not include genomes within this taxonomy (child tree) in the database (works for kraken)")
 
+    debugopts = parser.add_argument_group("Logging and debug options")
+    #debugopts.add_argument('--tmpdir', 			metavar='', default="/tmp/FlexTaxD",			help="Specify reference directory")
+    debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
+    debugopts.add_argument('--verbose',			action='store_const', const=logging.INFO,				help="Verbose output")
+    debugopts.add_argument('--debug',				action='store_const', const=logging.DEBUG,				help="Debug output")
+    debugopts.add_argument('--supress',				action='store_const', const=logging.ERROR,	default=logging.WARNING,			help="Supress warnings")
+
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
     args = parser.parse_args()
@@ -104,32 +109,32 @@ def main():
         print("Github: {github}".format(github=__github__))
         exit()
 
-    '''Global vars'''
-    global verbose
-    verbose = args.verbose
-    if args.debug:  ## If debug mode is on verbose will always be on
-        verbose = True
-    modify_module = False
-
     '''Log file and verbose options'''
-    if args.log:
-        global original_sysout
-        original_sysout = sys.stdout
-        if os.path.exists(args.log):
-            ans = input("Warning the logfile already exist, overwrite? (y/n)")
-            if ans not in ["y", "Y", "yes", "Yes"]:
-                exit("Abort logfile already exists, remove file or choose a different name to continue!")
-        if verbose:
-            print("All log output will be written to {file}".format(file=args.log))
-        logfile = open(args.log, "w")
-        sys.stdout = logfile
+    logval = args.supress
+    if args.debug:
+    	logval = args.debug
+    elif args.verbose:
+    	logval = args.verbose
 
-    if verbose:
-        print("Script parameters:")
-        print(args)
-        if not args.create_db:
-            print("\n\n\nCreate db not on, script will only produce a complete log file but not handle any files!\n\n\n")
+    from datetime import date,time
+    t = time()
+    today = date.today()
+    logpath = args.logs+"FlexTaxD-create-"+today.strftime("%b-%d-%Y")+"{}.log"
+    if os.path.exists(logpath):
+    	logpath=logpath.format("-{:%H:%M}".format(t))
+    else: logpath = logpath.format("")
 
+
+    logging.basicConfig(
+    		level=logval,
+    		format="%(asctime)s %(module)s [%(levelname)-5.5s]  %(message)s",
+    	    handlers=[
+    	        logging.FileHandler(logpath),
+    	        logging.StreamHandler()
+    	    ])
+    logger = logging.getLogger(__name__)
+    logger.info("FlexTaxD-create logging initiated!")
+    logger.debug("Supported formats: {formats}".format(formats=programs))
 
     '''
         Process data
@@ -141,10 +146,10 @@ def main():
     ''' 3. Add genomes to kraken DB'''
     if args.db_name:
         if args.dbprogram.startswith("kraken"):
-            if verbose: print("Loading module: CreateKrakenDatabase")
+            logger.info("Loading module: CreateKrakenDatabase")
             classifier = dynamic_import("modules", "CreateKrakenDatabase")
         else:
-            if verbose: print("Loading module: CreateGanonDB")
+            logger.info("Loading module: CreateGanonDB")
             classifier = dynamic_import("modules", "CreateGanonDB")
         limit = 0
         if args.test:
@@ -152,21 +157,19 @@ def main():
         classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip,create_db=args.create_db,debug=args.debug)
         if verbose: current_time = report_time(current_time)
         classifierDB.process_folder()
-        print("Done")
+        logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''
     if args.create_db:
         if verbose: current_time = report_time(current_time)
-        if verbose: print("Create database")
+        logger.info("Create database")
         try:
             classifierDB.create_database(args.outdir,args.keep)
         except UnboundLocalError:
-            exit("#Error: No kraken database name was given!")
+            logger.error("#Error: No kraken database name was given!")
+            exit()
 
-    if verbose: report_time(start_time,final=True)
-
-    if args.log:
-        sys.stdout = original_sysout
+    logger.debug(report_time(start_time,final=True))
 
 if __name__ == '__main__':
     main()

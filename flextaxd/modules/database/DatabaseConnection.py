@@ -1,6 +1,8 @@
 import sys
 import os
 import sqlite3
+import logging
+logger = logging.getLogger(__name__)
 
 class ConnectionError(Exception):
 	def __init__(self, value):
@@ -23,10 +25,16 @@ class DatabaseConnection(object):
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
 			if self.verbose:
-				print("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
+				logger.info("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
-		self.conn = self.connect(self.database)
-		self.cursor = self.create_cursor(self.conn)
+		try:
+			self.conn
+		except AttributeError:
+			self.conn = self.connect(self.database)
+			self.cursor = self.create_cursor(self.conn)
+			logger.info("DB init connect do database...")
+		else:
+			logger.info("Connected to database {database}".format(self.database))
 
 	def __str__(self):
 		return "Object of class DatabaseConnection, connected to {database}".format(database=self.database)
@@ -41,7 +49,7 @@ class DatabaseConnection(object):
 		'''Create database connection'''
 		try:
 			conn = sqlite3.connect(database)
-			if self.verbose: print("{database} opened successfully.".format(database=database))
+			logger.info("{database} opened successfully.".format(database=database))
 			return conn
 		except Exception as e:
 			sys.stderr.write(str(e))
@@ -51,8 +59,7 @@ class DatabaseConnection(object):
 		'''Create a db cursor'''
 		try:
 			cursor = conn.cursor()
-			if self.verbose:
-				print("cursor created.")
+			logger.debug("cursor created.")
 			return cursor
 		except Exception as e:
 			sys.stderr.write(str(e))
@@ -77,9 +84,9 @@ class DatabaseConnection(object):
 		except Exception as e:
 			if "UNIQUE constraint failed" not in str(e):
 				## UNIQUE constraint is an accepted error as it keeps multiple edges from being added
-				print("Error in DatabaseConnection query")
-				if self.verbose: print(query)
-				if self.verbose: print("Insert val: ", insert_val)
+				logger.warning("Error in DatabaseConnection query")
+				logger.debug(query)
+				logger.debug("Insert val: ", insert_val)
 				sys.stderr.write(str(e))
 			return(e)
 
@@ -109,8 +116,7 @@ class DatabaseConnection(object):
 			WHERE {where_column} = ?
 		'''.format(table=table,set_column=data["set_column"],where_column=data["where_column"])
 		udata = tuple([data["set_value"],data["where"]])
-		if self.verbose: print(UPDATE_QUERY,udata)
-		#print(UPDATE_QUERY, udata)
+		logger.info(UPDATE_QUERY,udata)
 		res = self.query(UPDATE_QUERY,udata,error=True)
 
 		if self.rowcount() == 0:
@@ -135,7 +141,7 @@ class DatabaseFunctions(DatabaseConnection):
 	"""docstring for DatabaseFunctions."""
 	def __init__(self, database, verbose=False):
 		super().__init__(database, verbose)
-		if self.verbose: print("Load DatabaseFunctions")
+		logger.info("Load DatabaseFunctions")
 
 	'''Get functions of class'''
 	def get_all(self, database=False, table=False):
@@ -153,11 +159,11 @@ class DatabaseFunctions(DatabaseConnection):
 			res += 1
 		return res
 
-	def get_genomes(self, database=False,limit=0,table="genomes"):
+	def get_genomes(self, database=False,limit=0,table="genomes",cols="id,genome"):
 		'''Get the list of genomes in the database'''
 		## This is a many to many relation, so all genomes has to be put in a set for each taxonomy id
 		genomeDict = {}
-		QUERY = '''SELECT id,genome FROM {table}'''.format(table=table)
+		QUERY = '''SELECT {cols} FROM {table}'''.format(cols=cols,table=table)
 		if limit > 0:
 			QUERY += " LIMIT {limit}".format(limit=limit)
 		for id,genome in self.query(QUERY).fetchall():
@@ -198,7 +204,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		taxid_base = self.insert(info, table=table)
-		if self.verbose: print("node added: ",info, taxid_base)
+		logger.debug("node added [description {}, taxid base {}]: ".format(info, taxid_base))
 		return taxid_base
 
 	def add_rank(self, rank,id=False):
@@ -208,7 +214,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		rank_id = self.insert(info, table="rank")
-		if self.verbose: print("rank added: ",info)
+		logger.debug("rank added: {}".format(info))
 		return rank_id
 
 	def add_link(self, child, parent, rank=1, table="tree"):
@@ -218,7 +224,7 @@ class DatabaseFunctions(DatabaseConnection):
 			"parent": parent,
 			"rank_i": rank
 		}
-		if self.verbose: print("link added: ",child,parent,rank)
+		logger.debug("link added:  child {}, parent {}, rank {} ".format(child,parent,rank))
 		return self.insert(info, table="tree")
 
 	def add_genome(self, genome, _id=False):
@@ -232,14 +238,14 @@ class DatabaseFunctions(DatabaseConnection):
 
 	def add_links(self,links, table="tree",hold=False):
 		'''Add links from a list to tree'''
-		added_links = 0
+		added_links = []
 		nodes = set()
 		for parent,child,rank in links:
-			#print(parent,child,rank)
+			#logger.debug("{} {} rank: {} link added!".format(parent,child,rank))
 			res = self.add_link(child,parent,rank,table=table)
 			### Check if the link already exist in the database, this overlap may occur when a large new branch is added
 			if "UNIQUE constraint failed" not in str(res):
-				added_links +=1
+				added_links.append([parent,child,rank])
 				nodes.add(parent)
 				nodes.add(child)
 		## Commit changes
@@ -264,22 +270,27 @@ class DatabaseFunctions(DatabaseConnection):
 	def delete_links(self,links, table="tree",hold=False):
 		'''This function deletes all links given in links'''
 		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child}"
-		if self.verbose: print(QUERY.format(table=table,parent="",child=""), links)
+		logger.info("Deleting {nlinks} links!".format(nlinks=len(links)))
+		logger.debug(QUERY.format(table=table,parent="",child=""))
 		for parent,child,rank in links:
+			logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
 			res = self.query(QUERY.format(table=table, parent=parent, child=child))
-
 		## Commit changes
 		if not hold:
+			logger.debug("Commit changes!")
 			self.commit()
 
 	def delete_nodes(self, nodes, table="nodes",hold=False):
 		'''This function deletes all nodes given in nodes'''
 		QUERY = "DELETE FROM {table} WHERE id = {node}"
-		if self.verbose: print(QUERY.format(table=table,node=""), nodes)
+		logger.info("Deleting {nnodes} nodes!".format(nnodes=len(nodes)))
+		logger.debug(QUERY.format(table=table,node=""))
 		for node in nodes:
+			logger.debug("Delete node {node}".format(node=node))
 			res = self.query(QUERY.format(table=table, node=node))
 		## Commit changes
 		if not hold:
+			logger.debug("Commit changes!")
 			self.commit()
 
 	def num_rows(self,table):
@@ -292,7 +303,7 @@ class ModifyFunctions(DatabaseFunctions):
 	"""ModifyFunctions adds a few important functions only nessesary when modifying a database"""
 	def __init__(self, database, verbose=False):
 		super().__init__(database, verbose)
-		if self.verbose: print("Load ModifyFunctions")
+		logger.info("Load ModifyFunctions")
 
 	def get_rank(self,col=1):
 		'''Get rank index from database'''
@@ -327,7 +338,7 @@ class ModifyFunctions(DatabaseFunctions):
 		try:
 			res = self.query(QUERY).fetchone()[0]
 		except TypeError:
-			print(QUERY)
+			logger.debug(QUERY)
 			raise NameError("Name not found in the database! {name}".format(name=name))
 		return res
 

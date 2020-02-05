@@ -5,6 +5,8 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .database.DatabaseConnection import DatabaseFunctions
+import logging
+logger = logging.getLogger(__name__)
 
 class InputError(Exception):
 	"""Exception raised for errors in the input."""
@@ -57,6 +59,7 @@ class ReadTaxonomy(object):
 			extend databaseFunction add_node function using self.taxonomy
 			dict to keep track of which nodes were already added
 		'''
+		#logger.debug("Node desc: {desc} id: {id}".format(desc=description,id=id))
 		self.taxid_base = self.database.add_node(description,id)
 		self.taxonomy[description] = self.taxid_base
 		return self.taxid_base
@@ -64,7 +67,7 @@ class ReadTaxonomy(object):
 
 	def read_nodes(self, treefile=False):
 		'''Read a tab separated node file and store a dictionary with names in object'''
-		if self.verbose: print("Read nodes in taxonomy file {}".format(treefile))
+		logger.info("Read nodes in taxonomy file {}".format(treefile))
 		swap = False
 		if not treefile:
 			treefile = self.taxonomy_file
@@ -103,6 +106,6 @@ class ReadTaxonomy(object):
 					try:
 						self.database.add_genome(genome=genomeid,_id=nodeDict[taxid.strip()])
 					except KeyError:
-						print("# WARNING: {taxid} not found in the database".format(taxid=taxid))
+						logger.warning("# WARNING: {taxid} not found in the database".format(taxid=taxid))
 			self.database.commit()
 		return

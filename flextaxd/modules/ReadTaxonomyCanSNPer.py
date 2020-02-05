@@ -14,6 +14,8 @@ __date__ = "2020-01-17"
 __status__ = "Production"
 
 from .ReadTaxonomy import ReadTaxonomy
+import logging
+logger = logging.getLogger(__name__)
 
 class ImportFormatError(Exception):
 	def __init__(self, value):
@@ -24,32 +26,31 @@ class ImportFormatError(Exception):
 
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="Francisellaceae",rank="family", verbose=False):
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="T/N.1",rank="family", verbose=False):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
 		self.taxonomy = {}
 		self.taxid_base = taxid_base
 		## Initiate database
-		if self.verbose: print("Adding first node {node}!".format(node=root_name))
+		logger.info("Adding root node {node}!".format(node=root_name))
 		root_i = self.add_node(root_name)
-		if self.verbose: print(root_i)
 		self.taxid_base =taxid_base ## reset
-		if self.verbose: print("Adding ranks!")
+		logger.debug("Adding ranks!")
 		self.add_rank(rank,ncbi=True)
 		self.add_rank("no rank",ncbi=True)
 		self.add_link(root_i, root_i,rank=rank)
-		#self.database.commit()
 		self.names = {}
 		self.root = root_i
 		self.length = 0
 		self.ids = 0
+
 		self.database.commit()
-		if self.verbose: print(self.root, self.taxid_base)
+		logger.debug("Root: {root} link: [{base}]".format(root=self.root, base=self.taxid_base))
 
 	def add_SNP(self,nodes,i):
 		'''Add name of node to database'''
 		name = nodes[i].strip()
-		if self.verbose: print("Parent did not exit Add parent: ", name)
+		logger.debug("Parent did not exit Add parent: {name}".format(name=name))
 
 		#i-=1 ## Check next parent
 		try:
@@ -65,7 +66,7 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 
 	def parse_taxonomy(self):
 		'''Retrieve node description from CanSNPer formatted tree'''
-		if self.verbose: print("Parse CanSNP tree file")
+		logger.info("Parse CanSNP tree file")
 		with open(self.taxonomy_file,"r") as f:
 			for row in f:
 				row = row.strip().replace("\t",";")  ## Also accept tab separated tree files
@@ -86,4 +87,4 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 				self.database.add_link(child_i,parent_i)
 		self.database.commit()                                    ## Commit changes to database
 		self.length = self.taxid_base - self.root                ## Check number of new nodes added
-		print("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
+		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
