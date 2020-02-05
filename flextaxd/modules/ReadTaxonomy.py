@@ -101,7 +101,7 @@ class ReadTaxonomy(object):
 				if row.strip() != "": ## If there are trailing empty lines in the file
 					genomeid,taxid = row.strip().split("\t")
 					try:
-						self.database.add_genome(id=nodeDict[taxid.strip()],genome=genomeid)
+						self.database.add_genome(genome=genomeid,_id=nodeDict[taxid.strip()])
 					except KeyError:
 						print("# WARNING: {taxid} not found in the database".format(taxid=taxid))
 			self.database.commit()

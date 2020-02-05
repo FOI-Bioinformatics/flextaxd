@@ -98,7 +98,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 					taxonomy = list(reversed(data[-1].split(";")))
 					taxonomy_i = self.parse_tree(taxonomy)
 					if taxonomy_i:
-						self.database.add_genome(id=taxonomy_i,genome=genome_id)
+						self.database.add_genome(genome=genome_id,_id=taxonomy_i)
 		self.database.commit()
 		self.length = self.taxid_base - taxid_start
 		print("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))

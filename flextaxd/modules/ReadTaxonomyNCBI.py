@@ -91,7 +91,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 					refseqid,taxid = row.split(b"\t")[1:3]
 					try:
 						genebankid = self.refseqid_to_GCF[refseqid]
-						self.database.add_genome(id=taxid.decode("utf-8"),genome=genebankid)
+						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"))
 					except:
 						pass
 			self.database.commit()

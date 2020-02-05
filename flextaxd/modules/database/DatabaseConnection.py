@@ -23,10 +23,16 @@ class DatabaseConnection(object):
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
 			if self.verbose:
-				print("python CreateDatabase.py {database}".format(database=self.database))
+				print("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 		self.conn = self.connect(self.database)
 		self.cursor = self.create_cursor(self.conn)
+
+	def __str__(self):
+		return "Object of class DatabaseConnection, connected to {database}".format(database=self.database)
+
+	def __repr__(self):
+		return "DatabaseConnection()"
 
 	def set_verbose(self,val):
 		self.verbose = val
@@ -35,14 +41,11 @@ class DatabaseConnection(object):
 		'''Create database connection'''
 		try:
 			conn = sqlite3.connect(database)
-			if self.verbose:
-				print("{database} opened successfully.".format(database=database))
-
+			if self.verbose: print("{database} opened successfully.".format(database=database))
 			return conn
 		except Exception as e:
 			sys.stderr.write(str(e))
 		raise ConnectionError("Count not connect to the database {database} see above message for details!".format(database=database))
-		return None
 
 	def create_cursor(self,conn):
 		'''Create a db cursor'''
@@ -53,7 +56,7 @@ class DatabaseConnection(object):
 			return cursor
 		except Exception as e:
 			sys.stderr.write(str(e))
-		return None
+		raise ConnectionError("Count not create db cursor to {database}".format(database=database))
 
 	def commit(self):
 		self.conn.commit()
@@ -76,9 +79,8 @@ class DatabaseConnection(object):
 				## UNIQUE constraint is an accepted error as it keeps multiple edges from being added
 				print("Error in DatabaseConnection query")
 				if self.verbose: print(query)
-				#if self.verbose: print("Insert val", insert_val)
+				if self.verbose: print("Insert val: ", insert_val)
 				sys.stderr.write(str(e))
-
 			return(e)
 
 	def insert(self,data,table):
@@ -110,22 +112,21 @@ class DatabaseConnection(object):
 		if self.verbose: print(UPDATE_QUERY,udata)
 		#print(UPDATE_QUERY, udata)
 		res = self.query(UPDATE_QUERY,udata,error=True)
-		'''If the genome does not exist, it should instead be inserted in the database'''
 
 		if self.rowcount() == 0:
 			res = self.insert({data["set_column"]:data["set_value"],data["where_column"]:data["where"]}, table)
 			return False
 		return True
 
-	# def delete(self,nodes,table):
-	# 	'''Deleting a node should make sure all related data is also removed'''
-	# 	DELETE_QUERY = '''
-	# 			DELETE FROM {table}
-	# 				WHERE id in({values})
-	# 	'''.format(table=table,
-	# 				values=','.join(["?" for x in nodes])
-	# 	)
-	# 	return self.query(DELETE_QUERY,insert_val=values)
+	def delete(self,nodes,table):
+		'''Deleting a node should make sure all related data is also removed'''
+		DELETE_QUERY = '''
+				DELETE FROM {table}
+					WHERE id in({values})
+		'''.format(table=table,
+					values=','.join(["?" for x in nodes])
+		)
+		return self.query(DELETE_QUERY,insert_val=values)
 
 	def rowcount(self):
 		return self.cursor.rowcount
@@ -137,6 +138,11 @@ class DatabaseFunctions(DatabaseConnection):
 		if self.verbose: print("Load DatabaseFunctions")
 
 	'''Get functions of class'''
+	def get_all(self, database=False, table=False):
+		'''Get full table from table'''
+		QUERY = '''SELECT * FROM {table}'''.format(table)
+		return self.query(QUERY).fetchall()
+
 	def get_taxid_base(self):
 		'''Fetch the next incremental node from the current database'''
 		QUERY = "SELECT MAX(id) AS max_id FROM nodes"
@@ -147,21 +153,16 @@ class DatabaseFunctions(DatabaseConnection):
 			res += 1
 		return res
 
-	def get_genomes(self, database=False,limit=0):
+	def get_genomes(self, database=False,limit=0,table="genomes"):
 		'''Get the list of genomes in the database'''
 		## This is a many to many relation, so all genomes has to be put in a set for each taxonomy id
 		genomeDict = {}
-		QUERY = '''SELECT id,genome FROM {table}'''.format(table="genomes")
+		QUERY = '''SELECT id,genome FROM {table}'''.format(table=table)
 		if limit > 0:
 			QUERY += " LIMIT {limit}".format(limit=limit)
 		for id,genome in self.query(QUERY).fetchall():
 			genomeDict[genome] = id
 		return genomeDict
-
-	def get_all(self, database=False, table=False):
-		'''Get full table from table'''
-		QUERY = '''SELECT * FROM {table}'''.format(table)
-		return self.query(QUERY).fetchall()
 
 	def get_nodes(self, database=False,col=False):
 		'''Retrieve the whole node info table of the database to decrease the number of database calls!'''
@@ -188,7 +189,7 @@ class DatabaseFunctions(DatabaseConnection):
 		return links
 
 	'''Add functions of class'''
-	def add_node(self, description, id=False):
+	def add_node(self, description, id=False, table="nodes"):
 		'''Add node to tree'''
 		if description.strip() == "":  ## for some reason an empty node has been given, do not add empty nodes
 			return False
@@ -196,7 +197,8 @@ class DatabaseFunctions(DatabaseConnection):
 		### If ID is supplied skip autoincrement and add specific ID
 		if id:
 			info["id"] = id
-		taxid_base = self.insert(info, table="nodes")
+		taxid_base = self.insert(info, table=table)
+		if self.verbose: print("node added: ",info, taxid_base)
 		return taxid_base
 
 	def add_rank(self, rank,id=False):
@@ -206,6 +208,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		rank_id = self.insert(info, table="rank")
+		if self.verbose: print("rank added: ",info)
 		return rank_id
 
 	def add_link(self, child, parent, rank=1, table="tree"):
@@ -218,12 +221,13 @@ class DatabaseFunctions(DatabaseConnection):
 		if self.verbose: print("link added: ",child,parent,rank)
 		return self.insert(info, table="tree")
 
-	def add_genome(self, id, genome):
+	def add_genome(self, genome, _id=False):
 		'''Add genome annotation to nodes'''
 		info = {
-			"id": id,
 			"genome": genome
 		}
+		if _id:
+			info["id"] = _id
 		return self.insert(info, table="genomes")
 
 	def add_links(self,links, table="tree",hold=False):
@@ -326,7 +330,6 @@ class ModifyFunctions(DatabaseFunctions):
 			print(QUERY)
 			raise NameError("Name not found in the database! {name}".format(name=name))
 		return res
-
 
 	def update_genome(self,data):
 		'''Add genome annotation to nodes'''
