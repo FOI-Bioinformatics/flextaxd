@@ -59,6 +59,7 @@ class ReadTaxonomy(object):
 			extend databaseFunction add_node function using self.taxonomy
 			dict to keep track of which nodes were already added
 		'''
+		#logger.debug("Node desc: {desc} id: {id}".format(desc=description,id=id))
 		self.taxid_base = self.database.add_node(description,id)
 		self.taxonomy[description] = self.taxid_base
 		return self.taxid_base

@@ -159,11 +159,11 @@ class DatabaseFunctions(DatabaseConnection):
 			res += 1
 		return res
 
-	def get_genomes(self, database=False,limit=0,table="genomes"):
+	def get_genomes(self, database=False,limit=0,table="genomes",cols="id,genome"):
 		'''Get the list of genomes in the database'''
 		## This is a many to many relation, so all genomes has to be put in a set for each taxonomy id
 		genomeDict = {}
-		QUERY = '''SELECT id,genome FROM {table}'''.format(table=table)
+		QUERY = '''SELECT {cols} FROM {table}'''.format(cols=cols,table=table)
 		if limit > 0:
 			QUERY += " LIMIT {limit}".format(limit=limit)
 		for id,genome in self.query(QUERY).fetchall():
@@ -224,7 +224,7 @@ class DatabaseFunctions(DatabaseConnection):
 			"parent": parent,
 			"rank_i": rank
 		}
-		logger.debug("link added: [ child {}, parent {}, rank {}] ".format(child,parent,rank))
+		logger.debug("link added:  child {}, parent {}, rank {} ".format(child,parent,rank))
 		return self.insert(info, table="tree")
 
 	def add_genome(self, genome, _id=False):
@@ -238,14 +238,14 @@ class DatabaseFunctions(DatabaseConnection):
 
 	def add_links(self,links, table="tree",hold=False):
 		'''Add links from a list to tree'''
-		added_links = 0
+		added_links = []
 		nodes = set()
 		for parent,child,rank in links:
-			logger.debug("{}-{} rank: {} deleted!".format([parent,child,rank]))
+			#logger.debug("{} {} rank: {} link added!".format(parent,child,rank))
 			res = self.add_link(child,parent,rank,table=table)
 			### Check if the link already exist in the database, this overlap may occur when a large new branch is added
 			if "UNIQUE constraint failed" not in str(res):
-				added_links +=1
+				added_links.append([parent,child,rank])
 				nodes.add(parent)
 				nodes.add(child)
 		## Commit changes
@@ -270,23 +270,27 @@ class DatabaseFunctions(DatabaseConnection):
 	def delete_links(self,links, table="tree",hold=False):
 		'''This function deletes all links given in links'''
 		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child}"
-		logger.info(QUERY+" number of links {nlinks}".format(table=table,parent="",child="",nlinks=len(links)))
+		logger.info("Deleting {nlinks} links!".format(nlinks=len(links)))
+		logger.debug(QUERY.format(table=table,parent="",child=""))
 		for parent,child,rank in links:
 			logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
 			res = self.query(QUERY.format(table=table, parent=parent, child=child))
 		## Commit changes
 		if not hold:
+			logger.debug("Commit changes!")
 			self.commit()
 
 	def delete_nodes(self, nodes, table="nodes",hold=False):
 		'''This function deletes all nodes given in nodes'''
 		QUERY = "DELETE FROM {table} WHERE id = {node}"
-		logger.info(QUERY+" number of nodes {nnodes}".format(table=table,node="", nnodes=len(nodes)))
+		logger.info("Deleting {nnodes} nodes!".format(nnodes=len(nodes)))
+		logger.debug(QUERY.format(table=table,node=""))
 		for node in nodes:
-			logger.debug("Adding node {node}".format(node=node))
+			logger.debug("Delete node {node}".format(node=node))
 			res = self.query(QUERY.format(table=table, node=node))
 		## Commit changes
 		if not hold:
+			logger.debug("Commit changes!")
 			self.commit()
 
 	def num_rows(self,table):

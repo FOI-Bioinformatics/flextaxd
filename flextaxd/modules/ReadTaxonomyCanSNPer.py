@@ -26,7 +26,7 @@ class ImportFormatError(Exception):
 
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="Francisellaceae",rank="family", verbose=False):
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="T/N.1",rank="family", verbose=False):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
 		self.taxonomy = {}
