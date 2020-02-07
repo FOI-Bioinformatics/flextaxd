@@ -14,17 +14,18 @@ __date__ = "2019-09-30"
 __status__ = "Beta"
 __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
-
-###################################--system imports--####################################
-import os, sys
-import argparse
-from importlib import import_module
-import time
 from flextaxd.custom_taxonomy_databases import __version__
-import logging
+from importlib import import_module
+        
+
 
 ## If script is executed run pipeline of selected options
 def main():
+    ###################################--system imports--####################################
+    import os, sys
+    import argparse
+    import time
+    import logging
     if sys.version_info.major < 3 and sys.version_info.minor < 5:
         exit("This script is written for python3.5 and above please upgrade python!")
 
@@ -73,11 +74,10 @@ def main():
 
     parser = argparse.ArgumentParser()
     basic = parser.add_argument_group('basic', 'Basic commands')
-
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
-    basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
-    basic.add_argument('-d','--debug', action='store_true',   help="debug output")
-    basic.add_argument('--log', metavar="",default = None,   help="use a log file instead of stdout")
+    #basic.add_argument('-v','--verbose', action='store_true',   help="verbose output")
+    #basic.add_argument('-d','--debug', action='store_true',   help="debug output")
+    #basic.add_argument('--log', metavar="",default = None,   help="use a log file instead of stdout")
     basic.add_argument('-db', '--database',metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
 
     ###  Kraken options not needed for public version this script is made to export names and nodes.dmp files
@@ -94,7 +94,7 @@ def main():
 
     debugopts = parser.add_argument_group("Logging and debug options")
     #debugopts.add_argument('--tmpdir', 			metavar='', default="/tmp/FlexTaxD",			help="Specify reference directory")
-    debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
+    debugopts.add_argument('--log', 				metavar='', default="logs/", 		help="Specify log directory")
     debugopts.add_argument('--verbose',			action='store_const', const=logging.INFO,				help="Verbose output")
     debugopts.add_argument('--debug',				action='store_const', const=logging.DEBUG,				help="Debug output")
     debugopts.add_argument('--supress',				action='store_const', const=logging.ERROR,	default=logging.WARNING,			help="Supress warnings")

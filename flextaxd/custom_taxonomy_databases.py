@@ -32,16 +32,17 @@ __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge"]
 
-###################################--system imports--####################################
-import os, sys
-import argparse
-from importlib import import_module
-import time
-import logging
-import logging.config
+
 
 ## If script is executed run pipeline of selected options
 def main():
+    ###################################--system imports--####################################
+    import os, sys
+    import argparse
+    from importlib import import_module
+    import time
+    import logging
+    import logging.config
     if sys.version_info.major < 3 and sys.version_info.minor < 5:
         exit("This script is written for python3 please upgrade python!")
 
