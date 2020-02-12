@@ -174,6 +174,7 @@ class DatabaseFunctions(DatabaseConnection):
 		'''Retrieve the whole node info table of the database to decrease the number of database calls!'''
 		nodeDict = {}
 		QUERY = '''SELECT id,name FROM nodes'''
+		logger.debug(QUERY)
 		if not database:
 			database = self.database
 		for node in self.query(QUERY).fetchall():
@@ -189,6 +190,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if swap:
 			order[1],order[0] = order[0],order[1]
 		QUERY = '''SELECT {order},rank_i FROM tree WHERE parent in ({nodes}) OR child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
+		logger.debug(QUERY)
 		if not database:
 			database = self.database
 		links = self.query(QUERY).fetchall()
@@ -204,7 +206,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		taxid_base = self.insert(info, table=table)
-		logger.debug("node added [description {}, taxid base {}]: ".format(info, taxid_base))
+		#logger.debug("node added [description {}, taxid base {}]: ".format(info, taxid_base))
 		return taxid_base
 
 	def add_rank(self, rank,id=False):
@@ -214,7 +216,7 @@ class DatabaseFunctions(DatabaseConnection):
 		if id:
 			info["id"] = id
 		rank_id = self.insert(info, table="rank")
-		logger.debug("rank added: {}".format(info))
+		#logger.debug("rank added: {}".format(info))
 		return rank_id
 
 	def add_link(self, child, parent, rank=1, table="tree"):
@@ -224,7 +226,7 @@ class DatabaseFunctions(DatabaseConnection):
 			"parent": parent,
 			"rank_i": rank
 		}
-		logger.debug("link added:  child {}, parent {}, rank {} ".format(child,parent,rank))
+		#logger.debug("link added:  child {}, parent {}, rank {} ".format(child,parent,rank))
 		return self.insert(info, table="tree")
 
 	def add_genome(self, genome, _id=False):
@@ -296,6 +298,7 @@ class DatabaseFunctions(DatabaseConnection):
 	def num_rows(self,table):
 		'''Return the number of rows in a table'''
 		QUERY = '''SELECT Count(*) FROM {table}'''
+		logger.debug(QUERY)
 		return self.query(QUERY.format(table=table)).fetchall()[0][0]
 
 
@@ -308,6 +311,7 @@ class ModifyFunctions(DatabaseFunctions):
 	def get_rank(self,col=1):
 		'''Get rank index from database'''
 		QUERY = "SELECT rank_i,rank FROM rank"
+		logger.debug(QUERY)
 		rankDict = {}
 		for rank in self.query(QUERY).fetchall():
 			rankDict[rank[0]] = rank[1]
@@ -319,6 +323,7 @@ class ModifyFunctions(DatabaseFunctions):
 	def get_children(self,parents,children=set(),level=0,maxdepth=50):
 		'''Get all children from a parent'''
 		QUERY = '''SELECT child FROM tree WHERE parent in({nodes})'''.format(nodes=",".join(map(str,list(parents))))
+		logger.debug(QUERY)
 		res = self.query(QUERY).fetchall()
 		if (len(res) + len(children)) != 0 and level < maxdepth:
 			children = set([child_i[0] for child_i in res])
@@ -329,6 +334,7 @@ class ModifyFunctions(DatabaseFunctions):
 		'''return parent'''
 		#QUERY = '''SELECT parent,child,rank FROM tree LEFT JOIN rank on (tree.rank_i = rank.rank_i) WHERE child = "{node}"'''.format(node=name)
 		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child = "{node}"'''.format(node=name)
+		logger.debug(QUERY)
 		res = self.query(QUERY).fetchone()
 		return res
 
