@@ -45,11 +45,16 @@ class WriteTaxonomy(object):
 
 	def set_order(self,order):
 		'''Set parent column (if parent or child is first in order)'''
-		logging.debug("Changing order NCBI structure (child first): {parent}".format(parent=self.link_order))
+		logging.debug("Changing order child first: {parent}".format(parent=self.link_order))
 		self.link_order = order
 
 	def set_minimal(self):
 		logging.debug("Set minimal output to True!")
+		self.dbprogram = None
+		if separator != "\t|\t":
+			self.separator = separator
+		else:
+			self.separator = "\t"
 		self.minimal=True
 
 	def set_prefix(self,prefix):

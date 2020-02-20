@@ -27,9 +27,10 @@ class DatabaseConnection(object):
 			if self.verbose:
 				logger.info("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
-		try:
+		try: ## If database connection already exists
 			self.conn
 		except AttributeError:
+			logger.debug("Connecting to {database}".format(database=self.database))
 			self.conn = self.connect(self.database)
 			self.cursor = self.create_cursor(self.conn)
 			logger.info("DB init connect do database...")
@@ -48,19 +49,19 @@ class DatabaseConnection(object):
 	def connect(self,database):
 		'''Create database connection'''
 		try:
-			conn = sqlite3.connect(database)
+			self.conn = sqlite3.connect(database)
 			logger.info("{database} opened successfully.".format(database=database))
-			return conn
+			return self.conn
 		except Exception as e:
-			sys.stderr.write(str(e))
+			logger.debug.write(str(e))
 		raise ConnectionError("Count not connect to the database {database} see above message for details!".format(database=database))
 
 	def create_cursor(self,conn):
 		'''Create a db cursor'''
 		try:
-			cursor = conn.cursor()
+			self.cursor = conn.cursor()
 			logger.debug("cursor created.")
-			return cursor
+			return self.cursor
 		except Exception as e:
 			sys.stderr.write(str(e))
 		raise ConnectionError("Count not create db cursor to {database}".format(database=database))
