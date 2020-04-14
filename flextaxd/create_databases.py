@@ -16,7 +16,7 @@ __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 from flextaxd.custom_taxonomy_databases import __version__
 from importlib import import_module
-        
+
 
 
 ## If script is executed run pipeline of selected options
@@ -116,10 +116,11 @@ def main():
     elif args.verbose:
     	logval = args.verbose
 
-    from datetime import date,time
-    t = time()
+    from datetime import date
+    from datetime import time as dtime
+    t = dtime()
     today = date.today()
-    logpath = args.logs+"FlexTaxD-create-"+today.strftime("%b-%d-%Y")+"{}.log"
+    logpath = args.log+"FlexTaxD-create-"+today.strftime("%b-%d-%Y")+"{}.log"
     if os.path.exists(logpath):
     	logpath=logpath.format("-{:%H:%M}".format(t))
     else: logpath = logpath.format("")
@@ -154,14 +155,14 @@ def main():
         limit = 0
         if args.test:
             limit = 500
-        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip,create_db=args.create_db,debug=args.debug)
-        if verbose: current_time = report_time(current_time)
+        classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=args.verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip,create_db=args.create_db,debug=args.debug)
+        logger.info(report_time(current_time))
         classifierDB.process_folder()
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''
     if args.create_db:
-        if verbose: current_time = report_time(current_time)
+        logger.info(report_time(current_time))
         logger.info("Create database")
         try:
             classifierDB.create_database(args.outdir,args.keep)
