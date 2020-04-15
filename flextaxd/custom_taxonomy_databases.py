@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -244,7 +244,7 @@ def main():
             current_time = report_time(current_time)
             modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
         current_time = report_time(current_time)
-        
+
     ''' 2. Dump custom taxonomy database into NCBI/kraken readable format)'''
     if args.dump or args.dump_mini:
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
