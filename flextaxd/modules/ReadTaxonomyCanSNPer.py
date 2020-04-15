@@ -26,12 +26,17 @@ class ImportFormatError(Exception):
 
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name="T/N.1",rank="family", verbose=False):
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", verbose=False):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
 		self.taxonomy = {}
 		self.taxid_base = taxid_base
 		## Initiate database
+		logger.info(taxonomy_file)
+		logger.debug(root_name)
+		if not root_name:
+			logger.info("Fetching root name from file")
+			root_name = self.get_root_name(taxonomy_file)
 		logger.info("Adding root node {node}!".format(node=root_name))
 		root_i = self.add_node(root_name)
 		self.taxid_base =taxid_base ## reset
@@ -46,6 +51,15 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 
 		self.database.commit()
 		logger.debug("Root: {root} link: [{base}]".format(root=self.root, base=self.taxid_base))
+
+	def get_root_name(self,fin):
+		'''Get the root name of the CanSNP file unless root is specified'''
+		with open(fin) as f:
+			firstline = f.readline()
+			root = firstline.strip().split("\t") ## Root should be either the leftmost annotation in the tree or the only annotation on that row
+			if len(root) == 1:
+				root = root[0]
+		return root
 
 	def add_SNP(self,nodes,i):
 		'''Add name of node to database'''

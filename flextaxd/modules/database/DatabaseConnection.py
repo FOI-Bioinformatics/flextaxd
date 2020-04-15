@@ -25,7 +25,7 @@ class DatabaseConnection(object):
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
 			if self.verbose:
-				logger.info("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
+				logger.debug("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
 		try: ## If database connection already exists
 			self.conn
@@ -33,9 +33,6 @@ class DatabaseConnection(object):
 			logger.debug("Connecting to {database}".format(database=self.database))
 			self.conn = self.connect(self.database)
 			self.cursor = self.create_cursor(self.conn)
-			logger.info("DB init connect do database...")
-		else:
-			logger.info("Connected to database {database}".format(self.database))
 
 	def __str__(self):
 		return "Object of class DatabaseConnection, connected to {database}".format(database=self.database)
