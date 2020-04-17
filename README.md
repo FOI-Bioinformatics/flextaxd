@@ -2,8 +2,8 @@
 
 Flexible Taxonomy Databases - A cross platform tool for customization and merging of various taxonomic classification sources.
 
-Supported sources in version later than v0.1.1:
-* QIIME
+Supported sources in version later than v0.2.0:
+* QIIME (GTDB)
 * NCBI
 * CanSNPer
 * TSV
@@ -18,22 +18,22 @@ Python >=3.6
 
 # Installation
 ```
-## Using pip or conda
-pip3 install flextaxd
+## Using conda
 conda install (-c conda-forge -c bioconda -c defaults) flextaxd
 
-## Using python - download git release https://github.com/FOI-Bioinformatics/flextaxd and run
+## Manual instal python - download git release https://github.com/FOI-Bioinformatics/flextaxd and run
 python setup.py install
 ```
 # Usage
-A new database(sqlite3) file will be created automatically when a taxonomy file is supplied default full path (.ftd)
+A new database(sqlite3) file will be created automatically when a taxonomy file is supplied default full path (.ftd/.db)
 
 Download the latest GTDB files (latest at the time of this update is "bac120_taxonomy_r89.tsv"
 check https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ for latest version)
-```wget https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/bac[120]_taxonomy.tsv```
+
+```
 #### Save the default FlexTaxD into a custom taxonomy database
 ```
-flextaxd --taxonomy_file bac_taxonomy_r86.tsv --taxonomy_type QIIME --database .ftd
+flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --database .ftd
 ```
 
 ### Write the database into NCBI formatted nodes and names.dmp
@@ -70,9 +70,10 @@ GCF_00005211.1\tFrancisella tularensis tularensis
 ```
 
 ## One liner version
-Create, modify and dump your database
+Create, modify and dump your database (observe modification can only be done simultanously when GTDB is the source, otw the genomeid2taxid is occupied with other nessesary files)
+Parent gives the name of the node where the modification should happen --replace will remove all child nodes of the given parent.
 ```
-flextaxd --taxonomy_file bac_taxonomy_r86.tsv --taxonomy_type QIIME --mod_file custom_modification.txt --genomeid2taxid custom_genome_annotations.txt --parent "Francisella tularensis" --dump
+flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --mod_file custom_modification.txt --genomeid2taxid custom_genome_annotations.txt --parent "Francisella tularensis" --dump
 ```
 
 #####
@@ -124,14 +125,14 @@ Requirements: kraken2 or krakenuniq needs to be installed, For the FlexTaxD stan
 Note: If your genome names are different, you can create a custom genome2taxid file and import into your database to match the names of your genome fasta/fa please avoid naming custom fasta files fna as this will be used to detect if genome names are formatted using refseq/genbank naming. Note that the refseq/genbank genomefiles needs to be gzipped (and end with .gz) in their stored location.
 
 ### Create Kraken DB
-First dump your CTDB into names.dmp and nodes.dmp (default) if that was not already done.
+First dump your FlexTaxDatabase into names.dmp and nodes.dmp (default) if that was not already done.
 ```
 flextaxd --dump -o NCBI_database
 ```
 
-Add genomes to a kraken database <my_custom_krakendb> (and create the kraken database using --create_db)
+Add genomes to a kraken database <my_custom_krakendb> (and create the kraken database using --create_db) -o must be set to where the database names and nodes were dumped (NCBI_database)
 ```
-flextaxd-create --kraken_db my_custom_krakendb --genomes_path /path/to/genomes/folder --create_db --krakenversion kraken2
+flextaxd-create --kraken_db path/to/my_custom_krakendb --genomes_path path/to/genomes/folder --create_db --krakenversion kraken2 -o NCBI_database
 ```
 
 The script will find all custom fasta, fa and refseq/genbank fna files in the given path and then add them to the krakendb, if --create_db parameter is given
@@ -143,12 +144,12 @@ conda activate kraken2
 flextaxd-create
     --database NCBI_taxonomy.db         ## flextaxd database file
     -o NCBI_database                    ## output dir (must be the same as where names and nodes.dmp were exported (--dump))
-    --kraken_db NCBI_krakendb           ## Name of kraken database, absolute path not realtive to --outdir (-o)
+    --kraken_db NCBI_krakendb           ## Name of kraken database, relative path from script, not realtive to --outdir (-o)
     --genomes_path refseq/bacteria/     ## Path to ncbi-genome-download folder with bacteria (or other folder structures) using the same as when
-                                        ## the database was created is recommended otw genomes may be missed
-    --create_db                         ## Request script to attempt to create a kraken database (kraken2 or krakenuniq must be installed)
+                                            # the database was created is recommended otw genomes may be missed
+    --create_db                         ## Request script to create a kraken database (kraken2 or krakenuniq must be installed)
     --krakenversion kraken2             ## Select version of kraken which is installed
-    -p 40                               ## Number of cores to use for adding genomes to the kraken database as well as the number of cores
+    --processes 40                      ## Number of cores to use for adding genomes to the kraken database as well as the number of cores
                                             used to run kraken*-build (\*2,uniq)
     --skip "taxid"                      ## exclude genomes in taxid see details below
 ```
