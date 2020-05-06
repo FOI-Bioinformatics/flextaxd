@@ -156,13 +156,13 @@ def main():
         if args.test:
             limit = 500
         classifierDB = classifier(args.database, args.db_name, args.genomes_path,args.outdir,verbose=args.verbose,processes=args.processes,limit=limit,dbprogram=args.dbprogram,params=args.params,skip=args.skip,create_db=args.create_db,debug=args.debug)
-        logger.info(report_time(current_time))
+        report_time(current_time)
         classifierDB.process_folder()
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''
     if args.create_db:
-        logger.info(report_time(current_time))
+        report_time(current_time)
         logger.info("Create database")
         try:
             classifierDB.create_database(args.outdir,args.keep)
