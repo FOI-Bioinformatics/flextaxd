@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 -c
+#!/usr/bin/env python3
 
 '''
 This script is built to handle import and modification of different taxonomy sources

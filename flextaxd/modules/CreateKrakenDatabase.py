@@ -9,9 +9,11 @@ import sys
 import gzip
 import random
 import os
-from multiprocessing import Process, Queue
-from subprocess import Popen,PIPE
+import glob
+from multiprocessing import Process,Manager,Pool
+from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
+from modules.functions import download_genome
 
 import logging
 logger = logging.getLogger(__name__)
@@ -58,18 +60,22 @@ class CreateKrakenDatabase(object):
 	def kraken_fasta_header_multiproc(self,filepaths,genomes):
 		'''function to run addition of genomes in paralell'''
 		jobs = []
+		manager = Manager()
+		added = manager.Queue()
 		for i in range(self.processes):
-			p = Process(target=self.kraken_fasta_header, args=(filepaths[i],genomes[i]))
+			p = Process(target=self.kraken_fasta_header, args=(filepaths[i],genomes[i],added))
 			p.daemon=True
 			p.start()
 			jobs.append(p)
 		for job in jobs:
 			job.join()
+		self.added = added.qsize()
 		return "Processes done"
 
-	def kraken_fasta_header(self,filepaths, genomes):
+	def kraken_fasta_header(self,filepaths, genomes,added):
 		'''Change fasta file to contain kraken fasta header'''
 		count = 0
+
 		for i in range(len(filepaths)):
 			genome = genomes[i]
 			filepath = filepaths[i]
@@ -84,25 +90,29 @@ class CreateKrakenDatabase(object):
 				count +=1
 				continue
 			if self.create_db:
-				tmpfile = zopen(tmppath,"w")
-				taxidlines = []
 				if taxid not in self.skiptax:
+					tmpfile = zopen(tmppath,"w")
+					taxidlines = []
 					with zopen(filepath,"r") as f:
 						for line in f:
 							if line.startswith(">"):
 								row = line.strip().split(" ")
 								if len(row) == 1:
 									row.append("")
-								# if not self.krakenversion == "krakenuniq":
-								# 	line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## If kraken2 add kraken header (nessesary?)
+								if not self.krakenversion == "krakenuniq":
+									line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## Nessesary to be able to add sequences outside NCBI
 								taxidlines.append("\t".join([row[0].lstrip(">"), str(taxid), " ".join(row[1:])])) ## print chromosome name to seqtoid map
 							print(line, end="", file=tmpfile)
-					tmpfile.close()
+					tmpfile.close()  ## Close and save tmp file
 					with open(self.seqid2taxid, "a") as seqidtotaxid:
 						print("\n".join(taxidlines),end="\n",file=seqidtotaxid)
 					output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
 					os.rename(tmppath, output)
-					os.system(self.krakenversion+"-build --add-to-library {file} --db {krakendb} >/dev/null 2>&1".format(file=output,krakendb=self.krakendb))
+					try:
+						ans = check_output(self.krakenversion+"-build --add-to-library {file} --db {krakendb}  >/dev/null 2>&1 ".format(file=output,krakendb=self.krakendb),shell=True)
+						added.put(1)
+					except CalledProcessError as e:
+						logger.debug("Could not process {output}, the following error occured:\n{e}".format(output=output,e=e))
 		return
 
 	def get_skip_list(self):
@@ -121,10 +131,12 @@ class CreateKrakenDatabase(object):
 		self.genome_names = []
 		logger.info("Number of genomes annotated in database {n}".format(n=len(id_dict)))
 		count = 0
+		downloaded_n = 0
 		ref_ext = [".fna"]
 		oth_ext = [".fasta",".fa"]
 		ext = ref_ext+oth_ext
 		self.notused = set()
+		download_files = []
 		for root, dirs, files in os.walk(self.genomes_path,followlinks=True):
 			for file in files:
 				fname = file.strip(".gz") ## remove gz if present
@@ -157,28 +169,69 @@ class CreateKrakenDatabase(object):
 								genome_name = genome_name.strip().replace("GCA","GCF")
 							else:
 								genome_name = genome_name.strip().replace("GCF","GCA")
+							'''Try to download the genome from official source'''
 							try:
-								'''Final try does the file have a GCF/GCA start ends with fna but is still a custom named genome'''
+								'''Final try, does the file have a GCF/GCA start ends with fna but is still a custom named genome'''
 								taxid = id_dict[fname.rsplit(".",1)[0]] ## strip .fa .fasta or .fna from base filename
 							except KeyError:
 								'''This file had no match in the reference folder, perhaps it is not annotated in the database'''
 								self.notused.add(genome_name)
 								logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=genome_name.strip()))
 								continue
-					filepath = os.path.join(root, file)  ## Save the path to the file
-					self.files.append(filepath)
-					self.genome_names.append(genome_name.strip())
-					count+=1
+					if not file.endswith("from_genomic.fna.gz"):
+						filepath = os.path.join(root, file)  ## Save the path to the file
+						logger.debug("File added")
+						self.files.append(filepath)
+						self.genome_names.append(genome_name.strip())
+						count+=1
 				elif file == "MD5SUMS" or file.endswith(".txt"):
 					pass
 				else:
 					logger.debug("#Warning {gcf} does not have a valid file ending".format(gcf=file))
-		processes = self.processes
-		self.files = self.split(self.files,processes)
-		self.genome_names = self.split(self.genome_names,processes)
+		self.files = list(set(self.files))
+		self.genome_names = list(set(self.genome_names))
+		'''Try to download unknown files'''
+		existing_genomes = []
+		'''Must add both GCA and GCF name of each genome since both might exist'''
+		for genome in self.genome_names:
+			genome = genome.split("_",1)[1]
+			existing_genomes += ["GCA_"+genome,"GCF_"+genome]
+		for file_not_present in set(id_dict.keys()) - set(existing_genomes):
+			download_files.append({"genome_id":file_not_present,"outdir":self.genomes_path+"downloads/"})
+
+		if len(download_files) > 0:
+			logger.info("Found {count} files, {dn} files not present, download files".format(count=len(self.files),dn=len(download_files)))
+			np = self.processes
+			if int(self.processes) > 25: ## 50 is Maximum allowed simultanous connections to ncbi
+				np = 25
+			p = Pool(np)
+			for output, error in p.imap(download_genome, download_files):
+				if error is None:
+					logger.debug("{genome} downloaded!".format(genome=output))
+					downloaded_n +=1
+					## Add the downloaded genome to the count
+					count+=1
+					if downloaded_n % 100 == 0:
+						logger.info("downloaded {n} genomes".format(n=downloaded_n))
+					try:
+						for file in os.listdir(glob.glob(os.path.join(self.genomes_path,"downloads",output+"*"))[0]):
+							if file.endswith("_genomic.fna.gz") and "from" not in file:
+								self.files.append(os.path.join(self.genomes_path,"downloads",file))
+								gname = os.path.basename(file)
+								genome_name = gname.split("_",2)
+								genome_name = genome_name[0]+"_"+genome_name[1]
+					except:
+						logger.debug("Download error {output}".format(output=output))
+						continue
+					self.genome_names.append(genome_name.strip())
+				else:
+					pass #logger.error(error)
+		self.files = self.split(self.files,self.processes)
+		self.genome_names = self.split(self.genome_names,self.processes)
 		self.kraken_fasta_header_multiproc(self.files,self.genome_names)
-		if self.verbose and len(self.notused) > 0: logger.info("#Warning {gcf} genomes could not be matched to any database entry!".format(gcf=len(self.notused)))
-		logger.info("Number of genomes added to {krakenversion} database: {count}".format(count=count,krakenversion=self.krakenversion))
+		if self.verbose and len(self.notused) > 0: logger.info("#Warning {gcf} genomes in the database could not be matched to any database entry!".format(gcf=len(self.notused)))
+		logger.info("Number of genomes succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
+		logger.info("Downloaded genomes {downloaded}".format(downloaded=downloaded_n))
 		return self.files
 
 	def split(self,a, n):

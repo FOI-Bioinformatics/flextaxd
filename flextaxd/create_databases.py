@@ -103,6 +103,9 @@ def main():
 
     args = parser.parse_args()
 
+    if not os.path.exists(args.database):
+        raise FileNotFoundError("No database file could be found, please provide a FlexTaxD database to run FlexTaxD!")
+
     if args.version:
         print("{name}: version {version}".format(name=__pkgname__,version=__version__))
         print("Maintaner group: {maintaner} ({email})".format(maintaner=__maintainer__,email=", ".join(__email__)))
