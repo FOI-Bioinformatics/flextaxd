@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 -c
+#!/usr/bin/env python3
 
 '''
 Modify tree from database or source
@@ -186,11 +186,11 @@ class ModifyTree(object):
 		with open(genomeid2taxid) as f:
 			for row in f:
 				genome,name = row.strip().split(self.sep)
-				logger.info(genome,name)
+				logger.debug("genome: {genome}, name: {name}".format(genome=genome,name=name))
 				try:
 					id = self.nodeDict[name.strip()]
 				except KeyError:
-					logger.info("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
+					logger.debug("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
 				else:
 					## If no exception occured add genome
 					update["set_value"] = id
@@ -201,7 +201,6 @@ class ModifyTree(object):
 							updated += 1
 						else:
 							added += 1
-					#self.taxonomydb.commit()
 		self.taxonomydb.commit()
 		gid = self.taxonomydb.get_genomes()
 		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
