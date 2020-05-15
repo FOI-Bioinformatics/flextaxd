@@ -5,6 +5,8 @@ Read QIIME formatted taxonomy files and holds a dictionary with taxonomy tree an
 '''
 
 from .ReadTaxonomy import ReadTaxonomy
+import logging
+logger = logging.getLogger(__name__)
 
 class ReadTaxonomyQIIME(ReadTaxonomy):
 	"""docstring for ReadTaxonomyQIIME."""
@@ -84,6 +86,9 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		'''Read the qiime format file and parse out the relation tree (nodes.dmp)'''
 		self.sep = sep
 		self.tree = set()
+		self.missed = 0
+		self.errors = 0
+		self.added = 0
 		taxid_start = self.taxid_base
 		with open(self.input) as f:
 			'''Each row defines a GCF genome file connected to a tree level'''
@@ -92,13 +97,22 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 					data = row.strip().split("\t")
 					try:
 						genome_id = data[0].split("_",1)[1]   ## Genome ID
+						#print(genome_id)
 					except IndexError:
-						pass
+						logger.debug("Row {row} could not be parsed".format(row=data))
+						self.errors +=1
 					### Walk through tree and make sure all nodes back to root are annotated!
 					taxonomy = list(reversed(data[-1].split(";")))
 					taxonomy_i = self.parse_tree(taxonomy)
 					if taxonomy_i:
-						self.database.add_genome(genome=genome_id,_id=taxonomy_i)
+						test = self.database.add_genome(genome=genome_id,_id=taxonomy_i)
+						if not str(test).startswith("UNIQUE"):
+							self.added +=1
+					else:
+						logger.debug("Warning taxonomy: {taxonomy} could not be parsed!!")
+						self.missed +=1
 		self.database.commit()
 		self.length = self.taxid_base - taxid_start
-		print("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
+		logger.info("Genomes added to database: {genomes}".format(genomes=self.added))
+		logger.debug("Genomes not added to database {missed} errors {errors}".format(missed=self.missed,errors=self.errors))
+		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
