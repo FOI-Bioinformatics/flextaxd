@@ -30,7 +30,7 @@ A new database(sqlite3) file will be created automatically when a taxonomy file 
 Download the latest GTDB files (latest at the time of this update is "bac120_taxonomy_r89.tsv"
 check https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ for latest version)
 
-```
+
 #### Save the default FlexTaxD into a custom taxonomy database
 ```
 flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --database .ftd
@@ -57,6 +57,7 @@ flextaxd --mod_file custom_modification.txt --parent "Francisella tularensis" --
 ```
 #### Example of custom_modifications.txt and custom_genome_annotations.txt
 The modification file must contain three columns \<header\> and \<node\> and \<level\>) -> (Note that these tags in the file below are only there to show what is what in the file, also any number of extra tabs/spaces are there only to visualize columns! Only headers, node names and \\t \\n chars should be in the file).
+
 ```
 <header>parent                          \tchild                                     \tlevel\n
 <node>Francisella tularensis             \tFrancisella tularensis tularensis         \tsubspecies\n
