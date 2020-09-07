@@ -14,6 +14,7 @@ from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
 from modules.functions import download_genome
+from time import sleep
 
 import logging
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def zopen(path,*args, **kwargs):
 
 class CreateKrakenDatabase(object):
 	"""docstring for CreateKrakenDatabase."""
-	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip="",create_db=False,debug=False):
+	def __init__(self, database, kraken_database, genomes_path, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip="",create_db=False,debug=False,kraken_processes=None,skip_download=False):
 		super(CreateKrakenDatabase, self).__init__()
 		self.krakenversion = dbprogram
 		self.database = DatabaseFunctions(database)
@@ -44,11 +45,21 @@ class CreateKrakenDatabase(object):
 		self.files = []
 		self.params = params
 		self.processes = processes
+		self.skip_download = skip_download ## If true do not download extra genomes from NCBI
+		self.genome_path = {}
+		if not kraken_processes:
+			self.kraken_processes = self.processes
+		else:
+			self.kraken_processes = kraken_processes
 		self.krakendb= kraken_database
-		self.ncbi_rewrite_speed = "fastest"
 		self.verbose = verbose
 		self.create_db = create_db
+
 		self.debug = debug
+		if self.debug:
+			self.taxidmap_debug = self.database.get_nodes()
+		self.seqhead_validator = {}
+		self.seqhead_count = 0
 		if skip:
 			self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
 		else:
@@ -57,13 +68,14 @@ class CreateKrakenDatabase(object):
 		if not os.path.exists("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb)):
 			os.system("mkdir -p {krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
 
-	def kraken_fasta_header_multiproc(self,filepaths,genomes):
+	def kraken_fasta_header_multiproc(self,genomes):
 		'''function to run addition of genomes in paralell'''
+		logger.info("Processing files; create kraken seq.map")
 		jobs = []
 		manager = Manager()
 		added = manager.Queue()
 		for i in range(self.processes):
-			p = Process(target=self.kraken_fasta_header, args=(filepaths[i],genomes[i],added))
+			p = Process(target=self.kraken_fasta_header, args=(genomes[i],added))
 			p.daemon=True
 			p.start()
 			jobs.append(p)
@@ -72,16 +84,18 @@ class CreateKrakenDatabase(object):
 		self.added = added.qsize()
 		return "Processes done"
 
-	def kraken_fasta_header(self,filepaths, genomes,added):
+	def kraken_fasta_header(self,genomes,added):
 		'''Change fasta file to contain kraken fasta header'''
 		count = 0
-
-		for i in range(len(filepaths)):
+		batchint = random.randint(10**3,10**7)
+		tmpbatch = "{db_path}/library/batch_{rand}.fasta".format(db_path=self.krakendb,rand=batchint)
+		check_output("touch {tmpfile}".format(tmpfile=tmpbatch),shell=True)
+		for i in range(len(genomes)):
 			genome = genomes[i]
-			filepath = filepaths[i]
+			filepath = self.genome_path[genome]
 			kraken_header = "kraken:taxid"
 			tmpname = ".tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
-			tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")#self.outdir+"/.tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
+			tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")
 			'''Get taxid from database'''
 			try:
 				taxid = self.accession_to_taxid[genome]
@@ -91,17 +105,36 @@ class CreateKrakenDatabase(object):
 				continue
 			if self.create_db:
 				if taxid not in self.skiptax:
+					'''Open temp file for manipulated (unzipped) genome fasta files'''
 					tmpfile = zopen(tmppath,"w")
-					taxidlines = []
+					taxidlines = []  ## Holder for sequences to be added to the seqid2taxid map from each file
+					'''Open input genome fasta file'''
 					with zopen(filepath,"r") as f:
 						for line in f:
 							if line.startswith(">"):
+								taxidmap = []
 								row = line.strip().split(" ")
+								seq_header = row[0]
+								if self.debug:
+									self.seqhead_validator[seq_header] = [seq_header, genome, str(taxid),self.taxidmap_debug[taxid],filepath]
+									self.seqhead_count +=1
 								if len(row) == 1:
 									row.append("")
+								endhead = " ".join(row[1:])
+								if True:  ## Remove end heading in all files as it may contain bad chars
+									endhead = "\n"
+								'''Format sequence header'''
 								if not self.krakenversion == "krakenuniq":
-									line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + " ".join(row[1:])	 ## Nessesary to be able to add sequences outside NCBI
-								taxidlines.append("\t".join([row[0].lstrip(">"), str(taxid), " ".join(row[1:])])) ## print chromosome name to seqtoid map
+									line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + endhead	 ## Nessesary to be able to add sequences outside NCBI
+								'''Format seqid2taxid map'''
+								if not self.krakenversion == "kraken2":
+									taxidmap = [row[0].lstrip(">"), str(taxid), endhead]
+								else:
+									taxidmap= ["TAXID", row[0].lstrip(">") + "|" + kraken_header + "|" + str(taxid), str(taxid)]
+								'''Add taxid to map'''
+								if taxidmap[0] != "" and taxid: ## print chromosome name to seqtoid map
+									taxidlines.append("\t".join(taxidmap)) ## print chromosome name to seqtoid map
+								'''Don´t include empty lines'''
 							print(line, end="", file=tmpfile)
 					tmpfile.close()  ## Close and save tmp file
 					with open(self.seqid2taxid, "a") as seqidtotaxid:
@@ -109,11 +142,22 @@ class CreateKrakenDatabase(object):
 					output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
 					os.rename(tmppath, output)
 					try:
-						ans = check_output(self.krakenversion+"-build --add-to-library {file} --db {krakendb}  >/dev/null 2>&1 ".format(file=output,krakendb=self.krakendb),shell=True)
+						#ans = check_output(self.krakenversion+"-build --add-to-library {file} --skip-maps --db {krakendb}  > /dev/null 2>&1 ".format(file=output,krakendb=self.krakendb),shell=True)
+						check_output("cat {output} >> {tmpbatch}".format(output=output,tmpbatch=tmpbatch),shell=True)
 						added.put(1)
 					except CalledProcessError as e:
 						logger.debug("Could not process {output}, the following error occured:\n{e}".format(output=output,e=e))
-		return
+					finally:
+						os.remove(output)
+		'''Validate file'''
+		if self.debug:
+			if len(self.seqhead_validator.keys()) != self.seqhead_count:
+				raise Exception("Sequence headers are not unique added: {added} unique: {nunique}".format(nunique=len(self.seqhead_validator.keys()), added=self.seqhead_count))
+			tmpdebug = "{db_path}/library/batch_{rand}.debug".format(db_path=self.krakendb,rand=batchint)
+			with open(tmpdebug, "w") as debugwrite:
+				for seq_header in self.seqhead_validator.keys():
+					print("\t".join(self.seqhead_validator[seq_header]),end="\n",file=debugwrite)
+		return tmpbatch
 
 	def get_skip_list(self):
 		'''get taxonomy ids not wanted'''
@@ -123,24 +167,28 @@ class CreateKrakenDatabase(object):
 		'''Skip allows a list of tax ids to be passed and then excluded from the database'''
 		skiptax = []
 		for t in skip:
-			skiptax += self.taxonomydb.get_children()
+			skiptax |= self.taxonomydb.get_children()
 		return skiptax
 
 	def process_folder(self):
 		id_dict = self.accession_to_taxid
 		self.genome_names = []
 		logger.info("Number of genomes annotated in database {n}".format(n=len(id_dict)))
-		count = 0
+		count = 1
 		downloaded_n = 0
 		ref_ext = [".fna"]
 		oth_ext = [".fasta",".fa"]
 		ext = ref_ext+oth_ext
 		self.notused = set()
 		download_files = []
+		logger.info("Process genome path ({path})".format(path=self.genomes_path))
 		for root, dirs, files in os.walk(self.genomes_path,followlinks=True):
 			for file in files:
+				if count % 1000 == 0:
+					print("Processed {count} genomes".format(count=count), end="\r")
 				fname = file.strip(".gz") ## remove gz if present
 				if fname.endswith(tuple(ext)):
+					count +=1
 					if (fname.startswith("GCF_") or fname.startswith("GCA_")) and fname.endswith(tuple(ref_ext)):
 						## Rename file to only GCF_name as this is what would be present
 						genome_name = fname.split("_",2)
@@ -181,14 +229,14 @@ class CreateKrakenDatabase(object):
 					if not file.endswith("from_genomic.fna.gz"):
 						filepath = os.path.join(root, file)  ## Save the path to the file
 						logger.debug("File added")
-						self.files.append(filepath)
+						#self.files.append(filepath)
 						self.genome_names.append(genome_name.strip())
-						count+=1
+						self.genome_path[genome_name.strip()] = filepath
 				elif file == "MD5SUMS" or file.endswith(".txt"):
 					pass
 				else:
 					logger.debug("#Warning {gcf} does not have a valid file ending".format(gcf=file))
-		self.files = list(set(self.files))
+		#self.files = list(set(self.files))
 		self.genome_names = list(set(self.genome_names))
 		'''Try to download unknown files'''
 		existing_genomes = []
@@ -199,42 +247,57 @@ class CreateKrakenDatabase(object):
 		for file_not_present in set(id_dict.keys()) - set(existing_genomes):
 			download_files.append({"genome_id":file_not_present,"outdir":self.genomes_path+"downloads/"})
 
-		if len(download_files) > 0:
+		if len(download_files) > 0 and not self.skip_download:
 			logger.info("Found {count} files, {dn} files not present, download files".format(count=len(self.files),dn=len(download_files)))
+			sleep(1)
+			#logger.debug(download_files)
 			np = self.processes
 			if int(self.processes) > 25: ## 50 is Maximum allowed simultanous connections to ncbi
 				np = 25
-			p = Pool(np)
-			for output, error in p.imap(download_genome, download_files):
-				if error is None:
-					logger.debug("{genome} downloaded!".format(genome=output))
-					downloaded_n +=1
-					## Add the downloaded genome to the count
-					count+=1
-					if downloaded_n % 100 == 0:
-						logger.info("downloaded {n} genomes".format(n=downloaded_n))
-					try:
-						for file in os.listdir(glob.glob(os.path.join(self.genomes_path,"downloads",output+"*"))[0]):
-							if file.endswith("_genomic.fna.gz") and "from" not in file:
-								self.files.append(os.path.join(self.genomes_path,"downloads",file))
-								gname = os.path.basename(file)
-								genome_name = gname.split("_",2)
-								genome_name = genome_name[0]+"_"+genome_name[1]
-					except:
-						logger.debug("Download error {output}".format(output=output))
-						continue
-					self.genome_names.append(genome_name.strip())
-				else:
-					pass #logger.error(error)
-		self.files = self.split(self.files,self.processes)
-		self.genome_names = self.split(self.genome_names,self.processes)
-		self.kraken_fasta_header_multiproc(self.files,self.genome_names)
-		if self.verbose and len(self.notused) > 0: logger.info("#Warning {gcf} genomes in the database could not be matched to any database entry!".format(gcf=len(self.notused)))
+			self.download_map = self._split(download_files,np)
+			#print(len(self.download_map))
+			logger.info("Using {np} parallel processes to NCBI".format(np=np))
+
+
+
+			'''function to run download of genomes in paralell'''
+			logger.info("Processing files; create kraken seq.map")
+			jobs = []
+			manager = Manager()
+			added = manager.Queue()
+			fpath = manager.Queue()
+			for i in range(np):
+				p = Process(target=download_genome, args=(self.download_map[i],added,fpath))
+				p.daemon=True
+				p.start()
+				jobs.append(p)
+			for job in jobs:
+				job.join()
+			self.added = added.qsize()
+
+			while True:
+				l = len(self.genome_names)
+				self.genome_names += added.get()
+				self.genome_path[genome_name.strip()] = fpath.get()
+				if l == len(self.genome_names):
+					break
+
+		#self.file_split = self._split(self.files,self.processes)
+		self.genome_names_split = self._split(self.genome_names,self.processes)
+		if not os.path.exists("{db_path}/library/".format(db_path=self.krakendb)):
+			logger.info("Create library directory")
+			os.mkdir("{db_path}/library/".format(db_path=self.krakendb))
+		self.kraken_fasta_header_multiproc(self.genome_names_split)
+		'''Merge library files into one library'''
+		check_output("cat {db_path}/library/batch*.fasta > {db_path}/library/library.fna".format(db_path=self.krakendb),shell=True)
+		check_output("rm {db_path}/library/batch*.fasta".format(db_path=self.krakendb),shell=True)
+
+		if self.verbose and len(self.notused) > 0: logger.info("#Warning {gcf} genomes in the input folder could not be matched to any database entry!".format(gcf=len(self.notused)))
 		logger.info("Number of genomes succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
 		logger.info("Downloaded genomes {downloaded}".format(downloaded=downloaded_n))
 		return self.files
 
-	def split(self,a, n):
+	def _split(self,a, n):
 		k, m = divmod(len(a), n)
 		return list(a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
 
@@ -247,13 +310,14 @@ class CreateKrakenDatabase(object):
 		os.system("cp {outdir}/*names.dmp {krakendb}/taxonomy/names.dmp".format(outdir=outdir,krakendb=self.krakendb))
 		os.system("cp {outdir}/*nodes.dmp {krakendb}/taxonomy/nodes.dmp".format(outdir=outdir,krakendb=self.krakendb))
 		if self.krakenversion != "kraken2": os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
-		else: os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
+		else: os.system("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
 		logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
-		logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.processes, params=self.params))
-		os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.processes, params=self.params))
+		logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.kraken_processes, params=self.params))
+		os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.kraken_processes, params=self.params))
 		if not keep:
+			pass
 			## Since kraken2 is removing too much on clean it might be better to do this manually so certain log files can be saved
 			#os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
-			logger.info("Cleaning up tmp files")
-			os.system('find {krakendb} -maxdepth 1 -name "*.f*a" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
+			#logger.info("Cleaning up tmp files")
+			#os.system('find {krakendb} -maxdepth 1 -name "*.f*a" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
 		logger.info("{krakenversion} database created".format(krakenversion=self.krakenversion))

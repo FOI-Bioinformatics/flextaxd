@@ -5,15 +5,16 @@ Read QIIME formatted taxonomy files and holds a dictionary with taxonomy tree an
 '''
 
 from .ReadTaxonomy import ReadTaxonomy
+from .database.DatabaseConnection import DatabaseFunctions
 import logging
 logger = logging.getLogger(__name__)
 
 class ReadTaxonomyQIIME(ReadTaxonomy):
 	"""docstring for ReadTaxonomyQIIME."""
-	def __init__(self, taxonomy_file=False, names_dmp=False, database=False,  taxid_base=1):
-		super(ReadTaxonomyQIIME, self).__init__(database=database)
+	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1):
+		super(ReadTaxonomyQIIME, self).__init__(self)
+		self.database = DatabaseFunctions(database,verbose=verbose)
 		self.input = taxonomy_file
-		self.taxonomy = {}
 		self.names = {}
 		self.taxid_base = taxid_base
 		self.taxonomy = {}
@@ -31,18 +32,18 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 				"g": "genus",
 				"s": "species"
 		}
-
+		self.set_qiime(True)
 		### Add root name these manual nodes are required when parsing the GTDB database!
-		self.add_node("root")
-		self.add_node("cellular organism")
+		self.add_node("root")  ## Allways set in ReadTaxonomy
+		self.add_node("cellular organisms")
 		self.add_node("Bacteria")
 
 		self.add_rank("n")
 		self.add_rank("sk")
 		## Add basic links
-		self.add_link(1, 1,rank="n")
-		self.add_link(2, 1,rank="n")
-		self.add_link(3, 2,rank="sk")
+		self.add_link(child=1, parent=1,rank="n")
+		self.add_link(child=2, parent=1,rank="n")
+		self.add_link(child=3, parent=2,rank="sk")
 
 	def parse_taxonomy(self):
 		'''Parse taxonomy information'''

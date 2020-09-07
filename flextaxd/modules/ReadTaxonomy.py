@@ -16,7 +16,7 @@ class InputError(Exception):
 
 class ReadTaxonomy(object):
 	"""docstring for ReadTaxonomy."""
-	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=".taxonomydb",verbose=False):
+	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=".taxonomydb",verbose=False,ncbi=False):
 		super(ReadTaxonomy, self).__init__()
 		### Connect to or create database
 		self.database = DatabaseFunctions(database,verbose=verbose)
@@ -25,10 +25,19 @@ class ReadTaxonomy(object):
 		self.taxonomy = {}
 		self.rank = {}
 		self.levelDict = {}
-		self.names = {}
 		self.sep = "\t"
 		self.length = 0
 		self.ids = 0
+		self.qiime = 0
+
+		## Add base node
+		self.add_node("root")
+		self.add_rank("no rank",ncbi=True)
+		## Add basic link
+		self.add_link(child=1, parent=1,rank="no rank")
+
+	def set_qiime(self,opt):
+		self.qiime = opt
 
 	#@staticmethod
 	def parse_taxonomy(self,treefile=False):
@@ -41,17 +50,30 @@ class ReadTaxonomy(object):
 
 	def add_rank(self, rank,ncbi=False):
 		'''Insert rank into database'''
-		if not ncbi:
-			rank_i = self.database.add_rank(self.levelDict.get(rank))
+		try:
+			return self.rank[rank]
+		except KeyError:
+			pass
+		if rank:
+			try:
+				rank = int(rank)
+				rank_i = self.database.add_rank(rank)
+			except ValueError:
+				if not ncbi:
+					rank_i = self.database.add_rank(self.levelDict.get(rank))
+				else:
+					rank_i = self.database.add_rank(rank)
+			self.rank[rank] = rank_i
 		else:
-			rank_i = self.database.add_rank(rank)
-		self.rank[rank] = rank_i
+			return False
 		return rank_i
 
-	def add_link(self, child, parent,rank="no rank"):
+	def add_link(self, child=None, parent=None,rank="no rank"):
 		'''Add relationship in tree'''
 		#print(child,parent,rank)
-		self.database.add_link(child,parent,self.rank[rank])
+		if not child and parent:
+			raise InputError("A link requires both a child and a parent!")
+		self.database.add_link(child=child,parent=parent,rank=self.rank[rank])
 		self.ids+=1
 
 	def add_node(self, description,id=False):
@@ -59,7 +81,7 @@ class ReadTaxonomy(object):
 			extend databaseFunction add_node function using self.taxonomy
 			dict to keep track of which nodes were already added
 		'''
-		#logger.debug("Node desc: {desc} id: {id}".format(desc=description,id=id))
+		logger.debug("Node desc: {desc} id: {id}".format(desc=description,id=id))
 		self.taxid_base = self.database.add_node(description,id)
 		self.taxonomy[description] = self.taxid_base
 		return self.taxid_base
@@ -69,16 +91,23 @@ class ReadTaxonomy(object):
 		'''Read a tab separated node file and store a dictionary with names in object'''
 		logger.info("Read nodes in taxonomy file {}".format(treefile))
 		swap = False
+		rank = "no rank"  #Base rank if rank is not used
 		if not treefile:
 			treefile = self.taxonomy_file
 		with open(treefile, "r") as _treefile:
 			headers = _treefile.readline().strip().split(self.sep)
 			if "parent" not in headers or "child" not in headers:
 				raise InputError("Your input tree file does not contain the headers to specify child and parent!")
-			if headers[0] == "child":
+			if headers[0] == "parent":
 				swap = True
+			logger.debug("Swap: {swap}".format(swap=swap))
 			for tree_row in _treefile:
 				data = tree_row.strip().split(self.sep)
+				logger.debug(data)
+				if len(data) > 2:
+					rank = data.pop().strip()
+					if rank.strip() != "":
+						self.add_rank(rank)
 				if swap:
 					data[0],data[1] = data[1],data[0]
 				'''Add nodes into database'''
@@ -86,17 +115,21 @@ class ReadTaxonomy(object):
 					'''Check for empty rows'''
 					continue
 				for node in data:
+					logger.debug(node)
+					node = node.strip()
 					try:
-						self.names[node]
+						self.taxonomy[node]
 					except KeyError:
-						self.names[node] = self.database.add_node(node)
+						logger.debug("Add node: {node}".format(node=node))
+						self.taxonomy[node] = self.add_node(node)
 						self.ids +=1
-				self.database.add_link(child=data[0],parent=data[1])
+				#logger.debug("Add link: {parent}-{child}".format(parent=data[1].strip(),child=data[0].strip()))
+				self.add_link(child=self.taxonomy[data[0].strip()],parent=self.taxonomy[data[1].strip()],rank=rank)
 				self.length +=1
 			self.database.commit()
 
 	def parse_genomeid2taxid(self,genomeid2taxid):
-		'''Parse file that annotates genome_id´s to nodes in the CanSNPer tree'''
+		'''Parse file that annotates genome_id´s to nodes in the tree'''
 		nodeDict = self.database.get_nodes()
 		with open(genomeid2taxid,"rt") as f:
 			headers = f.readline().strip().split("\t")

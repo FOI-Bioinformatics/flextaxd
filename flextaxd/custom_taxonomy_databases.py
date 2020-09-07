@@ -20,13 +20,13 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.2.2"
+__version__ = "0.2.4"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
 __maintainer__ = "FOI bioinformatics group"
 __email__ = ["bioinformatics@foi.se","david.sundell@foi.se"]
-__date__ = "2020-01-15"
+__date__ = "2020-08-28"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
@@ -105,6 +105,7 @@ def main():
     basic.add_argument("--dump", action='store_true', help="Write database to names.dmp and nodes.dmp")
     basic.add_argument('--dump_mini', action='store_true', help="Dump minimal file with tab as separator")
     basic.add_argument("--force", action='store_true', help="use when script is implemented in pipeline to avoid security questions on overwrite!")
+    basic.add_argument('--validate', action='store_true', help="Validate database format")
 
     rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
@@ -119,6 +120,7 @@ def main():
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,  help='Path to genome folder is required when using NCBI_taxonomy as source')
     mod_opts.add_argument('-p', '--parent',metavar="", default=False, help="Parent from which to add (replace see below) branch")
     mod_opts.add_argument('--replace', action='store_true', help="Add if existing children of parents should be removed!")
+    mod_opts.add_argument('--clean_database',	action='store_true', help="Debug output")
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
     out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__, help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
@@ -127,13 +129,11 @@ def main():
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
 
     debugopts = parser.add_argument_group("Logging and debug options")
-    #debugopts.add_argument('--tmpdir', 			metavar='', default="/tmp/FlexTaxD",			help="Specify reference directory")
     debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
     debugopts.add_argument('--verbose',			action='store_const', const=logging.INFO,				help="Verbose output")
     debugopts.add_argument('--debug',				action='store_const', const=logging.DEBUG,				help="Debug output")
     debugopts.add_argument('--supress',				action='store_const', const=logging.ERROR,	default=logging.WARNING,			help="Supress warnings")
-    debugopts.add_argument('--quiet',               action='store_true', default=False, help="Don´t show logging messages in terminal!")
-    #debugopts.add_argument('--version',			action='store_true', 				help=argparse.SUPPRESS)
+    debugopts.add_argument('--quiet',               action='store_true', default=False, help="Dont show logging messages in terminal!")
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
@@ -146,7 +146,6 @@ def main():
         exit()
 
     ### Setup logging
-
     logval = args.supress
     if args.debug:
     	logval = args.debug
@@ -185,6 +184,12 @@ def main():
         force = True
 
     '''Check argument input logics'''
+    if args.validate:
+        from modules.database.DatabaseConnection import ModifyFunctions
+        db = ModifyFunctions(args.database)
+        db.validate_tree()
+        exit("Validation comleted!")
+
     if args.mod_file or args.mod_database:
         if not args.parent:
             raise InputError("Argument --parent is required when updating the database!")
@@ -211,6 +216,17 @@ def main():
         if not os.path.exists(args.outdir):
             os.system("mkdir -p {outdir}".format(outdir = args.outdir))
 
+    '''Special option, clean database'''
+    if args.clean_database and not (args.mod_file or args.mod_database):
+        if args.taxonomy_type == "NCBI":
+            logger.info("Clean database NCBI mode")
+            ncbi=True
+        else:
+            ncbi=False
+        modify_module = dynamic_import("modules", "ModifyTree")
+        modify_obj = modify_module(database=args.database,clean_database=args.clean_database,taxid_base=args.taxid_base)
+        modify_obj.clean_database(ncbi=ncbi)
+
     ''' 0. Create taxonomy database (if it does not exist)'''
     if args.taxonomy_file:
         if not os.path.exists(args.database) or force:
@@ -234,16 +250,29 @@ def main():
 
     ''' 1. Modify database, if datasource for modification of current database is supplied process this data'''
     if args.mod_file or args.mod_database:
+        if not os.path.exists(args.database):
+            raise OSError("{file} does not exist!".format(file=args.database))
         if args.mod_file and not args.genomeid2taxid:
             logger.critical("No genomeid2taxid file given!")
         logger.info("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace)
+        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,taxid_base=args.taxid_base)
         modify_obj.update_database()
         if args.mod_file:
             current_time = report_time(current_time)
             modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
         current_time = report_time(current_time)
+
+    '''Special, only add new genomes'''
+    if args.genomeid2taxid and not (args.mod_file or args.mod_database or args.taxonomy_file):
+        modify_module = dynamic_import("modules", "ModifyTree")
+        modify_obj = modify_module(database=args.database, update_genomes=True,taxid_base=args.taxid_base)
+        modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
+
+    if (args.mod_file or args.mod_database) and args.clean_database:
+        modify_module = dynamic_import("modules", "ModifyTree")
+        modify_obj = modify_module(database=args.database,clean_database=args.clean_database,taxid_base=args.taxid_base)
+        modify_obj.clean_database()
 
     ''' 2. Dump custom taxonomy database into NCBI/kraken readable format)'''
     if args.dump or args.dump_mini:
