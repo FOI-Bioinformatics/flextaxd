@@ -30,20 +30,31 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 				"o": "order",
 				"f": "family",
 				"g": "genus",
-				"s": "species"
+				"s": "species",
+				"x": "strain"
 		}
 		self.set_qiime(True)
 		### Add root name these manual nodes are required when parsing the GTDB database!
-		self.add_node("root")  ## Allways set in ReadTaxonomy
-		self.add_node("cellular organisms")
-		self.add_node("Bacteria")
+		rootid = self.add_node("root")  ## Allways set in ReadTaxonomy
+		coid = self.add_node("cellular organisms")
+		bac_id = self.add_node("Bacteria")
+		Euk_id = self.add_node("Eukaryota")
+		arc_id = self.add_node("Archaea")
+		vir_id = self.add_node("Viruses")
+		oth_id = self.add_node("Other")
+		unc_id = self.add_node("Unclassified")
 
 		self.add_rank("n")
 		self.add_rank("sk")
 		## Add basic links
-		self.add_link(child=1, parent=1,rank="n")
-		self.add_link(child=2, parent=1,rank="n")
-		self.add_link(child=3, parent=2,rank="sk")
+		self.add_link(child=rootid, parent=rootid,rank="n")
+		self.add_link(child=coid, parent=rootid,rank="n")
+		self.add_link(child=bac_id, parent=coid,rank="sk")
+		self.add_link(child=Euk_id, parent=coid,rank="sk")
+		self.add_link(child=arc_id, parent=coid,rank="sk")
+		self.add_link(child=vir_id, parent=rootid,rank="sk")
+		self.add_link(child=oth_id, parent=rootid,rank="n")
+		self.add_link(child=unc_id, parent=rootid, rank="n")
 
 	def parse_taxonomy(self):
 		'''Parse taxonomy information'''
