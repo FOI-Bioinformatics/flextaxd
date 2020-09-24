@@ -7,18 +7,21 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 from .ReadTaxonomy import ReadTaxonomy
 from gzip import open as zopen
 import os
+import logging
+logger = logging.getLogger(__name__)
 
 class ReadTaxonomyNCBI(ReadTaxonomy):
 	"""docstring for ReadTaxonomyNCBI."""
 	def __init__(self, taxonomy_file=False, database=False):
-		super(ReadTaxonomyNCBI, self).__init__(database=database)
+		super(ReadTaxonomyNCBI, self).__init__(database=database,ncbi=True)
 		self.taxonomy_file = taxonomy_file
 		self.names_dmp = taxonomy_file.replace("nodes","names")
 		self.names = {}
 		self.length = 0
 		self.ids = 0
 		self.accessionfile = False
-		self.add_rank("no rank",ncbi=True)
+		#self.add_rank("no rank")
+		#self.add_link(child=1, parent=1,rank="no rank")
 
 	def set_accession_file(self,file):
 		self.accessionfile = file
@@ -26,11 +29,11 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 	def parse_taxonomy(self,treefile=False):
 		'''Parse taxonomy information'''
 		if hasattr(self, "names_dmp"):
-			print("Parse names file {}".format(self.names_dmp))
+			logger.info("Parse names file {}".format(self.names_dmp))
 			self.read_names(self.names_dmp)
 			self.length = self.database.num_rows("nodes")
 		if self.taxonomy_file:
-			print("Parse nodes file {}".format(self.taxonomy_file))
+			logger.info("Parse nodes file {}".format(self.taxonomy_file))
 			self.read_nodes(self.taxonomy_file)
 			self.ids = self.database.num_rows("tree")
 
@@ -40,6 +43,8 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			for taxonomy_row in _taxfile:
 				data = taxonomy_row.strip().split("\t|\t")
 				child,parent,rank = data[0],data[1],data[2]
+				if rank == "None" or rank == None:
+					rank = "no rank"
 				if rank not in self.rank:
 					self.add_rank(rank,ncbi=True)
 				lev = self.rank[rank]
@@ -58,7 +63,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 				if len(data) > 3:
 					_type = data[3].rstrip("|\t")
 				if _type == "scientific name" or not _type:
-					self.database.add_node(name, id=taxid)
+					self.add_node(name, id=taxid)
 			self.database.commit()
 		return
 
@@ -76,14 +81,16 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			this function parses the accession2taxid file from NCBI to speed up the function and reduce the amount
 			of stored datata only sequences in input genomes_path will be fetched
 		'''
-		if self.verbose: print("Parsing ncbi accession2taxid")
+		logger.info("Parsing ncbi accession2taxid")
 		self.refseqid_to_GCF = {}
 		for root, dirs, files in os.walk(genomes_path):
 			for filename in files:
 				if filename.endswith(".fna.gz"):
 					filepath = os.path.join(root, filename)
 					self.parse_genebank_file(filepath,filename)
-		if self.verbose: print("genomes folder read {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
+		logger.info("genomes folder read {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
+		if not annotation_file.endswith("accession2taxid.gz"):
+			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
 		with zopen(annotation_file,"r") as f:
 			headers = f.readline().split(b"\t")
 			for row in f:
