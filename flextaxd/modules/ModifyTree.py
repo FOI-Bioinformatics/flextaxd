@@ -11,33 +11,33 @@ import math
 #from .database.database import database
 
 def progressBar(iterable, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
-    """
-    Call in a loop to create terminal progress bar
-    @params:
-        iteration   - Required  : current iteration (Int)
-        total       - Required  : total iterations (Int)
-        prefix      - Optional  : prefix string (Str)
-        suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
-        length      - Optional  : character length of bar (Int)
-        fill        - Optional  : bar fill character (Str)
-        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
-    """
-    total = len(iterable)
+	"""
+	Call in a loop to create terminal progress bar
+	@params:
+		iteration   - Required  : current iteration (Int)
+		total       - Required  : total iterations (Int)
+		prefix      - Optional  : prefix string (Str)
+		suffix      - Optional  : suffix string (Str)
+		decimals    - Optional  : positive number of decimals in percent complete (Int)
+		length      - Optional  : character length of bar (Int)
+		fill        - Optional  : bar fill character (Str)
+		printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+	"""
+	total = len(iterable)
 	# Progress Bar Printing Function
-    def printProgressBar (iteration):
-        percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-        filledLength = int(length * iteration // total)
-        bar = fill * filledLength + '-' * (length - filledLength)
-        print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
-    # Initial Call
-    printProgressBar(0)
-    # Update Progress Bar
-    for i, item in enumerate(iterable):
-        yield item
-        printProgressBar(i + 1)
-    # Print New Line on Complete
-    print()
+	def printProgressBar (iteration):
+		percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+		filledLength = int(length * iteration // total)
+		bar = fill * filledLength + '-' * (length - filledLength)
+		print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
+	# Initial Call
+	printProgressBar(0)
+	# Update Progress Bar
+	for i, item in enumerate(iterable):
+		yield item
+		printProgressBar(i + 1)
+	# Print New Line on Complete
+	print()
 
 class InputError(Exception):
 	"""Exception raised for errors in the input."""
@@ -124,7 +124,9 @@ class ModifyTree(object):
 		'''
 		if self.taxid_set == self.taxid_base:
 			self.taxid_base = self.taxonomydb.add_node(description,self.taxid_base)
-		self.taxid_base = self.taxonomydb.add_node(description)
+			self.taxid_set = -1  #taxid base is not changing, make sure it´s not staying the same
+		else:
+			self.taxid_base = self.taxonomydb.add_node(description)
 		self.taxonomy[description] = self.taxid_base
 		return self.taxid_base
 
@@ -172,15 +174,29 @@ class ModifyTree(object):
 		logger.info("Parse database...")
 		### Get translation dictionaries (from internal node index to description)
 		self.dbmod_annotation = database.get_nodes(col=1)
+		logger.debug(self.dbmod_annotation)
 		self.dbmod_rank = database.get_rank(col=1)
 		### Translate node ids between databases and add non existing nodes into current database
 		for link in database.get_links(self.dbmod_annotation.keys()):
 			link = list(link)
+			logger.debug(link)
+
 			if link[0] == link[1]: ### This should only occur if the root node of the mod database is used link replace with
-				self.new_links.add(self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent)))
+				if self.replace:
+					if int(link[0]) != 1: ## Root to root
+						self.new_links.add(self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent)))
+						logger.debug("New links: {}".format(self.new_links))
 			else:
-				parent,child,rank = self.dbmod_annotation[link[0]].strip(),self.dbmod_annotation[link[1]].strip(),self.dbmod_rank[link[2]]
-				self._parse_new_links(parent=parent,child=child,rank=rank)
+				try:
+					parent,child,rank = self.dbmod_annotation[link[0]].strip(),self.dbmod_annotation[link[1]].strip(),self.dbmod_rank[link[2]]
+					#logger.debug("New link: [{p}, {c}, {r}]".format(p=parent,c=child,r=rank))
+					self._parse_new_links(parent=parent,child=child,rank=rank)
+
+				except:
+					logger.debug(self.dbmod_annotation)
+					logger.debug(self.dbmod_annotation[link[0]])
+					logger.debug(self.dbmod_annotation[link[1]])
+					exit()
 		return database.get_genomes()
 
 	def file_mod(self,modfile):
@@ -226,7 +242,7 @@ class ModifyTree(object):
 		self.parent_link = self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent))
 		if not self.parent_link:
 			raise InputError("The selected parent node ({parent}) count not be found in the source database!".format(parent=self.parent))
-		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) - set([self.taxonomydb.get_id(self.parent)])
+		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
 		self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
 
 		if modtype == "database":
@@ -243,8 +259,8 @@ class ModifyTree(object):
 		logger.debug("new: {new}".format(new=len(self.new_nodes)))
 		logger.debug("ovl: {ovl}".format(ovl=len(self.existing_nodes & self.new_nodes)))
 
-		if self.replace:  ## nodes overlapping should still be kept but all links related to them will be recreated and therefore needs to be removed
-			self.non_overlapping_old_links = set(self.taxonomydb.get_links(self.existing_nodes - self.new_nodes))  ## Links to remove if replace
+		if self.replace:  ## remove nodes connected to old nodes that is not replaced
+			self.non_overlapping_old_links = set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes) - set([self.taxonomydb.get_id(self.parent)])))  ## Remove all links related to new nodes
 
 		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
 		self.old_links = self.existing_links - self.new_links
@@ -253,11 +269,11 @@ class ModifyTree(object):
 		logger.info("old: {old}".format(old=len(self.old_links)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))
 		logger.info("ovl: {ovl}".format(ovl=len(self.overlapping_links)))
-		if self.replace: logger.debug("rm: {rm}".format(rm=len(self.non_overlapping_old_links)))
+		if self.replace:
+			logger.debug("rm: {rm}".format(rm=len(self.non_overlapping_old_links)))
+			logger.debug(self.non_overlapping_old_links)
 		'''Get all genomes annotated to new nodes in existing database'''
 		return self.overlapping_links
-
-
 
 	def update_annotations(self, genomeid2taxid):
 		'''Function that adds annotation of genome ids to nodes'''
@@ -358,7 +374,6 @@ class ModifyTree(object):
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
 			self.keep = set(self.taxonomydb.get_children([1],maxdepth=1))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
-			print(self.keep)
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
 		self.annotated_links = set(self.taxonomydb.get_links(self.annotated_nodes,only_parents=True))
@@ -366,10 +381,12 @@ class ModifyTree(object):
 		self.clean_nodes = self.all_nodes - self.annotated_nodes
 		logger.info("Links to remove {nlinks}".format(nlinks=len(self.clean_links)))
 		logger.info("Nodes to remove {nnodes}".format(nnodes=len(self.clean_nodes)))
+		logger.info("Clean annotations related to removed nodes")
 		if len(self.clean_links) < len(self.all_links):
 			self.taxonomydb.delete_links(self.clean_links)
 		if len(self.clean_nodes) < len(self.all_nodes):
 			self.taxonomydb.delete_nodes(self.clean_nodes)
+			self.taxonomydb.delete_genomes(self.clean_nodes)
 		self.taxonomydb.commit()
 		self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
@@ -377,11 +394,16 @@ class ModifyTree(object):
 	def update_database(self):
 		'''Update the database file'''
 		if self.replace:
+			logger.info("Clean up genomes annotated to child nodes from  {parent}".format(parent=self.parent))
+			nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) | set([self.taxonomydb.get_id(self.parent)] )
+			logger.debug(nodes)
+			self.taxonomydb.delete_genomes(nodes)
+			self.taxonomydb.query("vacuum") ## Actually remove the data from database
 			if len(self.non_overlapping_old_links) + len(self.old_nodes) > 0:
 				logger.info("Replace tree, deleting all nodes downstream of selected parent!")
 			if len(self.non_overlapping_old_links-set(self.parent_link)) > 0:
 				logger.debug("Delete links no longer valid!")
-				self.taxonomydb.delete_links(self.non_overlapping_old_links-set(self.parent_link))
+				self.taxonomydb.delete_links((self.old_links | self.non_overlapping_old_links)-set(self.parent_link))
 			if len(self.old_nodes):
 				logger.debug("Delete nodes!")
 				self.taxonomydb.delete_nodes(self.old_nodes)
@@ -406,4 +428,8 @@ class ModifyTree(object):
 			logger.info("Taxid base: {taxidbase}".format(taxidbase = self.taxid_base))
 		else:
 			logger.debug("Taxid base: {taxidbase}".format(taxidbase = self.taxid_base))
+		logging.getLogger().setLevel(logging.INFO)
+		self.taxonomydb.query("vacuum")
+		logging.info("Validate modified database!")
+		self.taxonomydb.validate_tree()
 		return
