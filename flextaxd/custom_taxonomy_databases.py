@@ -130,7 +130,7 @@ def main():
 
     debugopts = parser.add_argument_group("Logging and debug options")
     debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
-    debugopts.add_argument('--verbose',			action='store_const', const=logging.INFO,				help="Verbose output")
+    debugopts.add_argument('--verbose',			    action='store_const', const=logging.INFO,				help="Verbose output")
     debugopts.add_argument('--debug',				action='store_const', const=logging.DEBUG,				help="Debug output")
     debugopts.add_argument('--supress',				action='store_const', const=logging.ERROR,	default=logging.WARNING,			help="Supress warnings")
     debugopts.add_argument('--quiet',               action='store_true', default=False, help="Dont show logging messages in terminal!")
@@ -151,6 +151,8 @@ def main():
     	logval = args.debug
     elif args.verbose:
     	logval = args.verbose
+    if args.validate:  #On validate always turn on logging
+        logval = logging.INFO
 
     import datetime
     t = datetime.time()
