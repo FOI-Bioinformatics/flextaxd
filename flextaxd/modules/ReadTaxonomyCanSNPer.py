@@ -30,7 +30,7 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
 		self.taxonomy = {}
-		self.taxid_base = taxid_base
+		self.taxid_num = taxid_base
 		## Initiate database
 		logger.info(taxonomy_file)
 		logger.debug(root_name)
@@ -39,7 +39,7 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 			root_name = self.get_root_name(taxonomy_file)
 		logger.info("Adding root node {node}!".format(node=root_name))
 		root_i = self.add_node(root_name)
-		self.taxid_base =taxid_base ## reset
+		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
 		self.add_rank(rank,ncbi=True)
 		self.add_rank("no rank",ncbi=True)
@@ -50,14 +50,15 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		self.ids = 0
 
 		self.database.commit()
-		logger.debug("Root: {root} link: [{base}]".format(root=self.root, base=self.taxid_base))
+		logger.debug("Root: {root} link: [{base}]".format(root=self.root, base=self.taxid_num))
 
 	def get_root_name(self,fin):
 		'''Get the root name of the CanSNP file unless root is specified'''
 		with open(fin) as f:
 			firstline = f.readline()
-			root = firstline.strip().split("\t") ## Root should be either the leftmost annotation in the tree or the only annotation on that row
-			if len(root) == 1:
+			firstline = firstline.strip().replace("\t",";")
+			root = firstline.split(";") ## Root should be either the leftmost annotation in the tree or the only annotation on that row
+			if isinstance(root,list):
 				root = root[0]
 		return root
 
@@ -75,6 +76,8 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 			else:                                ## Parent didn't exist again, add parent to this node and then add the link to that parent
 				parent_i = self.add_SNP(nodes,i-1)## Add node of parent
 		node_i = self.add_node(name)  ## Add node
+		if node_i:
+			self.taxid_num += 1
 		self.add_link(node_i, parent_i)            ## Add link to next parent
 		return node_i     ##  index of child
 
@@ -99,6 +102,6 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 				'''Now all parents exists, add new child node and add the link'''
 				child_i = self.add_node(child)
 				self.database.add_link(child_i,parent_i)
-		self.database.commit()                                    ## Commit changes to database
-		self.length = self.taxid_base - self.root                ## Check number of new nodes added
+		self.database.commit()
+		self.length = self.taxid_num - self.root                ## Check number of new nodes added
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
