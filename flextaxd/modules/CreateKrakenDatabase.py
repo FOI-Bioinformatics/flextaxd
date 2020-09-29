@@ -100,9 +100,12 @@ class CreateKrakenDatabase(object):
 			try:
 				taxid = self.accession_to_taxid[genome]
 			except KeyError:
-				logger.info("#Warning kraken header could not be added to {gcf}! Total: {count}".format(gcf=genome,count=count))
-				count +=1
-				continue
+				try:
+					taxid = self.accession_to_taxid[filepath.rsplit("/")[-1]]
+				except KeyError:
+					logger.info("#Warning kraken header could not be added to {gcf}! Total: {count}".format(gcf=genome,count=count))
+					count +=1
+					continue
 			if self.create_db:
 				if taxid not in self.skiptax:
 					'''Open temp file for manipulated (unzipped) genome fasta files'''
@@ -152,11 +155,12 @@ class CreateKrakenDatabase(object):
 		'''Validate file'''
 		if self.debug:
 			if len(self.seqhead_validator.keys()) != self.seqhead_count:
-				raise Exception("Sequence headers are not unique added: {added} unique: {nunique}".format(nunique=len(self.seqhead_validator.keys()), added=self.seqhead_count))
-			tmpdebug = "{db_path}/library/batch_{rand}.debug".format(db_path=self.krakendb,rand=batchint)
-			with open(tmpdebug, "w") as debugwrite:
-				for seq_header in self.seqhead_validator.keys():
-					print("\t".join(self.seqhead_validator[seq_header]),end="\n",file=debugwrite)
+				logger.warning("Sequence headers are not unique added: {added} unique: {nunique}".format(nunique=len(self.seqhead_validator.keys()), added=self.seqhead_count))
+				tmpdebug = "{db_path}/library/batch_{rand}.debug".format(db_path=self.krakendb,rand=batchint)
+				with open(tmpdebug, "w") as debugwrite:
+					for seq_header in self.seqhead_validator.keys():
+						print("\t".join(self.seqhead_validator[seq_header]),end="\n",file=debugwrite)
+				return False
 		return tmpbatch
 
 	def get_skip_list(self):
@@ -222,10 +226,13 @@ class CreateKrakenDatabase(object):
 								'''Final try, does the file have a GCF/GCA start ends with fna but is still a custom named genome'''
 								taxid = id_dict[fname.rsplit(".",1)[0]] ## strip .fa .fasta or .fna from base filename
 							except KeyError:
-								'''This file had no match in the reference folder, perhaps it is not annotated in the database'''
-								self.notused.add(genome_name)
-								logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=genome_name.strip()))
-								continue
+								try:
+									taxid = id_dict[fname] ## strip .fa .fasta or .fna from base filename
+								except KeyError:
+									'''This file had no match in the reference folder, perhaps it is not annotated in the database'''
+									self.notused.add(genome_name)
+									logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=genome_name.strip()))
+									continue
 					if not file.endswith("from_genomic.fna.gz"):
 						filepath = os.path.join(root, file)  ## Save the path to the file
 						logger.debug("File added")

@@ -386,7 +386,8 @@ class ModifyTree(object):
 			self.taxonomydb.delete_links(self.clean_links)
 		if len(self.clean_nodes) < len(self.all_nodes):
 			self.taxonomydb.delete_nodes(self.clean_nodes)
-			self.taxonomydb.delete_genomes(self.clean_nodes)
+			if not ncbi:
+				self.taxonomydb.delete_genomes(self.clean_nodes)
 		self.taxonomydb.commit()
 		self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
