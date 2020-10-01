@@ -120,7 +120,7 @@ def main():
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,  help='Path to genome folder is required when using NCBI_taxonomy as source')
     mod_opts.add_argument('-p', '--parent',metavar="", default=False, help="Parent from which to add (replace see below) branch")
     mod_opts.add_argument('--replace', action='store_true', help="Add if existing children of parents should be removed!")
-    mod_opts.add_argument('--clean_database',	action='store_true', help="Debug output")
+    mod_opts.add_argument('--clean_database',	action='store_true', help="Clean up database from unannotated nodes")
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
     out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__, help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")

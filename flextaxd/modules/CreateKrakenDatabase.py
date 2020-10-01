@@ -13,7 +13,7 @@ import glob
 from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
-from modules.functions import download_genome
+from modules.functions import download_genomes
 from time import sleep
 
 import logging
@@ -236,14 +236,15 @@ class CreateKrakenDatabase(object):
 					if not file.endswith("from_genomic.fna.gz"):
 						filepath = os.path.join(root, file)  ## Save the path to the file
 						logger.debug("File added")
-						#self.files.append(filepath)
+						self.files.append(filepath)
 						self.genome_names.append(genome_name.strip())
 						self.genome_path[genome_name.strip()] = filepath
 				elif file == "MD5SUMS" or file.endswith(".txt"):
 					pass
 				else:
 					logger.debug("#Warning {gcf} does not have a valid file ending".format(gcf=file))
-		#self.files = list(set(self.files))
+		logger.info("Processed {count} genomes".format(count=count))
+		self.files = list(set(self.files))
 		self.genome_names = list(set(self.genome_names))
 		'''Try to download unknown files'''
 		existing_genomes = []
@@ -252,18 +253,18 @@ class CreateKrakenDatabase(object):
 			genome = genome.split("_",1)[1]
 			existing_genomes += ["GCA_"+genome,"GCF_"+genome]
 		for file_not_present in set(id_dict.keys()) - set(existing_genomes):
-			download_files.append({"genome_id":file_not_present,"outdir":self.genomes_path+"downloads/"})
-
+			download_files.append({"genome_id":file_not_present,"outdir":self.genomes_path.rstrip("/")+"/downloads"})
+		count=0
 		if len(download_files) > 0 and not self.skip_download:
 			logger.info("Found {count} files, {dn} files not present, download files".format(count=len(self.files),dn=len(download_files)))
 			sleep(1)
 			#logger.debug(download_files)
 			np = self.processes
-			if int(self.processes) > 25: ## 50 is Maximum allowed simultanous connections to ncbi
-				np = 25
+			if int(self.processes) > 50: ## 50 is Maximum allowed simultanous connections to ncbi
+				np = 50
 			self.download_map = self._split(download_files,np)
 			#print(len(self.download_map))
-			logger.info("Using {np} parallel processes to NCBI".format(np=np))
+			logger.info("Using {np} parallel processes to download files".format(np=np))
 
 
 
@@ -274,7 +275,7 @@ class CreateKrakenDatabase(object):
 			added = manager.Queue()
 			fpath = manager.Queue()
 			for i in range(np):
-				p = Process(target=download_genome, args=(self.download_map[i],added,fpath))
+				p = Process(target=download_genomes, args=(self.download_map[i],added,fpath))
 				p.daemon=True
 				p.start()
 				jobs.append(p)
@@ -284,11 +285,15 @@ class CreateKrakenDatabase(object):
 
 			while True:
 				l = len(self.genome_names)
-				self.genome_names += added.get()
-				self.genome_path[genome_name.strip()] = fpath.get()
-				if l == len(self.genome_names):
-					break
-
+				gen = added.get()
+				if gen:
+					self.genome_names += gen
+					self.genome_path[genome_name.strip()] = fpath.get()
+					if l == len(self.genome_names):
+						break
+				else:
+					count+=1
+		print("not downloaded?", count)
 		#self.file_split = self._split(self.files,self.processes)
 		self.genome_names_split = self._split(self.genome_names,self.processes)
 		if not os.path.exists("{db_path}/library/".format(db_path=self.krakendb)):
