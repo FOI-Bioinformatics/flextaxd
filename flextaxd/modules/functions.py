@@ -1,4 +1,5 @@
-from subprocess import check_call,CalledProcessError
+from subprocess import check_call,CalledProcessError,TimeoutExpired,STDOUT
+from subprocess import Popen,STDOUT,PIPE,CalledProcessError,TimeoutExpired
 from textwrap import wrap
 from os import makedirs,path,walk
 import glob
@@ -6,111 +7,121 @@ import logging
 from time import sleep
 logger = logging.getLogger(__name__)
 
-def _build_path(genome_id):
-    '''Build up the download path and return'''
-    ## https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/696/305/GCF_001696305.1_UCN72.1/GCF_001696305.1_UCN72.1_genomic.fna.gz
-    parts = genome_id.split("_")
-    type = parts[0]
-    num = parts[1].split(".")[0]
-    npt = wrap(num,3)
-    end = ""
-    genome_name = genome_id
-    if not genome_id[-1].isdigit():
-        if not genome_id.endswith(".gz"):
-            end = ".gz"
-        elif "genomic" not in genome_id:
-            end = "_genomic.fna.gz"
-        else:
-            genome_name = genome_id.split("_genomic")[0]
+SUPPORTED_TAXONOMIC_GROUPS = [
+	'bacteria',
+	'archaea',
+	'fungi',
+	'vertebrate_mammalian',
+	'invertebrate',
+	'plant',
+	'protozoa',
+	'metagenomes',
+	'vertebrate_other',
+	'viral'
+]
 
-        path = "{genome_name}/{genome_id}{end}".format(
-                                                genome_id=genome_id,
-                                                genome_name=genome_name,
-                                                end=end
-                                                )
-    else:
-        path = ""
-    build_path = "{type}/{pt1}/{pt2}/{pt3}/{path}".format(
-                type=type,
-                path=path,
-                pt1=npt[0],pt2=npt[1],pt3=npt[2])
-    return build_path
+def get_section(accession):
+	'''Check if accession is GCF or GCA
 
-def call_genome(call_func,outdir,genome_id,added,filepath,retries_d,retries_n):
-    '''test'''
-    #logger.debug(" ".join(call_func))
-    try:
-        err = check_call(" ".join(call_func),shell=True)
-    except CalledProcessError as e:
-        try:
-            if retries_d[genome_id] > retries_n:
-                print("Maximum number of retries reached for {genome}".format(genome=genome_id))
-                return False
-            retries_d[genome_id]+=1
-        except KeyError:
-            retries_d[genome_id] = 1
-        if e.output:
-            if "Cannot assign requested address" in e.output:
-                retries_d[genome_id]+=1
-            if "error in socket IO" in e.output:
-                retries_d[genome_id]+=1
-            if "failed to connect" in e.output:
-                retries_d[genome_id]+=1
-            if sleep > 20:
-                ### Longsleep
-                sleep(60)
-                sleep = 0
-            sleep+=sleep
-            sleep(sleep)
-            check =  call_genome(call_func,outdir,genome_id,added,filepath,sleep=5,retries_d=retries_d,retries_n=retries_n)
-            if not check:
-                return False
-        if e.output == None:
-            return False
-    try:
-        try:
-            for root, dirs, files in walk(glob.glob(path.join(outdir,genome_id+"*"))[0]):
-                for file in files:
-                    if file.endswith("_genomic.fna.gz") and "from" not in file:
-                        fpath = path.join(root,file)
-                        logger.debug(fpath)
-                        gname = path.basename(file)
-                        genome_name = gname.split("_",2)
-                        genome_name = genome_name[0]+"_"+genome_name[1]
-                        added.put(genome_name.strip())
-                        filepath.put(fpath)
-                        #logger.info("File downloaded")
-        except IndexError:
-            return False #pass #logger.debug("File not downloaded")
-    except OSError:
-        return False
-        #logger.debug(" ".join(call_func))
-        #logger.error("File not downloaded")
-    return True
+	Parameters
+		str accession
+	Returns
+		str refseq or genbank
+	'''
+	if accession[2] == "F":
+		return "refseq"
+	return "genbank"
 
-def download_genome(args_list=False,added=False,filepath=False,sleep=5,retries=10, **kwargs):
-    '''Function that takes a genome_id and downloads from source (refseq or genbank)
-        input: genome_id; optional outdir
+def run(cmd,accession):
+	'''Run command'''
+	try:
+		res = check_call(cmd,stderr=STDOUT,stdout=PIPE,shell=True,
+		universal_newlines=True)
+		# res = Popen(cmd.split(" "),stderr=STDOUT, stdout=PIPE,
+		# universal_newlines=True)
+		# res = Popen(cmd,stderr=STDOUT, stdout=PIPE,
+		# universal_newlines=True,shell=True)
+	except CalledProcessError as e:
+		'''Expected error for checking taxonomic group, pass'''
+		return e
+	except TimeoutExpired as e:
+		logger.debug("Genome download timed out for {accession}".format(accession=accession))
+		return e
+	return False
 
-    '''
-    retries_n =retries
-    retries_d={}
-    for args in args_list:
-        if args:
-            outdir = args["outdir"]
-            genome_id = args["genome_id"]
-        if not path.exists(outdir):
-            makedirs(outdir)
-        genomes_path = _build_path(genome_id)
-        call_func = ["rsync", "--copy-links", "--recursive", "--times","--ignore-existing","--no-motd",
-                        "--prune-empty-dirs",
-                        "--exclude='*assembly_structure/'",
-                        "--include='*/'",   ## To get subfolders included
-                        "--exclude='*from_genomic.fna.gz'",
-                        "--include='{genome_id}*_genomic.fna.gz'".format(genome_id=genome_id),
-                        "--exclude='*'",
-                        "rsync://ftp.ncbi.nlm.nih.gov/genomes/all/{path}".format(path=genomes_path),
-                        outdir,
-                        "2>&1"
-        ]
-        call_genome(call_func,outdir,genome_id,added,filepath,retries_d=retries_d,retries_n=retries_n)
+def check_taxonomic_group(accession):
+	'''Check all taxonomic groups if genome exists
+	Parameters
+		str accession
+	Returns
+		taxonomic_group
+	'''
+	base_cmd = "ncbi-genome-download -A {accession} {group} -s {section} -n"
+	section = get_section(accession)
+	for group in SUPPORTED_TAXONOMIC_GROUPS:
+		cmd = base_cmd.format(
+			accession = accession,
+			group=group,
+			section=section
+		)
+		e = run(cmd,accession)
+		if not e:
+			logger.debug(cmd)
+			return group,section
+		else:
+			logger.debug(e)
+	return False,False
+
+def get_genome(accession):
+	'''Return taxonomic group of accession
+
+	Parameters
+		str accession
+	Returns
+		taxonomic_group
+	'''
+	group, section = check_taxonomic_group(accession)
+	genome = {"accession":accession,"group":group, "section":section}
+	return genome
+
+def ncbi_genome_download(genome,outdir="./downloads"):
+	'''Use the ncbi-genome-download package to download missing files
+
+	Parameters
+		dict - accession group and section
+	Returns
+		boolean - True if downloaded, else False
+	'''
+	accession = genome["accession"]
+	group = genome["group"]
+	section = genome["section"]
+	if not section:
+		return False
+	outdir = "/".join([outdir,group,accession])
+	if not group:
+		return False
+	base_cmd = "ncbi-genome-download -A {accession} {group} -s {section} -o {outdir} -r 3 --flat-output -F fasta"
+	cmd = base_cmd.format(
+			accession = accession,
+			group=group,
+			section=section,
+			outdir=outdir
+	)
+	e = run(cmd,accession)
+	if not e:
+		logger.debug(cmd)
+		return outdir
+	else:
+		logger.debug(e)
+	return False
+
+def download_genomes(genomes,added,filepath):
+	for gen_i in genomes:
+		if gen_i:
+			outdir = gen_i["outdir"]
+			genome = get_genome(gen_i["genome_id"])
+			if genome["accession"].startswith("GCF") or genome["accession"].startswith("GCA"):
+				outdir = ncbi_genome_download(genome,outdir)
+				if outdir:
+					added.put(genome["accession"].strip())
+					filepath.put(outdir)

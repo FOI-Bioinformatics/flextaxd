@@ -14,6 +14,7 @@ All data is kept in a sqlite3 database (.ftd by default) and can be dumped to NC
 
 # Reqirements
 Python >=3.6
+ncbi-genome-download
 
 
 # Installation
@@ -21,7 +22,7 @@ Python >=3.6
 ## Using conda
 conda install (-c conda-forge -c bioconda -c defaults) flextaxd
 
-## Manual instal python - download git release https://github.com/FOI-Bioinformatics/flextaxd and run
+## Manual install python - download git release https://github.com/FOI-Bioinformatics/flextaxd and run
 python setup.py install
 ```
 # Usage
@@ -81,7 +82,7 @@ flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --mod_file custom_mo
 #    Customize the NCBI taxonomy tree
 #####
 
-The most common database to start with is the NCBI taxonomy tree, however there are many known caveats to the NCBI tree,
+The most common database to start with is the NCBI taxonomy tree, however there are many known caveats to the NCBI tree in particular in the Bacterial kingdom,
 FlexTaxD allows modifications of the NCBI taxonomy by replacing nodes with correct structures.
 
 Creating a custom taxonomy database using the NCBI taxonomy tree instead of FlexTaxD as base
@@ -103,6 +104,8 @@ flextaxd
     -o NCBI_database                    ## Output folder
     --dump                              ## Print out names.dmp and nodes.dmp from flextaxd database
 ```
+
+
 ### Modify the NCBI database using a previously created flextaxd (example database from another source (CanSNPer.db))
 Replace the Francisella node in the NCBI database with the node structure from a CanSNP database containing the Francisella CanSNPer tree.
 ```
