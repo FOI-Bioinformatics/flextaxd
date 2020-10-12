@@ -103,12 +103,16 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.added = 0
 		taxid_start = self.taxid_base
 		with open(self.input) as f:
-			'''Each row defines a GCF genome file connected to a tree level'''
+			'''Each row defines a genome annotation file connected to a tree level'''
 			for row in f:
 				if row.strip() != "":  ## If there are trailing empty lines in the file
 					data = row.strip().split("\t")
 					try:
-						genome_id = data[0].split("_",1)[1]   ## Genome ID
+						if data[0].startswith(("RS","GB")):
+							'''GTDB genome annotations contain one additional annotation to their genome names eg. RS_, this function removes this'''
+							genome_id = data[0].split("_",1)[1].strip()   ## Genome ID
+						else:
+							genome_id = data[0].strip()
 						#print(genome_id)
 					except IndexError:
 						logger.debug("Row {row} could not be parsed".format(row=data))
