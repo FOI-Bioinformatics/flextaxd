@@ -15,7 +15,13 @@ All data is kept in a sqlite3 database (.ftd by default) and can be dumped to NC
 # Reqirements
 ```
 Python >=3.6
-ncbi-genome-download
+## additional requirements depending on executed functions
+ncbi-genome-download - to download additional genomes from NCBI
+## Database program requirement if create_database is executed
+kraken2
+krakenuniq
+ganon
+centrifuge
 ```
 
 # Installation
