@@ -215,8 +215,11 @@ class DatabaseFunctions(DatabaseConnection):
 			self.tree_nodes.add(edge[0])
 			self.tree_nodes.add(edge[1])
 		logger.info("Validate parents")
-		for n in self.nodes.keys():
-			self.check_parent(n)
+		res = self.check_parent()
+		if len(res) > 0:
+			failed_nodes = [self.nodes[x[0]] for x in list(res)]
+			raise TreeError("There are nodes with multiple parents {nodes}".format(nodes=failed_nodes))
+
 		stats = """Tree statistics
 					Nodes: {nodes}
 					Links: {links}
@@ -246,7 +249,7 @@ class DatabaseFunctions(DatabaseConnection):
 		logger.info("Validation OK!")
 		return True
 
-	def check_parent(self,name):
+	def check_parent(self):
 		'''check tree structure parent
 			make sure no tree node has multiple parents
 		------
@@ -254,16 +257,9 @@ class DatabaseFunctions(DatabaseConnection):
 			True: if node has one and only one parent
 		'''
 		try:
-			QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child = {node}'''.format(node=name)
+			QUERY = "SELECT parent FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 			logger.debug(QUERY)
-			res = self.query(QUERY).fetchall()
-			logger.debug(res)
-			if len(res) == 1:
-				return True
-			elif len(res) == 0:
-				raise TreeError("Node: {node} has no parent".format(node=name))
-			if res[0] == (1,1,1):  # root links to itself
-				return True
+			return self.query(QUERY).fetchall()
 		except AttributeError:
 			logger.info("AttributeError occured")
 			logger.info(QUERY)
