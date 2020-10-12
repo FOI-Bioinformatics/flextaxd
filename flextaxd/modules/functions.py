@@ -20,17 +20,7 @@ SUPPORTED_TAXONOMIC_GROUPS = [
 	'viral'
 ]
 
-def get_section(accession):
-	'''Check if accession is GCF or GCA
-
-	Parameters
-		str accession
-	Returns
-		str refseq or genbank
-	'''
-	if accession[2] == "F":
-		return "refseq"
-	return "genbank"
+swap_section = {"genbank":"refseq","refseq":"genbank"}
 
 def run(cmd,accession):
 	'''Run command'''
@@ -49,7 +39,19 @@ def run(cmd,accession):
 		return e
 	return False
 
-def check_taxonomic_group(accession):
+def get_section(accession):
+	'''Check if accession is GCF or GCA
+
+	Parameters
+		str accession
+	Returns
+		str refseq or genbank
+	'''
+	if accession.strip()[2] == "F":
+		return "refseq"
+	return "genbank"
+
+def check_taxonomic_group(accession,section=False,force=False):
 	'''Check all taxonomic groups if genome exists
 	Parameters
 		str accession
@@ -57,7 +59,8 @@ def check_taxonomic_group(accession):
 		taxonomic_group
 	'''
 	base_cmd = "ncbi-genome-download -A {accession} {group} -s {section} -n"
-	section = get_section(accession)
+	if not section:
+		section = get_section(accession)
 	for group in SUPPORTED_TAXONOMIC_GROUPS:
 		cmd = base_cmd.format(
 			accession = accession,
@@ -66,13 +69,19 @@ def check_taxonomic_group(accession):
 		)
 		e = run(cmd,accession)
 		if not e:
-			logger.debug(cmd)
+			#logger.debug(cmd)
 			return group,section
 		else:
-			logger.debug(e)
+			pass #logger.debug(e)
+	'''group could not be found in section, if X on try other section'''
+	'''This should not be done as genomes removed from RefSeq usually are better to skip'''
+	if force:
+		group,section = check_taxonomic_group(accession,section=swap_section[section])
+		if group:
+			return group,section
 	return False,False
 
-def get_genome(accession):
+def get_genome(accession,force=False):
 	'''Return taxonomic group of accession
 
 	Parameters
@@ -80,7 +89,7 @@ def get_genome(accession):
 	Returns
 		taxonomic_group
 	'''
-	group, section = check_taxonomic_group(accession)
+	group, section = check_taxonomic_group(accession,force=force)
 	genome = {"accession":accession,"group":group, "section":section}
 	return genome
 
@@ -112,16 +121,19 @@ def ncbi_genome_download(genome,outdir="./downloads"):
 		logger.debug(cmd)
 		return outdir
 	else:
+		logger.debug(cmd)
 		logger.debug(e)
 	return False
 
-def download_genomes(genomes,added,filepath):
+def download_genomes(genomes,added,filepath,missing,force=False):
 	for gen_i in genomes:
 		if gen_i:
 			outdir = gen_i["outdir"]
-			genome = get_genome(gen_i["genome_id"])
+			genome = get_genome(gen_i["genome_id"],force)
 			if genome["accession"].startswith("GCF") or genome["accession"].startswith("GCA"):
 				outdir = ncbi_genome_download(genome,outdir)
 				if outdir:
 					added.put(genome["accession"].strip())
 					filepath.put(outdir)
+				else:
+					missing.put(genome["accession"].strip())
