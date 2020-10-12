@@ -13,7 +13,8 @@ The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIM
 All data is kept in a sqlite3 database (.ftd by default) and can be dumped to NCBI formatted names and nodes.dmp files. Supported export formats are NCBI and TSV). The TSV dump format is similar to the NCBI dump except that it contains a header (parent<tab>child), has parent on the left and only uses tab to separate each column (not \<tab\>|\<tab\>).
 
 # Reqirements
-```Python >=3.6
+```
+Python >=3.6
 ncbi-genome-download
 ```
 
