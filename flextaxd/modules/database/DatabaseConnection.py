@@ -111,8 +111,9 @@ class DatabaseConnection(object):
 			if "UNIQUE constraint failed" not in str(e):
 				## UNIQUE constraint is an accepted error as it keeps multiple edges from being added
 				logger.warning("Error in DatabaseConnection query")
-				logger.debug(query)
-				logger.debug("Insert val: {vals}".format(vals=insert_val))
+				logger.warning(query)
+				if insert_val:
+					logger.debug("Insert val: {vals}".format(vals=insert_val))
 				sys.stderr.write(str(e)+"\n")
 			return(e)
 
@@ -218,8 +219,9 @@ class DatabaseFunctions(DatabaseConnection):
 		res = self.check_parent()
 		if len(res) > 0:
 			failed_nodes = [self.nodes[x[0]] for x in list(res)]
+			if len(failed_nodes) > 10:
+				failed_nodes = len(failed_nodes)
 			raise TreeError("There are nodes with multiple parents {nodes}".format(nodes=failed_nodes))
-
 		stats = """Tree statistics
 					Nodes: {nodes}
 					Links: {links}
@@ -235,16 +237,28 @@ class DatabaseFunctions(DatabaseConnection):
 		logger.info(stats)
 		nodeset = set(self.nodes.keys())
 		if len(nodeset - self.tree_connections) != 0:
-			logger.info("{}".format(nodeset - self.tree_connections))
+			lset = nodeset - self.tree_connections
+			if len(lset) > 10:
+				lset = len(lset)
+			logger.info("{}".format(lset))
 			raise TreeError("The number of nodes and the number nodes under root does not match!")
 		if len(set(self.edges) - set(self.tree_links)) != 0:
-			logger.info("{}".format(set(self.edges) - set(self.tree_links)))
+			lset = set(self.edges) - set(self.tree_links)
+			if len(lset) > 10:
+				lset = len(lset)
+			logger.info("{}".format(lset))
 			raise TreeError("The number of edges and the number edges under root does not match!")
 		if len(self.tree_nodes - nodeset) != 0:
-			logger.info("{}".format(self.tree_nodes - nodeset))
+			lset = self.tree_nodes - nodeset
+			if len(lset) > 10:
+				lset = len(lset)
+			logger.info("{}".format(lset))
 			raise TreeError("The number of annotated nodes does not match with the number of nodes connected to edges!")
 		if len(self.tree_connections - nodeset) != 0:
-			logger.info("{}".format(self.tree_connections - nodeset))
+			lset = self.tree_connections - nodeset
+			if len(lset) > 10:
+				lset = len(lset)
+			logger.info("{}".format(lset))
 			raise TreeError("There are nodes in the database not connected to the tree")
 		logger.info("Validation OK!")
 		return True
@@ -479,6 +493,28 @@ class DatabaseFunctions(DatabaseConnection):
 			self.commit()
 		return True
 
+	def fast_delete_links(self,links,table="tree",hold=False):
+		'''This function is used when general clean function is executed
+		Returns
+		------
+			boolean
+		'''
+		parents = set()
+		children = set()
+		QUERY = "DELETE FROM {table} WHERE parent in ({parents}) AND child in ({children})"
+		logger.debug("Deleting {nlinks} links!".format(nlinks=len(links)))
+		for parent,child,rank in links:
+			parents |= set([parent])
+			children |= set([child])
+			#logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
+		logger.debug(QUERY.format(table=table,parents=len(parents),children=len(children)))
+		res = self.query(QUERY.format(table=table, parents=",".join(list(map(str,parents))), children=",".join(list(map(str,children)))))
+		## Commit changes
+		if not hold:
+			logger.debug("Commit changes!")
+			self.commit()
+		return True
+
 	def delete_nodes(self, nodes, table="nodes",hold=False):
 		'''This function deletes all nodes given in nodes
 
@@ -486,12 +522,10 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
-		QUERY = "DELETE FROM {table} WHERE id = {node}"
+		QUERY = "DELETE FROM {table} WHERE id in ({nodes})"
 		logger.debug("Deleting {nnodes} nodes!".format(nnodes=len(nodes)))
-		logger.debug(QUERY.format(table=table,node=""))
-		for node in nodes:
-			logger.debug("Delete node {node}".format(node=node))
-			res = self.query(QUERY.format(table=table, node=node))
+		logger.debug(QUERY.format(table=table,nodes=""))
+		res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes)))))
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
@@ -505,12 +539,12 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
-		QUERY = "DELETE FROM {table} WHERE id = {node}"
+		QUERY = "DELETE FROM {table} WHERE id in({nodes})"
 		logger.info("Deleting {nnodes} annotations!".format(nnodes=len(nodes)))
-		logger.debug(QUERY.format(table=table,node=""))
-		for node in nodes:
+		logger.debug(QUERY.format(table=table,nodes=""))
+		#for node in nodes:
 			#logger.info("Delete genomes from: {node}".format(node=node))
-			res = self.query(QUERY.format(table=table, node=node))
+		res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes)))))
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
@@ -580,7 +614,7 @@ class ModifyFunctions(DatabaseFunctions):
 		res = self.query(QUERY).fetchone()
 		return res
 
-	def get_parents(self,name,parents=set(),depth=0):
+	def get_parents(self,name,parents=set(),depth=0,find_all=False):
 		'''Get all parents until root
 
 		Returns
@@ -588,26 +622,38 @@ class ModifyFunctions(DatabaseFunctions):
 			list - all parents of a node
 		'''
 		ld = depth+1
+		name = set(list(map(int,name))) ## Make sure all names are int
 		if isinstance(name, int):
 			name = [name]
 		QUERY = '''SELECT parent,child FROM tree WHERE child in ({node})'''.format(node=",".join(map(str,name)))
-		logger.debug(QUERY)
+		#logger.debug(QUERY)
 		res = self.query(QUERY).fetchall()
-		try:
-			res = res[0]
-		except IndexError:
-			logger.warning("WARNING: parent could not be found for node {res} \n{query}".format(query=QUERY, res=name))
-			return set()
-		if res[0] == res[1]:  ## Special for root
-			return set([res[0]])
-		else:
-			## Add all parents
+		if not find_all:
 			try:
-				parents |= self.get_parents([int(res[0])],depth=ld)
-			except RecursionError:
-				print(res, name)
-		## Add current node
-		parents |= set([int(res[0])])
+				res = int(res[0])
+			except IndexError:
+				logger.warning("WARNING: parent could not be found for node {res} \n{query}".format(query=QUERY, res=name))
+				return set()
+			if res[0] == res[1]:  ## Special for root
+				return set([res[0]])
+			else:
+				## Add all parents
+				try:
+					parents |= self.get_parents([int(res[0])],depth=ld)
+				except RecursionError:
+					print(res, name)
+			## Add current node
+			parents |= set([int(res[0])])
+		else:
+			parents = set([int(pc[0]) for pc in res])
+			if len(parents-name) == 0:  ## There are no more parents to fetch
+				return parents
+			else:
+				## Add all parents
+				try:
+					parents |= self.get_parents(parents,depth=ld,find_all=find_all)
+				except RecursionError:
+					print(res, name)
 		return parents
 
 	def get_id(self,name):

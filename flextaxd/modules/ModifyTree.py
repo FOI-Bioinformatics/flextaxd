@@ -368,8 +368,9 @@ class ModifyTree(object):
 		self.all_nodes = set(self.taxonomydb.get_nodes(col=1).keys())
 		'''Add parents to all nodes that may not have annotations'''
 		logger.info("Retrieve all parents of annotated nodes")
-		for node in progressBar(list(self.annotated_nodes), prefix = 'Progress:', suffix = 'Complete', length = 50):
-			self.annotated_nodes |= self.taxonomydb.get_parents(node)
+		self.annotated_nodes |= self.taxonomydb.get_parents(self.annotated_nodes)
+		# for node in progressBar(list(self.annotated_nodes), prefix = 'Progress:', suffix = 'Complete', length = 50):
+		# 	self.annotated_nodes |= self.taxonomydb.get_parents(node)
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
