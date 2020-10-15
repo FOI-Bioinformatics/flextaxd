@@ -14,6 +14,7 @@ from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
 from time import sleep
+from gzip import BadGzipFile,EOFError
 
 import logging
 logger = logging.getLogger(__name__)
@@ -92,12 +93,14 @@ class CreateKrakenDatabase(object):
 		batchint = random.randint(10**3,10**7)
 		tmpbatch = "{db_path}/library/batch_{rand}.fasta".format(db_path=self.krakendb,rand=batchint)
 		check_output("touch {tmpfile}".format(tmpfile=tmpbatch),shell=True)
+		tmplog = "{outdir}/{rand}.log".format(outdir=self.outdir.rstrip("/"),rand=batchint)
 		for i in range(len(genomes)):
 			genome = genomes[i]
 			filepath = self.genome_path[genome]
 			kraken_header = "kraken:taxid"
 			tmpname = ".tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
 			tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")
+
 			'''Get taxid from database'''
 			try:
 				taxid = self.accession_to_taxid[genome]
@@ -105,8 +108,11 @@ class CreateKrakenDatabase(object):
 				try:
 					taxid = self.accession_to_taxid[filepath.rsplit("/")[-1]]
 				except KeyError:
+					with open(tmplog, "a") as f:
+						print(genome,file=f)
 					count +=1
-					logger.info("#Warning kraken header could not be added to {genome}! Total: {count}".format(genome=genome,count=count))
+					logger.debug("#Warning kraken header could not be added to {genome}! Total: {count}".format(genome=genome,count=count))
+
 					continue
 			if self.create_db:
 				if taxid not in self.skiptax:
@@ -115,32 +121,37 @@ class CreateKrakenDatabase(object):
 					taxidlines = []  ## Holder for sequences to be added to the seqid2taxid map from each file
 					'''Open input genome fasta file'''
 					with zopen(filepath,"r") as f:
-						for line in f:
-							if line.startswith(">"):
-								taxidmap = []
-								row = line.strip().split(" ")
-								seq_header = row[0]
-								if self.debug:
-									self.seqhead_validator[seq_header] = [seq_header, genome, str(taxid),self.taxidmap_debug[taxid],filepath]
-									self.seqhead_count +=1
-								if len(row) == 1:
-									row.append("")
-								endhead = " ".join(row[1:])
-								if True:  ## Remove end heading in all files as it may contain bad chars
-									endhead = "\n"
-								'''Format sequence header'''
-								if not self.krakenversion == "krakenuniq":
-									line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + endhead	 ## Nessesary to be able to add sequences outside NCBI
-								'''Format seqid2taxid map'''
-								if not self.krakenversion == "kraken2":
-									taxidmap = [row[0].lstrip(">"), str(taxid), endhead]
-								else:
-									taxidmap= ["TAXID", row[0].lstrip(">") + "|" + kraken_header + "|" + str(taxid), str(taxid)]
-								'''Add taxid to map'''
-								if taxidmap[0] != "" and taxid: ## print chromosome name to seqtoid map
-									taxidlines.append("\t".join(taxidmap)) ## print chromosome name to seqtoid map
-								'''Don´t include empty lines'''
-							print(line, end="", file=tmpfile)
+						try:
+							for line in f:
+								if line.startswith(">"):
+									taxidmap = []
+									row = line.strip().split(" ")
+									seq_header = row[0]
+									if self.debug:
+										self.seqhead_validator[seq_header] = [seq_header, genome, str(taxid),self.taxidmap_debug[taxid],filepath]
+										self.seqhead_count +=1
+									if len(row) == 1:
+										row.append("")
+									endhead = " ".join(row[1:])
+									if True:  ## Remove end heading in all files as it may contain bad chars
+										endhead = "\n"
+									'''Format sequence header'''
+									if not self.krakenversion == "krakenuniq":
+										line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + endhead	 ## Nessesary to be able to add sequences outside NCBI
+									'''Format seqid2taxid map'''
+									if not self.krakenversion == "kraken2":
+										taxidmap = [row[0].lstrip(">"), str(taxid), endhead]
+									else:
+										taxidmap= ["TAXID", row[0].lstrip(">") + "|" + kraken_header + "|" + str(taxid), str(taxid)]
+									'''Add taxid to map'''
+									if taxidmap[0] != "" and taxid: ## print chromosome name to seqtoid map
+										taxidlines.append("\t".join(taxidmap)) ## print chromosome name to seqtoid map
+									'''Don´t include empty lines'''
+								print(line, end="", file=tmpfile)
+						except BadGzipFile as e:
+							logger.warning("Could not process {output}, not a valid gzip file".format(output=genome))
+						except EOFError as e:
+							logger.warning("Compressed file ended before the end-of-stream marker was reached {output}".format(output=genome))
 					tmpfile.close()  ## Close and save tmp file
 					with open(self.seqid2taxid, "a") as seqidtotaxid:
 						print("\n".join(taxidlines),end="\n",file=seqidtotaxid)
