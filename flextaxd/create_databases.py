@@ -173,7 +173,7 @@ def main():
 		if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
 	else:
 		if len(missing) > 0:
-			print("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
+			logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
 			write_missing(missing)
 	''' 3. Add genomes to database'''
 	if args.db_name:

@@ -62,6 +62,7 @@ class DownloadGenomes(object):
 		Returns
 			list - list of files not downloaded
 		'''
+		logger.info("Downloading {files} files".format(files=len(files)))
 		if len(files) < self.processes:
 			self.processes = len(files)
 		self.download_map = self._split(files,self.processes)
@@ -83,6 +84,9 @@ class DownloadGenomes(object):
 		self.added = added.qsize()
 		if not any(proc.is_alive() for proc in jobs):
 			logger.info('All download processes completed')
+		elif len(added.qsize()) % 100 == 0:
+			print("{n} downloaded".format(added.qsize()),end="\r")
+
 		count = 0
 		while True:
 			if added.qsize() == 0: ## Check if no genome was succesfully downlaoded if no break
