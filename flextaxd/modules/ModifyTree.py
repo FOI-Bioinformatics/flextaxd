@@ -368,28 +368,35 @@ class ModifyTree(object):
 		self.all_nodes = set(self.taxonomydb.get_nodes(col=1).keys())
 		'''Add parents to all nodes that may not have annotations'''
 		logger.info("Retrieve all parents of annotated nodes")
-		for node in progressBar(list(self.annotated_nodes), prefix = 'Progress:', suffix = 'Complete', length = 50):
-			self.annotated_nodes |= self.taxonomydb.get_parents(node)
+		self.annotated_nodes |= self.taxonomydb.get_parents(self.annotated_nodes,find_all=True)
+		# for node in progressBar(list(self.annotated_nodes), prefix = 'Progress:', suffix = 'Complete', length = 50):
+		# 	self.annotated_nodes |= self.taxonomydb.get_parents(node)
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
 			self.keep = set(self.taxonomydb.get_children([1],maxdepth=1))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
+		'''Get all links related to an annotated node and its parents'''
 		self.annotated_links = set(self.taxonomydb.get_links(self.annotated_nodes,only_parents=True))
 		self.clean_links = self.all_links - self.annotated_links
 		self.clean_nodes = self.all_nodes - self.annotated_nodes
 		logger.info("Links to remove {nlinks}".format(nlinks=len(self.clean_links)))
+		logger.debug("Links remaining {nlinks}".format(nlinks=len(self.annotated_links)))
 		logger.info("Nodes to remove {nnodes}".format(nnodes=len(self.clean_nodes)))
+		logger.debug("Nodes remaining {nnodes}".format(nnodes=len(self.annotated_nodes)))
 		logger.info("Clean annotations related to removed nodes")
-		if len(self.clean_links) < len(self.all_links):
-			self.taxonomydb.delete_links(self.clean_links)
-		if len(self.clean_nodes) < len(self.all_nodes):
+		if len(self.clean_links) < len(self.all_links) and len(self.clean_links) > 0:
+			self.taxonomydb.fast_delete_links(self.clean_links)
+		if len(self.clean_nodes) < len(self.all_nodes) and len(self.clean_nodes) > 0:
 			self.taxonomydb.delete_nodes(self.clean_nodes)
 			if not ncbi:
 				self.taxonomydb.delete_genomes(self.clean_nodes)
-		self.taxonomydb.commit()
-		self.taxonomydb.query("vacuum")
+		if self.taxonomydb.validate_tree():
+			self.taxonomydb.commit()
+
+			logger.info("Vacuum database")
+			self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
 
 	def update_database(self):
