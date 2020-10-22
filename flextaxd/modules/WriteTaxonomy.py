@@ -98,7 +98,7 @@ class WriteTaxonomy(object):
 		'''Write node annotations to names.dmp'''
 		logging.info('Write annotations to: {}{}.dmp'.format(self.path,self.prefix[0]))
 		end = "\n"
-		if self.dbprogram == "ganon" or self.dbprogram == "krakenuniq":
+		if self.dbprogram == "krakenuniq":
 			end = "\t|\n"
 		with open('{}{}.dmp'.format(self.path,self.prefix[0]),"w") as outputfile:
 			## Retrieve all nodes that exists in the database

@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -31,7 +31,7 @@ __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge"]
-
+__suppored_visualizations__ = ["newick", "tree"]
 
 
 ## If script is executed run pipeline of selected options
@@ -127,6 +127,10 @@ def main():
     out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes", help="change dump prefix reqires two names default(names,nodes)")
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t", help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
+
+    vis_opts = parser.add_argument_group('vis_opts', "Visualization options")
+    vis_opts.add_argument('--visualise_node', metavar='', default=False, help="Visualize tree from selected node")
+    vis_opts.add_argument('--vis_type', metavar='', choices=__suppored_visualizations__)
 
     debugopts = parser.add_argument_group("Logging and debug options")
     debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
@@ -300,6 +304,11 @@ def main():
             write_obj.set_prefix("names,taxDB")
             write_obj.set_order(True)
             write_obj.nodes()
+
+    if args.visualise_node:
+        modify_module = dynamic_import("modules", "NewickTree")
+        modify_obj = modify_module(database=args.database,taxid=args.visualise_node)
+        modify_obj.print(args.vis_type)
     ftime=report_time(start_time,final=True)
 
 if __name__ == '__main__':

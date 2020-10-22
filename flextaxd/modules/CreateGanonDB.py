@@ -13,6 +13,7 @@ from multiprocessing import Process, Queue
 from subprocess import Popen,PIPE
 from .database.DatabaseConnection import DatabaseFunctions
 from time import sleep
+from gzip import BadGzipFile
 
 import logging
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class CreateGanonDB(object):
 		for job in jobs:
 			job.join()
 		## Concatenate each tmp file (per processor) to one big datafile
-		os.system("cat {outdir}/.tmp*.gz > {ganondb}/library.fasta.gz".format(outdir=self.outdir, ganondb=self.ganondb))
+		os.system("zcat {outdir}/.tmp*.gz | gzip > {ganondb}/library.fasta.gz".format(outdir=self.outdir, ganondb=self.ganondb))
 		os.system("cat {outdir}/.tmp*.map > {taxidmap}".format(outdir=self.outdir, taxidmap=self.seqid2taxid))
 		## Rm tmp files
 		os.system("rm {outdir}/.tmp*.gz".format(outdir=self.outdir))
@@ -72,11 +73,12 @@ class CreateGanonDB(object):
 
 	def ganon_fasta(self,genomes,process):
 		'''Change fasta file to contain ganon fasta header'''
-		tmpname = ".tmp{rand}.gz".format(rand=process)
+		tmpname = ".tmp{rand}".format(rand=process)
 		tmpmapname =  ".tmp{rand}.map".format(rand=process)
 		tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname)
 		tmpmap =  "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpmapname)
 		seqlen = 0
+		tmpout = zopen(tmppath, "w")  ## Open thread output file
 		for i in range(len(genomes)):
 			genome = genomes[i]
 			filepath = self.genome_path[genome]
@@ -90,24 +92,49 @@ class CreateGanonDB(object):
 					Pre-generated file with sequence information
 					(seqid <tab> seq.len <tab> taxid [<tab> assembly id])
 				'''
+				### Set local variables
+				lines = []
+				seqlen = 0
+				idstring = ""
+				header = ">{id}	{seqlen}	{taxid}"
 				with open(tmpmap, "a") as seqidtotaxid:
-					for line in f:
-						if line.startswith(">"):
-							if seqlen > 0:
-								print(row[0].lstrip(">").strip(),seqlen , taxid,end="\n", sep="\t",file=seqidtotaxid)  ## print contig name to seqtoid map
-							row = line.split(" ")
+					try:
+						for line in f:
+							if line.startswith(">"):
+								row = line.split(" ")
+								header_id = row[0].lstrip(">").strip()+"_"+genome
+								if seqlen > 0:  ## Print header and data
+									header = header.format(id=id,seqlen=seqlen,taxid=taxid)
+									idstring = ">"+id
+									print(header.lstrip(">"),end="\n",file=seqidtotaxid)
+									print(idstring, file=tmpout)  ## Print new unique header
+									print("\n".join(lines),file=tmpout)
+									## Reset local variables
+									lines = []
+									seqlen = 0
+									header = ">{id}	{seqlen}	{taxid}"
+								## Update ID
+								id = row[0].lstrip(">").strip()+"_"+genome
+							else:
+								## count lenght of sequence
+								seqlen += len(line.strip())
+								string = line.strip()
+								if string != "":
+									lines.append(string)
+								#print(line.strip(), file=tmpout)
+						if seqlen > 0: ## Print final sequence after loop has completed
+							header = header.format(id=id,seqlen=seqlen,taxid=taxid)
+							print(header.lstrip(">"),end="\n",file=seqidtotaxid)
+							print(idstring, file=tmpout)  ## Print new unique header
+							print("\n".join(lines),file=tmpout)
 							seqlen = 0
-						else:
-							## count lenght of sequence
-							seqlen += len(line.strip())
-					if seqlen > 0:
-						print(row[0].lstrip(">").strip(),seqlen , taxid,end="\n", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
-						seqlen = 0
-			## Concatenate source files into one big file (per processor)
-			sleep(0.01)
-			if not filepath.endswith(".gz"):
-				os.system("cat {file} | gzip >> {tmppath}".format(file=filepath, tmppath=tmppath))
-			os.system("cat {file} >> {tmppath}".format(file=filepath, tmppath=tmppath))
+					except BadGzipFile as e:
+						logger.warning("Could not process {output}, not a valid gzip file".format(output=genome))
+					except EOFError as e:
+						logger.warning("Compressed file ended before the end-of-stream marker was reached {output}".format(output=genome))
+		sleep(0.01)
+		tmpout.close()
+		os.system("gzip {tmpout}".format(tmpout=tmppath))
 		return True
 
 	def create_library_from_files(self):

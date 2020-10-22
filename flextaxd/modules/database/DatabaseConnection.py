@@ -343,7 +343,7 @@ class DatabaseFunctions(DatabaseConnection):
 			nodeDict[node[1]] = node[0]
 		return nodeDict
 
-	def get_links(self, nodes=False,database=False,swap=False,only_parents=False):
+	def get_links(self, nodes=False,database=False,swap=False,only_parents=False,order=False):
 		'''This function returns all links in the given database
 
 		------
@@ -359,6 +359,8 @@ class DatabaseFunctions(DatabaseConnection):
 			QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
 		elif nodes:
 			QUERY = '''SELECT {order},rank_i FROM tree WHERE parent in ({nodes}) OR child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
+		elif order:
+			 QUERY = ''''SELECT {order},rank_i FROM tree WHERE child in ({nodes}) ORDER BY child ASC'''
 		else:
 			QUERY = '''SELECT {order},rank_i FROM tree'''.format(order=",".join(order))
 		logger.debug(QUERY)
