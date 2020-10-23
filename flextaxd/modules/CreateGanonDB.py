@@ -13,6 +13,7 @@ from multiprocessing import Process, Queue
 from subprocess import Popen,PIPE
 from .database.DatabaseConnection import DatabaseFunctions
 from time import sleep
+from gzip import BadGzipFile
 
 import logging
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ def zopen(path,*args, **kwargs):
 
 class CreateGanonDB(object):
 	"""docstring for CreateGanonDB."""
-	def __init__(self, database, ganon_database, genome_names, outdir,verbose=False,debug=False,processes=1,limit=0,dbprogram="ganon",params="",create_db=False,skip=False,build_processes=False):
+	def __init__(self, database, ganon_database, genome_names, outdir,verbose=False,debug=False,processes=1,limit=0,dbprogram="ganon",params="",create_db=False,skip=False,build_processes=False,usezip=False):
 		super(CreateGanonDB, self).__init__()
 		self.database = DatabaseFunctions(database)
 		if outdir == "":
@@ -42,12 +43,15 @@ class CreateGanonDB(object):
 		self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 		self.genome_path = genome_names					## genome_id to path dictionary
 		self.files = []
+		self.usezip = ""
+		if usezip:
+			self.usezip+=".gz"
 		self.processes = processes
 		if not build_processes:
 			self.build_processes = self.processes
 		else:
 			self.build_processes = build_processes
-		self.ganondb= ganon_database
+		self.ganondb= ganon_database  ## Ganon database path
 		self.verbose = verbose
 		logger.info("{ganondb}".format(outdir = self.outdir, ganondb=self.ganondb))
 		if not os.path.exists("{ganondb}".format(outdir = self.outdir, ganondb=self.ganondb)):
@@ -63,20 +67,22 @@ class CreateGanonDB(object):
 		for job in jobs:
 			job.join()
 		## Concatenate each tmp file (per processor) to one big datafile
-		os.system("cat {outdir}/.tmp*.gz > {ganondb}/library.fasta.gz".format(outdir=self.outdir, ganondb=self.ganondb))
+		logger.info("Merge tmp files.")
+		logger.debug("Merge geneid map")
 		os.system("cat {outdir}/.tmp*.map > {taxidmap}".format(outdir=self.outdir, taxidmap=self.seqid2taxid))
-		## Rm tmp files
-		os.system("rm {outdir}/.tmp*.gz".format(outdir=self.outdir))
 		os.system("rm {outdir}/.tmp*.map".format(outdir=self.outdir))
+
+
 		return "Processes done"
 
 	def ganon_fasta(self,genomes,process):
 		'''Change fasta file to contain ganon fasta header'''
-		tmpname = ".tmp{rand}.gz".format(rand=process)
+		tmpname = ".tmp{rand}.fasta".format(rand=process)
 		tmpmapname =  ".tmp{rand}.map".format(rand=process)
-		tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname)
+		tmppath = "{outdir}/{tmppath}".format(outdir=self.ganondb.rstrip("/"),tmppath=tmpname)
 		tmpmap =  "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpmapname)
 		seqlen = 0
+		tmpout = open(tmppath, "w")  ## Open thread output file
 		for i in range(len(genomes)):
 			genome = genomes[i]
 			filepath = self.genome_path[genome]
@@ -90,30 +96,58 @@ class CreateGanonDB(object):
 					Pre-generated file with sequence information
 					(seqid <tab> seq.len <tab> taxid [<tab> assembly id])
 				'''
+				### Set local variables
+				lines = []
+				seqlen = 0
+				idstring = ""
+				header = ">{id}	{seqlen}	{taxid}"
 				with open(tmpmap, "a") as seqidtotaxid:
-					for line in f:
-						if line.startswith(">"):
-							if seqlen > 0:
-								print(row[0].lstrip(">").strip(),seqlen , taxid,end="\n", sep="\t",file=seqidtotaxid)  ## print contig name to seqtoid map
-							row = line.split(" ")
+					try:
+						for line in f:
+							if line.startswith(">"):
+								row = line.split(" ")
+								header_id = row[0].lstrip(">").strip()+"_"+genome
+								if seqlen > 0:  ## Print header and data
+									header = header.format(id=id,seqlen=seqlen,taxid=taxid)
+									idstring = ">"+id
+									print(header.lstrip(">"),end="\n",file=seqidtotaxid)
+									print(idstring, file=tmpout)  ## Print new unique header
+									print("\n".join(lines),file=tmpout)
+									## Reset local variables
+									lines = []
+									seqlen = 0
+									header = ">{id}	{seqlen}	{taxid}"
+								## Update ID
+								id = row[0].lstrip(">").strip()+"_"+genome
+							else:
+								## count lenght of sequence
+								seqlen += len(line.strip())
+								string = line.strip()
+								if string != "":
+									lines.append(string)
+								#print(line.strip(), file=tmpout)
+						if seqlen > 0: ## Print final sequence after loop has completed
+							header = header.format(id=id,seqlen=seqlen,taxid=taxid)
+							print(header.lstrip(">"),end="\n",file=seqidtotaxid)
+							print(idstring, file=tmpout)  ## Print new unique header
+							print("\n".join(lines),file=tmpout)
 							seqlen = 0
-						else:
-							## count lenght of sequence
-							seqlen += len(line.strip())
-					if seqlen > 0:
-						print(row[0].lstrip(">").strip(),seqlen , taxid,end="\n", sep="\t",file=seqidtotaxid)   ## print chromosome name to seqtoid map
-						seqlen = 0
-			## Concatenate source files into one big file (per processor)
-			sleep(0.01)
-			if not filepath.endswith(".gz"):
-				os.system("cat {file} | gzip >> {tmppath}".format(file=filepath, tmppath=tmppath))
-			os.system("cat {file} >> {tmppath}".format(file=filepath, tmppath=tmppath))
+					except BadGzipFile as e:
+						logger.warning("Could not process {output}, not a valid gzip file".format(output=genome))
+					except EOFError as e:
+						logger.warning("Compressed file ended before the end-of-stream marker was reached {output}".format(output=genome))
+		sleep(0.01)
+		tmpout.close()
+		if self.usezip:
+			os.system("gzip {tmpout}".format(tmpout=tmppath))
+		print("Process-{process} completed".format(process=process),end="\r")
 		return True
 
 	def create_library_from_files(self):
 		processes = self.processes
-		self.genome_names = self.split(self.genome_names,processes)
-		logger.info(self.ganon_fasta_multiproc(self.genome_names))
+		logger.info("Process {ngen} genomes".format(ngen=len(self.genome_names)))
+		genome_process_list = self.split(self.genome_names,processes)
+		logger.info(self.ganon_fasta_multiproc(genome_process_list))
 		#sleep(1)
 		#logger.info("Number of genomes added to ganon database: {count}".format(count=len(self.genome_names)))
 		return
@@ -125,13 +159,25 @@ class CreateGanonDB(object):
 	def create_database(self,outdir,keep=False):
 		'''For test create a small database and run tests'''
 		if not os.path.exists("{ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb)):
-			logger.info("mkdir -p {ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb))
+			logger.debug("mkdir -p {ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb))
 			os.system("mkdir -p {ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb))
-		logger.info("cp {outdir}/*.dmp {ganon}/taxonomy".format(outdir=outdir,ganon=self.ganondb))
+		logger.debug("cp {outdir}/*.dmp {ganon}/taxonomy".format(outdir=outdir,ganon=self.ganondb))
 		os.system("cp {outdir}/*nodes.dmp {ganon}/taxonomy/nodes.dmp".format(outdir=outdir,ganon=self.ganondb))
 		os.system("cp {outdir}/*names.dmp {ganon}/taxonomy/names.dmp".format(outdir=outdir,ganon=self.ganondb))
 
-		logger.info("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta.gz".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes))
-		os.system("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta.gz".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes))
+		logger.info("Build ganon database")
+		logger.debug("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta{usezip}".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes,usezip=self.usezip))
+		#os.system("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta{usezip}".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes,usezip=self.usezip))
+		inputlist = " ".join(["{outdir}/.tmp{thread}{usezip}.fasta".format(outdir=self.ganondb,usezip=self.usezip,thread=x) for x in range(self.processes)])
+		os.system("ganon build -d {ganondb}/ --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {inputlist}".format(ganondb=self.ganondb.rstrip("/"),seqid2taxid=self.seqid2taxid,processes=self.build_processes,outdir=outdir,usezip=self.usezip,inputlist=inputlist))
+
+		# logger.debug("Merge gene library map")
+		# os.system("cat {outdir}/.tmp*{usezip} > {ganondb}/library.fasta".format(outdir=self.outdir, ganondb=self.ganondb,usezip=self.usezip))
+		os.system("rm {outdir}/.tmp*{usezip}".format(outdir=self.ganondb.rstrip("/"),usezip=self.usezip))
+		# logger.info("zip library")
+		# try:
+		# 	os.system("pigz -p 8 {ganondb}/library.fasta{usezip}".format(usezip=""))
+		# except:
+		# 	os.system("gzip {ganondb}/library.fasta{usezip}".format(usezip=""))
 		#logger.info(self.ganon+"-build --build --db {ganon} --threads {threads}".format(ganon=self.ganon, threads=self.processes))
 		#logger.info("{ganon} database created".format(ganon=self.ganon))

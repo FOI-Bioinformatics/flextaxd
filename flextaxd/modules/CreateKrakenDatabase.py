@@ -14,7 +14,7 @@ from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
 from time import sleep
-from gzip import BadGzipFile,EOFError
+from gzip import BadGzipFile
 
 import logging
 logger = logging.getLogger(__name__)
