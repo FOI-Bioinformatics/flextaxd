@@ -33,6 +33,10 @@ conda install (-c conda-forge -c bioconda -c defaults) flextaxd
 python setup.py install
 ```
 # Usage
+
+Wiki -> https://github.com/FOI-Bioinformatics/flextaxd/wiki
+
+
 A new database(sqlite3) file will be created automatically when a taxonomy file is supplied default full path (.ftd/.db)
 
 Download the latest GTDB files (latest at the time of this update is "bac120_taxonomy_r89.tsv"
