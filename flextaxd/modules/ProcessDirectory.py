@@ -45,28 +45,13 @@ class ProcessDirectory(object):
 		'''
 		return self.files
 
-	def get_GCF_taxid(self,genome_name):
+	def get_taxid(self,genome_name):
 		'''If file contains GCF in the start and fna in the end it is most likely
 			from refseq try match do genomeid2taxid dictionary
 			otherwise the name should match the full name of the sequence file minus fa,fasta,fna
 
 		Parameters
-			str    - GCF/GCA
-		------
-		Returns
-			int 	- taxid
-		'''
-		try:
-			taxid = self.genome_id_dict[genome_name.strip()]
-			return taxid
-		except KeyError:
-			return False
-
-	def check_GCF(self,genome_name):
-		'''The file was neither a refseq file nor a custom fasta or fa file,
-			try if the file is a genbank file (GCA instead of GCF although not 100%)
-		Parameters
-			str    - GCF/GCA
+			str    - genome_name
 		------
 		Returns
 			int 	- taxid
@@ -77,67 +62,81 @@ class ProcessDirectory(object):
 		except KeyError:
 			return False
 
-	def find_local(self,genome_name,fname):
-		'''Does the file have a GCF/GCA start, ends with fna but is still a custom named genome
-		Parameters
-			str    - GCF/GCA
-		------
-		Returns
-			int 	- taxid
-		'''
-		#### Swap back namechange if no success
-		try:
-			taxid = self.genome_id_dict[fname.rsplit(".",1)[0]] ## strip .fa .fasta or .fna from base filename
-			return taxid
-		except KeyError:
-			return False
+	def is_gcf_gca(self,fname,debug=False):
+		'''Paramterers
+			str 	- File name
 
-	def find_local_fasta(self,genome_name,fname):
-		'''Does the file have a GCF/GCA start ends with fna but does not have fna in database name and is still a custom named genome
+		------
+		Returns
+			str 	- GCF name
+			boolean - false if not GCF/GCA
+		'''
+		try:
+			GCX,END,REST = fname.split("_",2)  ## If a name contains anything after the GCF number remove this if split by _
+			if debug:
+				logger.debug("[{} {} {}]".format(GCX,END,REST))
+			NUM,version = END.split(".",1)
+			if debug:
+				logger.debug("[{} {}]".format(NUM,version))
+			if GCX.startswith(("GCF","GCA")):						## Must start with GCF/GCA
+				if len(NUM) == 9 and NUM.isdigit():					## All true GCF/GCA names have 9 digits
+					if len(version) <= 2 and version.isdigit():  	## version number after . is 1-99 OBS -> Will have to be updated if a genome reach version number higher than 99
+						if fname.endswith(tuple(self.ref_ext)):	 	## A genome downloaded from refseq or genbank will end with .fna
+							genome_name = "{GCX}_{NUM}.{version}".format(GCX=GCX,NUM=NUM,version=version)
+							return genome_name
+		except:		## If the above is not true it is not a GCF file name return False
+			pass
+		return False
+
+	def find_local(self,fname):
+		'''Check if file is a custom genome defined without extension
 		Parameters
-			str    - GCF/GCA
+			str    - filename
 		------
 		Returns
 			int 	- taxid
 		'''
-		try:
-			taxid = self.genome_id_dict[fname] ## strip .fa .fasta or .fna from base filename
-			return taxid
-		except KeyError:
+		fname = fname.rsplit(".",1)[0]  ## If a name contains anything after the GCF number remove this if split by _
+		taxid = self.get_taxid(fname)
+		return taxid,fname
+
+	def find_local_fasta(self,fname):
+		'''Check if file is a custom genome defined with extension
+		Parameters
+			str    - filename
+		------
+		Returns
+			int 	- taxid
+		'''
+		taxid = self.get_taxid(fname)
+		if not taxid:
 			'''This file had no match in the reference folder, perhaps it is not annotated in the database'''
-			self.notused.add(genome_name)
-			logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=genome_name.strip()))
-			return False
+			self.is_gcf_gca(fname,True)
+			self.notused.add(fname)
+			logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=fname.strip()))
+		return taxid,fname
 
-	def process_file(self,file,fname,root):
+	def process_file(self,file,fname,root,taxid=False):
 		'''Parameters
 			str    - name of file
 			str    - path to file location
 		------
 		Returns
-			boolean - true if file existed
+			boolean - true if file was processed
 			'''
-
-		'''The bulk of genomes is expected to come from official sources therefore search '''
-		if (fname.startswith("GCF_") or fname.startswith("GCA_")) and fname.endswith(tuple(self.ref_ext)):
-			## Rename file to only GCF_name as this is what is expected to be present in the database for bulk genomes (NCBI/GTDB)
-			genome_name = fname.split("_",2)
-			genome_name = genome_name[0]+"_"+genome_name[1]
-		else:
-			genome_name = fname.split(".fna")[0] ## strip .fna from name
-		taxid = self.get_GCF_taxid(genome_name)
-
-		'''If the GCF genome is not present, check if the file starts with GCF/GCA but is a custom filename'''
+		'''The bulk of genomes is expected to come from official sources'''
+		genome_name = self.is_gcf_gca(fname)
+		if genome_name:
+			taxid = self.get_taxid(genome_name)
+		'''If the file is not a GCF or GCA file check if the file starts with GCF/GCA but is a still a custom filename'''
 		if not taxid:
-			taxid = self.find_local(genome_name,fname)
+			taxid,genome_name = self.find_local(fname)
 		'''If the file is still not matching a database entry use the complete name (including .fasta/.fna/.fa)'''
 		if not taxid:
-			taxid = self.find_local_fasta(genome_name,fname)
-
-		'''In official sources there is sometimes a file called from_genomic.fna make sure this file does not get included in the file list'''
-		if not file.strip(".gz").endswith("from_genomic.fna"):
+			taxid,genome_name = self.find_local_fasta(fname)
+		'''In official sources there is sometimes a file called from_genomic.fna; make sure this file does not get included in the file list'''
+		if not file.strip(".gz").endswith("from_genomic.fna") and taxid:
 			filepath = os.path.join(root, file)  ## Save the path to the file
-			#logger.debug("File added")
 			self.files.append(filepath)
 			self.genome_names.append(genome_name.strip())
 			self.genome_path_dict[genome_name.strip()] = filepath

@@ -20,18 +20,18 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
 __maintainer__ = "FOI bioinformatics group"
 __email__ = ["bioinformatics@foi.se","david.sundell@foi.se"]
-__date__ = "2020-08-28"
+__date__ = "2020-10-28"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge"]
-__suppored_visualizations__ = ["newick", "tree"]
+__suppored_visualizations__ = ["newick","newick_vis","tree"]
 
 
 ## If script is executed run pipeline of selected options
@@ -128,9 +128,9 @@ def main():
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t", help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
 
-    vis_opts = parser.add_argument_group('vis_opts', "Visualization options")
-    vis_opts.add_argument('--visualise_node', metavar='', default=False, help="Visualize tree from selected node")
-    vis_opts.add_argument('--vis_type', metavar='', choices=__suppored_visualizations__)
+    vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
+    vis_opts.add_argument('--visualise_node', metavar='', default=False, help="Visualise tree from selected node")
+    vis_opts.add_argument('--vis_type', metavar='', default="newick", choices=__suppored_visualizations__, help="Choices [{allowed}]".format(allowed=", ".join(__suppored_visualizations__)))
 
     debugopts = parser.add_argument_group("Logging and debug options")
     debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
