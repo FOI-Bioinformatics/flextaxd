@@ -3,8 +3,8 @@ Module to read and write newick trees
 
 '''
 from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
-from Bio import Phylo
 from io import StringIO
+import importlib
 
 '''Temporary fix for conda that refuses to select the correct version of ete3 during test installation.
 	It fails due to faces not being available in that ete3 version on import, but it works when ete3 is
@@ -25,6 +25,12 @@ __email__ = ["bioinformatics@foi.se", "david.sundell@foi.se"]
 __date__ = "2020-10-15"
 __status__ = "Production"
 __partof__ = "FlexTaxD"
+
+class VisualisationError(Exception):
+	"""Exception raised for errors in the input."""
+	def __init__(self, message):
+		#self.expression = expression
+		self.message = message
 
 class NewickNode(object):
 	"""The NewickNode class stores the information of a taxonomy node
@@ -49,7 +55,6 @@ class NewickNode(object):
 		self.children   = set()         	## Set of newick children
 		self.__class__.print_opt = "newick" ## The default behaviour of this class is to print out a
 											## 		newick tree from the given node (as root)
-
 
 	def __str__(self):
 		'''The print function of NewickNode allows any node to print all its children in newick format or the lineage to root
@@ -110,32 +115,61 @@ class NewickTree(object):
 		self.tmp_tree = "{outdir}/.newick"
 		## Build the newick tree
 		self.newickTree = str(self.build_tree(taxid=self.taxid))
-		self.phylo = Phylo.read(StringIO(self.newickTree), "newick")
-		## Tree colors
 
 	def __repr__(self):
 		return "NewickTree()"
 
 	def print(self,type="newick"):
+		'''Description function to print tree output
+		Parameters
+			str 		- type
+			Formats
+				newick 		- newick format B,(A,C,E),D);
+				newick_vis	- newick format as ascii tree
+				trees		- newick format as phylogenetic tree (using matplotlib)
+		------
+		Returns
+			boolean 	- True
+		'''
 		if type == "newick":
+			print(self.newickTree)
+			return
+
+		'''Local import allows default newickTree output to be independent of non standard python libraries'''
+		exists = importlib.find_loader('Bio')
+		if not exists:
+			raise VisualisationError("Visualisations other than newick requires biopython package (conda install biopython)!")
+
+		from Bio import Phylo
+		self.phylo = Phylo.read(StringIO(self.newickTree), "newick")
+		if type == "newick_vis":
 			Phylo.draw_ascii(self.phylo)
 		import matplotlib.pylab as pylab
 		if type == "tree":
 			Phylo.draw(self.phylo)
 		#fig.set_size_inches(5,5)
 		pylab.savefig("flextaxd.vis.png",)
-		return
+		return True
 
 	def get_tree(self,table="tree",taxid=False):
-		'''Function that returns the whole tree in the database the script expects
-			the tree to be rooted at the lowest value and that the root has itself as parent'''
+		'''Parameters
+			table 	- table in database (default tree)
+			taxid	- parent taxid
+		Function that returns the whole tree in the database the script expects
+			the tree to be rooted at the lowest value and that the root has itself as parent
+
+		------
+		Returns
+			lists	- List of links in tree, list of nodes in tree
+			or
+			list	- List of links in tree, False
+		'''
 		if taxid:
 			nodes = self.database.get_children([taxid])
 			return self.database.get_links(nodes,order=True),nodes
 		else:
 			SELECT = "SELECT parent,child,rank_i FROM {table} ORDER BY child ASC".format(table=table)
 			return self.database.query(SELECT).fetchall(),False
-		return
 
 	def get_nodes(self, names=False,col=False):
 		'''Retrieve the whole node info table of the database to decrease the number of database calls!

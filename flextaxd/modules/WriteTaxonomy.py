@@ -89,7 +89,7 @@ class WriteTaxonomy(object):
 				if self.dump_descriptions:
 					link[0],link[1] = self.nodeDict[link[0]],self.nodeDict[link[1]]
 				if self.dbprogram == "kraken2":
-					link = list(link)+["",""]  ## Make sure to add enough extra columns so that kraken2 does not trim away nessesary columns
+					link = list(link)+["-"]  ## Make sure to add enough extra columns so that kraken2 does not trim away nessesary columns
 				if not self.minimal:
 					link = list(link)+[""]
 				print(*link, sep=self.separator, end="\n", file=outputfile)
@@ -105,7 +105,8 @@ class WriteTaxonomy(object):
 			nodes = self.get_all('nodes', 'id,name')
 			for node in nodes:
 				if not self.minimal:
-					node = list(node) + ["","scientific name"]
-				if self.dbprogram == "kraken2":
-					node += ["",""] ## Make sure to add enough extra columns so that kraken2 does not trim away nessesary columns
+					empty = ""
+					if self.dbprogram == "kraken2":
+						emtpy = "-"
+					node = list(node) + [emtpy,"scientific name"]
 				print(*node, sep=self.separator, end=end, file=outputfile)

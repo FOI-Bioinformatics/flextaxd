@@ -107,7 +107,7 @@ def main():
 
 	debugopts = parser.add_argument_group("Logging and debug options")
 	#debugopts.add_argument('--tmpdir',             metavar='', default="/tmp/FlexTaxD",            help="Specify reference directory")
-	debugopts.add_argument('--log',                 metavar='', default="logs/",         help="Specify log directory")
+	debugopts.add_argument('--logs',                 metavar='', default="logs/",         help="Specify log directory")
 	debugopts.add_argument('--verbose',            action='store_const', const=logging.INFO,                help="Verbose output")
 	debugopts.add_argument('--debug',                action='store_const', const=logging.DEBUG,                help="Debug output")
 	debugopts.add_argument('--supress',                action='store_const', const=logging.ERROR,    default=logging.WARNING,            help="Supress warnings")
@@ -136,7 +136,7 @@ def main():
 	from datetime import time as dtime
 	t = dtime()
 	today = date.today()
-	logpath = args.log+"FlexTaxD-create-"+today.strftime("%b-%d-%Y")+"{}.log"
+	logpath = args.logs+"FlexTaxD-create-"+today.strftime("%b-%d-%Y")+"{}.log"
 	if os.path.exists(logpath):
 		logpath=logpath.format("-{:%H:%M}".format(t))
 	else: logpath = logpath.format("")
