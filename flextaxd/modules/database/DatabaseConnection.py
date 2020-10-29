@@ -355,12 +355,12 @@ class DatabaseFunctions(DatabaseConnection):
 		if swap:
 			order[1],order[0] = order[0],order[1]
 
-		if only_parents:
+		if only_parents and nodes:
 			QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
 		elif nodes:
 			QUERY = '''SELECT {order},rank_i FROM tree WHERE parent in ({nodes}) OR child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
-		elif order:
-			 QUERY = ''''SELECT {order},rank_i FROM tree WHERE child in ({nodes}) ORDER BY child ASC'''
+		elif nodes and order:
+			 QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes}) ORDER BY child ASC'''
 		else:
 			QUERY = '''SELECT {order},rank_i FROM tree'''.format(order=",".join(order))
 		logger.debug(QUERY)

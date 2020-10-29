@@ -131,6 +131,7 @@ def main():
     vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
     vis_opts.add_argument('--visualise_node', metavar='', default=False, help="Visualise tree from selected node")
     vis_opts.add_argument('--vis_type', metavar='', default="newick", choices=__suppored_visualizations__, help="Choices [{allowed}]".format(allowed=", ".join(__suppored_visualizations__)))
+    vis_opts.add_argument('--vis_depth', metavar='', type=int, default=3, help="Maximum depth from node to visualise default 3, 0 = all levels")
 
     debugopts = parser.add_argument_group("Logging and debug options")
     debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
@@ -307,7 +308,7 @@ def main():
 
     if args.visualise_node:
         modify_module = dynamic_import("modules", "NewickTree")
-        modify_obj = modify_module(database=args.database,taxid=args.visualise_node)
+        modify_obj = modify_module(database=args.database,taxid=args.visualise_node,maxdepth=args.vis_depth)
         modify_obj.print(args.vis_type)
     ftime=report_time(start_time,final=True)
 
