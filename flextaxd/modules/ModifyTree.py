@@ -238,12 +238,16 @@ class ModifyTree(object):
 		self.new_links = set()
 		self.new_nodes = set()
 		self.non_overlapping_old_links = set()
+		self.existing_links = set()
 		# ### Get the connecting link between the two databases
 		self.parent_link = self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent))
 		if not self.parent_link:
 			raise InputError("The selected parent node ({parent}) count not be found in the source database!".format(parent=self.parent))
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
-		self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
+		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
+		if len(self.existing_nodes) > 0:
+			self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
+		logger.info("{n} existing links to {parent}".format(n=len(self.existing_links),parent=self.parent))
 
 		if modtype == "database":
 			self.mod_genomes = self.database_mod(input)
@@ -259,7 +263,7 @@ class ModifyTree(object):
 		logger.debug("new: {new}".format(new=len(self.new_nodes)))
 		logger.debug("ovl: {ovl}".format(ovl=len(self.existing_nodes & self.new_nodes)))
 
-		if self.replace:  ## remove nodes connected to old nodes that is not replaced
+		if self.replace & len(self.existing_nodes) > 0:  ## remove nodes connected to old nodes that is not replaced
 			self.non_overlapping_old_links = set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes) - set([self.taxonomydb.get_id(self.parent)])))  ## Remove all links related to new nodes
 
 		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
