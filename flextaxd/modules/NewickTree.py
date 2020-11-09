@@ -104,7 +104,7 @@ class NewickTree(object):
 
 	"""
 
-	def __init__(self, database,name="newick",outdir="./",taxid=False):
+	def __init__(self, database,name="newick",outdir="./",taxid=False,maxdepth=3):
 		super(NewickTree, self).__init__()
 		self.database = ModifyFunctions(database) ## Initiate database connection with CanSNPdbFunctions
 		if taxid:
@@ -114,10 +114,16 @@ class NewickTree(object):
 		self.tree_file = "{outdir}/{name}_tree.pdf".format(outdir=outdir.rstrip("/"),name=name) ## output file
 		self.tmp_tree = "{outdir}/.newick"
 		## Build the newick tree
-		self.newickTree = str(self.build_tree(taxid=self.taxid))
+		self.maxdepth = maxdepth
+		self.newickTree = str(self.build_tree(taxid=self.taxid,maxdepth=self.maxdepth))
 
 	def __repr__(self):
 		return "NewickTree()"
+
+	def set_max_depth(self,depth):
+		'''Change the object maxdepth'''
+		self.maxdepth = depth
+		return self.maxdepth
 
 	def print(self,type="newick"):
 		'''Description function to print tree output
@@ -151,10 +157,11 @@ class NewickTree(object):
 		pylab.savefig("flextaxd.vis.png",)
 		return True
 
-	def get_tree(self,table="tree",taxid=False):
+	def get_tree(self,table="tree",taxid=False,maxdepth=3):
 		'''Parameters
 			table 	- table in database (default tree)
 			taxid	- parent taxid
+			depth	- depth
 		Function that returns the whole tree in the database the script expects
 			the tree to be rooted at the lowest value and that the root has itself as parent
 
@@ -165,7 +172,11 @@ class NewickTree(object):
 			list	- List of links in tree, False
 		'''
 		if taxid:
-			nodes = self.database.get_children([taxid])
+			if maxdepth == 0:
+				maxdepth = 1000  ## It is not reasonable to expect trees with more than 1000 levels, if so bug has to be raised
+			nodes = self.database.get_children([taxid],maxdepth=maxdepth)
+			if len(nodes) == 0:
+				raise VisualisationError("Given node has no children")
 			return self.database.get_links(nodes,order=True),nodes
 		else:
 			SELECT = "SELECT parent,child,rank_i FROM {table} ORDER BY child ASC".format(table=table)
@@ -228,17 +239,18 @@ class NewickTree(object):
 		logger.debug("NewickNode p:{parent} c: {child} added".format(parent=parent,child=child))
 		return
 
-	def build_tree(self,taxid=False):
+	def build_tree(self,taxid=False,maxdepth=3):
 		'''Build newick tree from database
 			This function walks through a database of nodes and creates NewickNode objects
 			self-aware of their decending newick tree or their parent lineage,
 
-			Parameters: Select a taxid on which to start from instead of root
-
+			Parameters:
+				taxid - Select a taxid on which to start from instead of root
+				depth - the number of levels downstream to visualise, default(5) to avoid too large trees for visualisation
 			Returns: The root of the tree, however all nodes are accesible from the
 						NewickTree nodeDict by their node name
 		'''
-		tree,nodes = self.get_tree(taxid=taxid)
+		tree,nodes = self.get_tree(taxid=taxid,maxdepth=maxdepth)
 		nodes = self.get_nodes(nodes & set([self.taxid]))
 		logger.debug("Nodes: {n} Links: {l}".format(n=len(nodes),l=len(tree)))
 		logger.debug([nodes,tree])

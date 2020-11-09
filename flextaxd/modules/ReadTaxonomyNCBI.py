@@ -68,6 +68,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		return
 
 	def parse_genebank_file(self,filepath,filename):
+		logger.debug("Parse file {filename}".format(filename=filename))
 		genebankid = filename.split("_",2)
 		genebankid = genebankid[0]+"_"+genebankid[1]
 		f = zopen(filepath,"r")
@@ -81,16 +82,17 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			this function parses the accession2taxid file from NCBI to speed up the function and reduce the amount
 			of stored datata only sequences in input genomes_path will be fetched
 		'''
-		logger.info("Parsing ncbi accession2taxid")
+		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path))
 		self.refseqid_to_GCF = {}
-		for root, dirs, files in os.walk(genomes_path):
+		for root, dirs, files in os.walk(genomes_path,followlinks=True):
 			for filename in files:
-				if filename.endswith(".fna.gz"):
+				if filename.strip(".gz").endswith(".fna"):
 					filepath = os.path.join(root, filename)
 					self.parse_genebank_file(filepath,filename)
 		logger.info("genomes folder read {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
+		count = 0
 		with zopen(annotation_file,"r") as f:
 			headers = f.readline().split(b"\t")
 			for row in f:
@@ -100,6 +102,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 						genebankid = self.refseqid_to_GCF[refseqid]
 						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"))
 					except:
-						pass
+						count +=1
 			self.database.commit()
+		logger.info("Genomes not matching any annotation {len}".format(len=count))
 		return

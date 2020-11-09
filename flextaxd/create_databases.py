@@ -10,12 +10,13 @@ __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
 __maintainer__ = "FOI bioinformatics group"
 __email__ = ["bioinformatics@foi.se","david.sundell@foi.se"]
-__date__ = "2019-09-30"
+__date__ = "2020-10-30"
 __status__ = "Beta"
 __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 from flextaxd.custom_taxonomy_databases import __version__
 from importlib import import_module
+import shutil
 
 
 
@@ -159,22 +160,34 @@ def main():
 	if args.outdir:
 		if not os.path.exists(args.outdir):
 			os.system("mkdir -p {outdir}".format(outdir = args.outdir))
-
+	skip=False
+	if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
+		ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
+		print(ans)
+		if ans in ["o", "O"]:
+			logger.info("Overwrite current build progress")
+			shutil.rmtree("{db_path}".format(db_path=args.db_name))
+		elif ans.strip() in ["u", "U"]:
+			logger.info("Resume database build")
+			skip = True
+		else:
+			exit("Cancel execution!")
 	''' 1. Process genome_path directory'''
-	process_directory = dynamic_import("modules", "ProcessDirectory")
-	logger.info("Processing files; create kraken seq.map")
-	process_directory_obj = process_directory(args.database)
-	genomes, missing = process_directory_obj.process_folder(args.genomes_path)
-	''' 2. Download missing files'''
-	if args.download:
-		download = dynamic_import("modules", "DownloadGenomes")
-		download_obj = download(args.processes,outdir=args.outdir,force=args.force_download)
-		still_missing = download_obj.run(missing)
-		if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
-	else:
-		if len(missing) > 0:
-			logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
-			write_missing(missing)
+	if not skip:
+		process_directory = dynamic_import("modules", "ProcessDirectory")
+		logger.info("Processing files; create kraken seq.map")
+		process_directory_obj = process_directory(args.database)
+		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
+		''' 2. Download missing files'''
+		if args.download:
+			download = dynamic_import("modules", "DownloadGenomes")
+			download_obj = download(args.processes,outdir=args.outdir,force=args.force_download)
+			still_missing = download_obj.run(missing)
+			if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
+		else:
+			if len(missing) > 0:
+				logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
+				write_missing(missing)
 	''' 3. Add genomes to database'''
 	if args.db_name:
 		if args.dbprogram.startswith("kraken"):
@@ -185,9 +198,11 @@ def main():
 			classifier = dynamic_import("modules", "CreateGanonDB")
 		limit = 0
 		if args.test:
-			limit = 500
+			limit = 10
 		'''Use the genome -> path dictionary to build database'''
-		genomes = process_directory_obj.get_genome_path_dict()
+		if not skip:
+			genomes = process_directory_obj.get_genome_path_dict()
+		else: genomes=False
 		classifierDB = classifier(args.database, args.db_name, genomes,args.outdir,
 										create_db=args.create_db,
 										limit=limit,
@@ -200,7 +215,8 @@ def main():
 										verbose=args.verbose,
 		)
 		report_time(current_time)
-		classifierDB.create_library_from_files()
+		if not skip:
+			classifierDB.create_library_from_files()
 		logger.info("Genome folder preprocessing completed!")
 
 	''' 4. Create database'''
