@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -30,7 +30,7 @@ __date__ = "2020-10-28"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
-__programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge"]
+__programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge","bracken"]
 __suppored_visualizations__ = ["newick","newick_vis","tree"]
 
 
@@ -106,6 +106,7 @@ def main():
     basic.add_argument('--dump_mini', action='store_true', help="Dump minimal file with tab as separator")
     basic.add_argument("--force", action='store_true', help="use when script is implemented in pipeline to avoid security questions on overwrite!")
     basic.add_argument('--validate', action='store_true', help="Validate database format")
+    basic.add_argument('--stats', action='store_true', help="Print some statistics from the database")
 
     rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
@@ -196,6 +197,12 @@ def main():
         db = ModifyFunctions(args.database)
         db.validate_tree()
         exit("Validation comleted!")
+
+    if args.stats:
+        from modules.database.DatabaseConnection import ModifyFunctions
+        db = ModifyFunctions(args.database)
+        db.statistics()
+        exit("")
 
     if args.mod_file or args.mod_database:
         if not args.parent:
