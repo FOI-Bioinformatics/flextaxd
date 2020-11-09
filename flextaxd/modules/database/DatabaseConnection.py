@@ -263,6 +263,31 @@ class DatabaseFunctions(DatabaseConnection):
 		logger.info("Validation OK!")
 		return True
 
+	def statistics(self):
+		'''Print statistics of the database
+
+		------
+		Returns:
+			true
+		'''
+		logger.info("Get all database nodes")
+		self.nodes = self.get_nodes(col=1)					## get all nodes
+		logger.info("Get all database edges")
+		self.edges = self.get_links()					## Get all links
+		logger.info("Get annotated genomes")
+		self.genomes = self.get_genomes()
+
+		stats = """Tree statistics
+					Nodes: {nodes}
+					Links: {links}
+					Genomes: {ngenomes}
+					""".format(nodes = len(self.nodes),
+								links=len(self.edges),
+								ngenomes=len(self.genomes)
+		)
+		print(stats)
+		return True
+
 	def check_parent(self):
 		'''check tree structure parent
 			make sure no tree node has multiple parents
