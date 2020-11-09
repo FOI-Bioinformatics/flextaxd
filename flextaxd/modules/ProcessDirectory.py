@@ -54,7 +54,7 @@ class ProcessDirectory(object):
 			str    - genome_name
 		------
 		Returns
-			int 	- taxid
+			int     - taxid
 		'''
 		try:
 			taxid = self.genome_id_dict[genome_name]
@@ -64,11 +64,11 @@ class ProcessDirectory(object):
 
 	def is_gcf_gca(self,fname,debug=False):
 		'''Paramterers
-			str 	- File name
+			str     - File name
 
 		------
 		Returns
-			str 	- GCF name
+			str     - GCF name
 			boolean - false if not GCF/GCA
 		'''
 		try:
@@ -78,13 +78,13 @@ class ProcessDirectory(object):
 			NUM,version = END.split(".",1)
 			if debug:
 				logger.debug("[{} {}]".format(NUM,version))
-			if GCX.startswith(("GCF","GCA")):						## Must start with GCF/GCA
-				if len(NUM) == 9 and NUM.isdigit():					## All true GCF/GCA names have 9 digits
-					if len(version) <= 2 and version.isdigit():  	## version number after . is 1-99 OBS -> Will have to be updated if a genome reach version number higher than 99
-						if fname.endswith(tuple(self.ref_ext)):	 	## A genome downloaded from refseq or genbank will end with .fna
+			if GCX.startswith(("GCF","GCA")):                        ## Must start with GCF/GCA
+				if len(NUM) == 9 and NUM.isdigit():                    ## All true GCF/GCA names have 9 digits
+					if len(version) <= 2 and version.isdigit():      ## version number after . is 1-99 OBS -> Will have to be updated if a genome reach version number higher than 99
+						if fname.endswith(tuple(self.ref_ext)):         ## A genome downloaded from refseq or genbank will end with .fna
 							genome_name = "{GCX}_{NUM}.{version}".format(GCX=GCX,NUM=NUM,version=version)
 							return genome_name
-		except:		## If the above is not true it is not a GCF file name return False
+		except:        ## If the above is not true it is not a GCF file name return False
 			pass
 		return False
 
@@ -94,7 +94,7 @@ class ProcessDirectory(object):
 			str    - filename
 		------
 		Returns
-			int 	- taxid
+			int     - taxid
 		'''
 		fname = fname.rsplit(".",1)[0]  ## If a name contains anything after the GCF number remove this if split by _
 		taxid = self.get_taxid(fname)
@@ -106,7 +106,7 @@ class ProcessDirectory(object):
 			str    - filename
 		------
 		Returns
-			int 	- taxid
+			int     - taxid
 		'''
 		taxid = self.get_taxid(fname)
 		if not taxid:
@@ -155,6 +155,8 @@ class ProcessDirectory(object):
 		count = 0
 		self.notused = set()
 		download_files = []
+		if not folder_path:
+			raise IOError("Parameter --genomes_path was not set".format(folder_path))
 		logger.info("Process genome path ({path})".format(path=folder_path))
 		for root, dirs, files in os.walk(folder_path,followlinks=True):
 			for file in files:
