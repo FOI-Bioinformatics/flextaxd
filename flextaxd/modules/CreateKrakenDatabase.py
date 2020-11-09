@@ -40,9 +40,10 @@ class CreateKrakenDatabase(object):
 		self.outdir = outdir
 		self.seqid2taxid = self.outdir+"/seqid2taxid.map"
 		if os.path.exists(self.outdir+"/seqid2taxid.map"): open(self.seqid2taxid,"w").close() ## clean existing map if file exists
-		self.genome_names = list(genome_names.keys())   ## List for multiprocessing
-		self.genome_path = genome_names					## genome_id to path dictionary
-		self.accession_to_taxid = self.database.get_genomes(self.database , limit=limit)
+		if genome_names:
+			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
+			self.genome_path = genome_names					## genome_id to path dictionary
+		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params
 		self.processes = processes
@@ -53,7 +54,7 @@ class CreateKrakenDatabase(object):
 		self.krakendb= kraken_database
 		self.verbose = verbose
 		self.create_db = create_db
-
+		self.limit = limit
 		self.debug = debug
 		if self.debug:
 			self.taxidmap_debug = self.database.get_nodes()
@@ -189,6 +190,9 @@ class CreateKrakenDatabase(object):
 
 	def create_library_from_files(self):
 		'''Create library for kraken and create kraken genome2taxid map'''
+		if self.limit:
+			logger.info("Test use only {n} genomes".format(n=self.limit))
+			self.genome_names = self.genome_names[0:self.limit]
 		self.genome_names_split = self._split(self.genome_names,self.processes)
 		if not os.path.exists("{db_path}/library/".format(db_path=self.krakendb)):
 			logger.info("Create library directory")
@@ -213,10 +217,11 @@ class CreateKrakenDatabase(object):
 		logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 		logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 		os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+		if self.krakenversion in ["kraken2"]:
+			logger.info("Create inspect file!")
+			os.system(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes ))
 		if not keep:
-			pass
-			## Since kraken2 is removing too much on clean it might be better to do this manually so certain log files can be saved
-			#os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
-			#logger.info("Cleaning up tmp files")
-			#os.system('find {krakendb} -maxdepth 1 -name "*.f*a" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
+			os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
+			logger.info("Cleaning up tmp files")
+			os.system('find {krakendb} -maxdepth 1 -name "*.f*a" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
 		logger.info("{krakenversion} database created".format(krakenversion=self.krakenversion))
