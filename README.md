@@ -17,6 +17,8 @@ All data is kept in a sqlite3 database (.ftd by default) and can be dumped to NC
 Python >=3.6
 ## additional requirements depending on executed functions
 ncbi-genome-download - to download additional genomes from NCBI
+## Visualisation
+biopython - required for visualisation (plain newick format can be printed to stdout without biopython).
 ## Database program requirement if create_database is executed
 kraken2
 krakenuniq
@@ -62,6 +64,10 @@ flextaxd --help
 ## Modify your database
 The database update function can use either a previously built flextaxd database or directly through a TAB separated text file with headers (parent, child, (level))). Using the --parent parameter, all nodes/edges subsequent to that parent will be added (or can replace an existing node see options) with the links supplied. The parent node must exist in the database/tables and must have the same name (ex "<i>Francisella tularensis</i>"). Using the (--replace) parameter all children in the old database under the given parent will be removed, if you only want to replace for example <i>Francisella tularensis</i> be sure not to choose <i>Francisella</i> as parent.
 
+
+### Statistics
+Print statistics
+--stats will print the number of nodes links and the number of annotated genomes.
 
 #### Modify the database and add sub-species specifications (for <i>Francisella tularensis</i>)
 ```
@@ -173,3 +179,7 @@ flextaxd-create
 Remove branches, the --skip parameter was implemented for benchmarking purposes as an option to remove branches by taxid, all children of the given taxid will be excluded.
 
 flextaxd-create --skip "taxid,taxid2"
+
+
+# Citation
+Publication of FlexTaxD will be available soon
