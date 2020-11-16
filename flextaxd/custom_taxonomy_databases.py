@@ -20,13 +20,13 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.3.4"
+__version__ = "0.3.5"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
 __maintainer__ = "FOI bioinformatics group"
 __email__ = ["bioinformatics@foi.se","david.sundell@foi.se"]
-__date__ = "2020-10-28"
+__date__ = "2020-11-12"
 __status__ = "Beta"
 __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
@@ -252,11 +252,12 @@ def main():
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 
             '''Parse genome2taxid file'''                                                       ## Fix at some point only one function should be needed
-            if not args.genomeid2taxid:
+            if not args.genomeid2taxid and not args.taxonomy_type == "QIIME":
                 logger.warning("Warning no genomeid2taxid file given!")
-            elif args.taxonomy_type == "NCBI" and args.genomeid2taxid:
+
+            if args.taxonomy_type == "NCBI" and args.genomeid2taxid:
                 read_obj.parse_genomeid2taxid(args.genomes_path,args.genomeid2taxid)
-            elif args.taxonomy_type == "CanSNPer":
+            elif args.genomeid2taxid: ## Always parse genomeid2taxid if present
                 read_obj.parse_genomeid2taxid(args.genomeid2taxid)
 
             logger.info("Nodes in taxonomy tree {n} number of taxonomies {k}".format(n=read_obj.length, k=read_obj.ids))

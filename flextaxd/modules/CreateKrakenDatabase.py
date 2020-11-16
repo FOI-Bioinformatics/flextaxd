@@ -14,7 +14,14 @@ from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
 from time import sleep
-from gzip import BadGzipFile
+
+'''gzip have changed their error format between python version 3.7 and 3.8, this is at least a temporary fix for that'''
+try:
+	from gzip import BadGzipFile
+except ImportError:
+	class BadGzipFile(OSError):
+	    """Exception raised in some cases for invalid gzip files."""
+
 
 import logging
 logger = logging.getLogger(__name__)

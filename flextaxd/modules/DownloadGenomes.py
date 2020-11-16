@@ -8,17 +8,20 @@ logger = logging.getLogger(__name__)
 
 from modules.functions import download_genomes
 from multiprocessing import Process,Manager,Pool
+from subprocess import Popen,PIPE
+import os
 
 class DownloadGenomes(object):
 	"""DownloadGenomes takes a list of genome names (GCF or GCA) and download (if possible) files from NCBI refseq and or genbank"""
 
-	def __init__(self,processes=20,outdir="./",force=False):
+	def __init__(self,processes=20,outdir="./",force=False,download_path="./"):
 		super(DownloadGenomes, self).__init__()
 		self.not_downloaded = []        ## Place holder for files not possible to download
 		self.download_map   = []        ## Place holder for files in subprocess
 		self.processes = processes      ## Number of simultanous downloads allowed
 		self.genome_names = []
 		self.genome_path = {}
+		self.download_path = download_path
 		self.outdir = outdir
 		self.force=force
 		if self.force:
@@ -53,7 +56,56 @@ class DownloadGenomes(object):
 				print(gen["genome_id"], end="\n", file=of)
 		return
 
-	def run(self, files):
+	def download_represenatives(self,genome_path,url="https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/bac120_marker_genes_reps.tar.gz"):
+		'''Specific function for GTDB download using their tar files instead of downloading from NCBI
+			Parameters
+				str - url
+				str - path to genome directory
+			Returns
+				path
+		'''
+		logger.debug(genome_path)
+		input_file_name = url.split("/")[-1]
+		self.location = genome_path.rstrip("/")+"/representatives"
+		self.representative_file = url.rsplit("/")[-1]
+		'''Check if exists already if so ask to replace or continue without downloading'''
+		if os.path.exists(self.location+"/"+input_file_name):
+			ans = input("A represenative file already exist, (u)se file, (o)verwrite (c)ancel? (u o,c): ")
+			if ans in ["o", "O"]:
+				logger.info("Overwrite current progress")
+				os.remove("{file}".format(file=input_file_name))
+			elif ans.strip() in ["u", "U"]:
+				logger.info("Resume database build")
+				return input_file_name
+			else:
+				exit("Cancel execution!")
+		logger.info("Download represenative genomes from {url}".format(url=url))
+		#as suggested by @SilentGhost the `self.location` and `url` should be separate argument
+		args = ['wget', '-nd', '-r', '-l', '1', '-p', '-P', self.location, url]
+		logger.debug(" ".join(args))
+		logger.info("Waiting for download process to finish (this may take a while)!")
+		p = Popen(args, stdout=PIPE)
+		(output, err) = p.communicate() 
+		p_status = p.wait()
+		return input_file_name
+
+	def parse_representatives(self,downloaded_file):
+		'''Parse representative genomes
+			untar the representative genomes directory to access the source genomes
+			Parameters
+				str - path to tar file
+			Returns
+				path - path to unzipped folder
+		'''
+		args = ["tar", "-xf", downloaded_file]
+		logger.info("Untar file {f}".format(f=downloaded_file))
+		logger.debug(" ".join(args))
+		p = Popen(args, stdout=PIPE,cwd=self.location)
+		(output, err) = p.communicate()
+		p_status = p.wait()
+		return self.location
+
+	def download_files(self,files):
 		'''Download list of GCF and or GCA files from NCBI
 
 		Parameters
@@ -106,3 +158,23 @@ class DownloadGenomes(object):
 		if len(self.not_downloaded) > 0:
 			self.write_missing(self.not_downloaded)
 		return self.not_downloaded
+
+	def run(self, files, representatives=False):
+		'''Download list of GCF and or GCA files from NCBI or download represenative genomes
+
+		Parameters
+			list - list of GCF/GCA ids
+			bool - download representative genomes instead of list
+
+		Returns
+			list - list of files not downloaded
+		'''
+		if representatives:
+			tarfile = self.download_represenatives(genome_path=self.download_path, url=representatives)
+			folder_path = self.parse_representatives(tarfile)
+			'''Process the downloaded folder'''
+			return folder_path,[]
+		else:
+			if len(files) > 0:
+				not_downloaded = self.download_files(files)
+				return False,not_downloaded
