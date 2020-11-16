@@ -364,7 +364,7 @@ class ModifyTree(object):
 		self.annotated_nodes = set(self.taxonomydb.get_genomes(cols="genome,id").keys())
 		an = len(self.annotated_nodes)
 		logger.info("Annotated nodes: {an}".format(an=an))
-		if an == 0:
+		if an == 0 and not ncbi:
 			raise InputError("Database has no annotations, the whole database would be cleaned")
 		logger.info("Get all links in database")
 		self.all_links = set(self.taxonomydb.get_links())
