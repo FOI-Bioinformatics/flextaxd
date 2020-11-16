@@ -65,21 +65,29 @@ class DownloadGenomes(object):
 				path
 		'''
 		logger.debug(genome_path)
-		logger.info("Download represenative genomes from {url}".format(url=url))
-		self.representative_file = url.rsplit("/")[-1]
-		location = genome_path.rstrip("/")+"/representatives"
-		#as suggested by @SilentGhost the `location` and `url` should be separate argument
-		args = ['wget', '-r', '-l', '1', '-p', '-P', location, url]
-		logger.debug(" ".join(args))
 		input_file_name = url.split("/")[-1]
-		downloaded_file = location+"/"+input_file_name
+		self.location = genome_path.rstrip("/")+"/representatives"
+		self.representative_file = url.rsplit("/")[-1]
+		'''Check if exists already if so ask to replace or continue without downloading'''
+		if os.path.exists(self.location+"/"+input_file_name):
+			ans = input("A represenative file already exist, (u)se file, (o)verwrite (c)ancel? (u o,c): ")
+			if ans in ["o", "O"]:
+				logger.info("Overwrite current progress")
+				os.remove("{file}".format(file=input_file_name))
+			elif ans.strip() in ["u", "U"]:
+				logger.info("Resume database build")
+				return input_file_name
+			else:
+				exit("Cancel execution!")
+		logger.info("Download represenative genomes from {url}".format(url=url))
+		#as suggested by @SilentGhost the `self.location` and `url` should be separate argument
+		args = ['wget', '-nd', '-r', '-l', '1', '-p', '-P', self.location, url]
+		logger.debug(" ".join(args))
 		logger.info("Waiting for download process to finish (this may take a while)!")
 		p = Popen(args, stdout=PIPE)
-		(output, err) = p.communicate() #now wait plus that you can send commands to process
-		#This makes the wait possible
-
+		(output, err) = p.communicate() 
 		p_status = p.wait()
-		return downloaded_file
+		return input_file_name
 
 	def parse_representatives(self,downloaded_file):
 		'''Parse representative genomes
@@ -90,9 +98,12 @@ class DownloadGenomes(object):
 				path - path to unzipped folder
 		'''
 		args = ["tar", "-xf", downloaded_file]
-		output = Popen(args, stdout=PIPE)
-		folder_path = downloaded_file.rsplit(".",2)[0] ##  remove tar and gz
-		return folder_path
+		logger.info("Untar file {f}".format(f=downloaded_file))
+		logger.debug(" ".join(args))
+		p = Popen(args, stdout=PIPE,cwd=self.location)
+		(output, err) = p.communicate()
+		p_status = p.wait()
+		return self.location
 
 	def download_files(self,files):
 		'''Download list of GCF and or GCA files from NCBI

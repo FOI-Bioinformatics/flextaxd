@@ -165,7 +165,6 @@ def main():
 	skip=False
 	if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
 		ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
-		print(ans)
 		if ans in ["o", "O"]:
 			logger.info("Overwrite current build progress")
 			shutil.rmtree("{db_path}".format(db_path=args.db_name))
@@ -189,9 +188,8 @@ def main():
 				still_missing = missing
 				if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
 			else:
-				print(new_genome_path)
 				new_genomes, missing = process_directory_obj.process_folder(new_genome_path)
-				genomes =+ new_genomes
+				genomes += new_genomes
 		else:
 			if len(missing) > 0:
 				logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
