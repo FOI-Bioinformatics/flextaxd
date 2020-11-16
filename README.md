@@ -8,9 +8,32 @@ Supported sources in version later than v0.2.0:
 * CanSNPer
 * TSV
 
-The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIME or CanSNPer sources and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation). The script was initially written to allow the use of GTDB with some custom modifications to allow increased resolution of selected subgroups. GTDB was created by an Australian group aimed to restructure the taxonomy relation from the NCBI taxonomy tree to strictly follow a phylogenetic structure (http://gtdb.ecogenomic.org/) this script can use the bac120_taxonomy_r89.tsv files from the GTDB downloads page as input (with the --taxonomy_type selected as QIIME). By default the script will read a Tab separated file containing parent and child (defined by column headers). The script also allows customization of the database using multiple sources and databases can be merged at a selected node(s) there is also an option to add resolution to certain subgroups (ie combine the different database types) using a tab separated file (format described below).
+Supported database build programs
+* kraken2
+* ganon
+* krakenuniq
+* centrifuge
 
-All data is kept in a sqlite3 database (.ftd by default) and can be dumped to NCBI formatted names and nodes.dmp files. Supported export formats are NCBI and TSV). The TSV dump format is similar to the NCBI dump except that it contains a header (parent<tab>child), has parent on the left and only uses tab to separate each column (not \<tab\>|\<tab\>).
+The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIME or CanSNPer source formats and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation). 
+### Create database
+* Create your database from source files --taxonomy_file 
+* and select --taxonomy_type [supported formats]
+
+### Modify Databases
+* Modify taxonomy (--mod_file/----mod_database)
+    * Modify taxonomy tree from selected node (--parent) Required for modification
+    * If the new database contains edges that are obsolete use --replace to remove any existing links
+    * Annotate genomes to database using genomeid2taxid
+* Clean up tree, if your tree have many non annotated nodes it may be worthwile removing those from the database (for speed) use --clean_database to remove all non annotated nodes.
+
+### Output options
+* To export the database into a file use --dump
+    * --dbprogram          Select the required output format for downstream programs [supported_programs]
+    * --dump_prefix        Change prefix on outputfiles from names,nodes)
+    * --dump_sep           Set output separator default (NCBI \t|\t) unless --dump_mini is used (default \t sep)
+    * --dump_descriptions  Dump node names to file instead of node ids
+
+All data is kept in a sqlite3 database (.ftd by default) and can be dumped into NCBI formatted names and nodes.dmp (--dump) or tab separated files (--dump_mini, --dump_descriptions). The TSV dump format is similar to the NCBI dump except that it contains a header (parent<tab>child), has parent on the left and only uses tab to separate each column (not \<tab\>|\<tab\>).
 
 # Reqirements
 ```
@@ -36,14 +59,10 @@ python setup.py install
 ```
 # Usage
 
-Wiki -> https://github.com/FOI-Bioinformatics/flextaxd/wiki
+Read more about flextaxd on Wiki 
+-> https://github.com/FOI-Bioinformatics/flextaxd/wiki
 
-
-A new database(sqlite3) file will be created automatically when a taxonomy file is supplied default full path (.ftd/.db)
-
-Download the latest GTDB files (latest at the time of this update is "bac120_taxonomy_r89.tsv"
-check https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/ for latest version)
-
+## Quick tutorial
 
 #### Save the default FlexTaxD into a custom taxonomy database
 ```
@@ -55,6 +74,10 @@ flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --database .ftd
 flextaxd --dump
 ```
 
+### Statistics
+Print statistics
+--stats will print the number of nodes links and the number of annotated genomes.
+
 ### Optional parameters
 Use the --help option for a complete list of parameters
 ```
@@ -64,29 +87,12 @@ flextaxd --help
 ## Modify your database
 The database update function can use either a previously built flextaxd database or directly through a TAB separated text file with headers (parent, child, (level))). Using the --parent parameter, all nodes/edges subsequent to that parent will be added (or can replace an existing node see options) with the links supplied. The parent node must exist in the database/tables and must have the same name (ex "<i>Francisella tularensis</i>"). Using the (--replace) parameter all children in the old database under the given parent will be removed, if you only want to replace for example <i>Francisella tularensis</i> be sure not to choose <i>Francisella</i> as parent.
 
-
-### Statistics
-Print statistics
---stats will print the number of nodes links and the number of annotated genomes.
-
 #### Modify the database and add sub-species specifications (for <i>Francisella tularensis</i>)
 ```
 flextaxd --mod_file custom_modification.txt --parent "Francisella tularensis" --genomeid2taxid custom_genome_annotations.txt
 ```
-#### Example of custom_modifications.txt and custom_genome_annotations.txt
-The modification file must contain three columns \<header\> and \<node\> and \<level\>) -> (Note that these tags in the file below are only there to show what is what in the file, also any number of extra tabs/spaces are there only to visualize columns! Only headers, node names and \\t \\n chars should be in the file).
-
-```
-<header>parent                          \tchild                                     \tlevel\n
-<node>Francisella tularensis             \tFrancisella tularensis tularensis         \tsubspecies\n
-<node>Francisella tularensis tularensis  \tB.6                                       \tsubsubspecies\n
-<node>Francisella tularensis             \tFrancisella tularensis holarctica         \tsubspecies\n
-```
-The genome annotation file will then contain the genome_id to taxonomy(node) name as annotation. The genome id has to match the names of the genomes in the genomes_path. In particular if with use of the create_kraken_database subscript. If the genome is already annotated, the annotation will be updated.
-```
-GCF_00005111.1\tFrancisella tularensis tularensis
-GCF_00005211.1\tFrancisella tularensis tularensis
-```
+The different formats supported and used by FlexTaxD are described in the wiki
+-> https://github.com/FOI-Bioinformatics/flextaxd/wiki/Formats
 
 ## One liner version
 Create, modify and dump your database (observe modification can only be done simultanously when GTDB is the source, otw the genomeid2taxid is occupied with other nessesary files)
@@ -95,10 +101,41 @@ Parent gives the name of the node where the modification should happen --replace
 flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --mod_file custom_modification.txt --genomeid2taxid custom_genome_annotations.txt --parent "Francisella tularensis" --dump
 ```
 
+
+#####
+#    Create a kraken database
+#####
+
+Finally there is a quick option to create a kraken2 or a krakenuniq database using your custom taxonomy database by only supplying genome names matching your annotation table given as --genomeid2taxid
+Requirements: kraken2 or krakenuniq needs to be installed, For the FlexTaxD standard database, source data from genbank or refseq is required (for genomeid2taxid match)
+
+Note: If your genome names are different, you can create a custom genome2taxid file and import into your database to match the names of your genome fasta/fa please avoid naming custom fasta files fna as this will be used to detect if genome names are formatted using refseq/genbank naming. Note that the refseq/genbank genomefiles needs to be gzipped (and end with .gz) in their stored location.
+
+### Create Kraken DB
+First dump your FlexTaxDatabase into names.dmp and nodes.dmp (default) if that was not already done.
+```
+flextaxd --dump -o NCBI_database
+```
+
+Add genomes to a kraken database <my_custom_krakendb> (and create the kraken database using --create_db) -o must be set to where the database names and nodes were dumped (NCBI_database)
+```
+flextaxd-create --kraken_db path/to/my_custom_krakendb --genomes_path path/to/genomes/folder --create_db --krakenversion kraken2 -o NCBI_database
+```
+
+The script will find all custom fasta, fa and refseq/genbank fna files in the given path and then add them to the krakendb, if --create_db parameter is given
+the script will execute the kraken-build --build command.
+
+
+
 #####
 #    Customize the NCBI taxonomy tree
 #####
 
+For a more in depth tutorial on how to merge a database onto the NCBI taxonomy see wiki
+-> https://github.com/FOI-Bioinformatics/flextaxd/wiki/Walkthrough---merge-NCBI-with-GTDB
+
+
+## Quick guide
 The most common database to start with is the NCBI taxonomy tree, however there are many known caveats to the NCBI tree in particular in the Bacterial kingdom,
 FlexTaxD allows modifications of the NCBI taxonomy by replacing nodes with correct structures.
 
@@ -136,29 +173,6 @@ flextaxd --database NCBI_taxonomy.db --mod_database canSNPer_database/CanSNPer.d
 flextaxd --dump
 ```
 
-#####
-#    Create a kraken database
-#####
-
-Finally there is a quick option to create a kraken2 or a krakenuniq database using your custom taxonomy database by only supplying genome names matching your annotation table given as --genomeid2taxid
-Requirements: kraken2 or krakenuniq needs to be installed, For the FlexTaxD standard database, source data from genbank or refseq is required (for genomeid2taxid match)
-
-Note: If your genome names are different, you can create a custom genome2taxid file and import into your database to match the names of your genome fasta/fa please avoid naming custom fasta files fna as this will be used to detect if genome names are formatted using refseq/genbank naming. Note that the refseq/genbank genomefiles needs to be gzipped (and end with .gz) in their stored location.
-
-### Create Kraken DB
-First dump your FlexTaxDatabase into names.dmp and nodes.dmp (default) if that was not already done.
-```
-flextaxd --dump -o NCBI_database
-```
-
-Add genomes to a kraken database <my_custom_krakendb> (and create the kraken database using --create_db) -o must be set to where the database names and nodes were dumped (NCBI_database)
-```
-flextaxd-create --kraken_db path/to/my_custom_krakendb --genomes_path path/to/genomes/folder --create_db --krakenversion kraken2 -o NCBI_database
-```
-
-The script will find all custom fasta, fa and refseq/genbank fna files in the given path and then add them to the krakendb, if --create_db parameter is given
-the script will execute the kraken-build --build command.
-
 ### Create kraken2 NCBI database (approx 60min with 40 cores with complete bacterial genomes from genbank may 2019 (~9000))  
 ```
 conda activate kraken2
@@ -179,7 +193,6 @@ flextaxd-create
 Remove branches, the --skip parameter was implemented for benchmarking purposes as an option to remove branches by taxid, all children of the given taxid will be excluded.
 
 flextaxd-create --skip "taxid,taxid2"
-
 
 # Citation
 Publication of FlexTaxD will be available soon
