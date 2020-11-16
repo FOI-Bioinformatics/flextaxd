@@ -263,7 +263,7 @@ class ModifyTree(object):
 		logger.debug("new: {new}".format(new=len(self.new_nodes)))
 		logger.debug("ovl: {ovl}".format(ovl=len(self.existing_nodes & self.new_nodes)))
 
-		if self.replace & len(self.existing_nodes) > 0:  ## remove nodes connected to old nodes that is not replaced
+		if self.replace and len(self.existing_nodes) > 0:  ## remove nodes connected to old nodes that is not replaced
 			self.non_overlapping_old_links = set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes) - set([self.taxonomydb.get_id(self.parent)])))  ## Remove all links related to new nodes
 
 		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
