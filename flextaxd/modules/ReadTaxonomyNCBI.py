@@ -20,8 +20,13 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.length = 0
 		self.ids = 0
 		self.accessionfile = False
-		#self.add_rank("no rank")
-		#self.add_link(child=1, parent=1,rank="no rank")
+
+	def write_missing(self,missing):
+		'''Write missing genomes to file'''
+		with open("FlexTaxD.not_added", "w") as of:
+			for gen in missing:
+				print(gen, end="\n", file=of)
+		return
 
 	def set_accession_file(self,file):
 		self.accessionfile = file
@@ -89,10 +94,10 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 				if filename.strip(".gz").endswith(".fna"):
 					filepath = os.path.join(root, filename)
 					self.parse_genebank_file(filepath,filename)
-		logger.info("genomes folder read {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
+		logger.info("genomes folder read, {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
-		count = 0
+		annotated_genome = set()
 		with zopen(annotation_file,"r") as f:
 			headers = f.readline().split(b"\t")
 			for row in f:
@@ -101,8 +106,15 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 					try:
 						genebankid = self.refseqid_to_GCF[refseqid]
 						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"))
+						annotated_genome.add(refseqid)
 					except:
-						count +=1
+						pass
 			self.database.commit()
-		logger.info("Genomes not matching any annotation {len}".format(len=count))
-		return
+		missing = set(self.refseqid_to_GCF.keys()) - annotated_genome
+		missing = [self.refseqid_to_GCF[m] for m in missing] ## Translate to GCF ids
+		if logging.root.level <=20: ## Equal to --verbose
+			logger.info("Printing non added genome id´s (GCF) to ./FlexTaxD.not_added")
+			self.write_missing(missing)
+		logger.debug(missing)  ## If debug also print genomes to terminal
+		logger.info("Genomes not matching any annotation {len}".format(len=len(missing)))
+		return missing
