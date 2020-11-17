@@ -34,6 +34,8 @@ __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge","bracken"
 __suppored_visualizations__ = ["newick","newick_vis","tree"]
 
 
+import rlcompleter
+import readline
 ## If script is executed run pipeline of selected options
 def main():
     ###################################--system imports--####################################
@@ -98,7 +100,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     required = parser.add_argument_group('required', 'Required')
-    required.add_argument('-db', '--database',metavar="", type=str, default=".ftd" , help="Custom taxonomy sqlite3 database file (fullpath)")
+    required.add_argument('-db', '--database',metavar="", type=str, default="FlexTaxD.db" , help="FlexTaxD taxonomy sqlite3 database file (fullpath)")
 
     basic = parser.add_argument_group('basic', 'Basic commands')
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory")
@@ -179,17 +181,28 @@ def main():
     logger = logging.getLogger(__name__)
     logger.info("FlexTaxD logging initiated!")
 
-    ### Run pipeline
-
     force = False
-
     if args.force:
         force = True
+
+    ### Run pipeline
+
+    '''If database is not given, and input data is not given raise error'''
+    if not os.path.exists(args.database) and not args.taxonomy_file:
+        raise InputError("Database {db} does not exist and no source file was provided!".format(db=args.database))
+    elif not os.path.exists(args.database) and args.taxonomy_file and not force:
+        ans = input("Creating a new FlexTaxD database {db} using {source}, press any key to continue...".format(db=args.database, source=args.taxonomy_file))
+        if ans:
+            pass
+
+    '''if force is on overwrite previous data without questions'''
+
     if (os.path.exists(args.database) and args.taxonomy_file) and not force:
         ans = input("Warning: {database} already exists, overwrite? (y/n): ".format(database=args.database))
         if ans not in ["y","Y","yes", "Yes"]:
             exit("Database already exists, abort!")
         force = True
+
 
     '''Check argument input logics'''
     if args.validate:
