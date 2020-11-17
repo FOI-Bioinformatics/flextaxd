@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 class ReadTaxonomyQIIME(ReadTaxonomy):
 	"""docstring for ReadTaxonomyQIIME."""
 	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1):
-		super(ReadTaxonomyQIIME, self).__init__(self)
-		self.database = DatabaseFunctions(database,verbose=verbose)
+		super(ReadTaxonomyQIIME, self).__init__(database=database,verbose=verbose)
+		#self.database = DatabaseFunctions(database,verbose=verbose)
 		self.input = taxonomy_file
 		self.names = {}
 		self.taxid_base = taxid_base

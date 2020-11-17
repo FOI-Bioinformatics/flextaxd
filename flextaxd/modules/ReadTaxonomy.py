@@ -16,10 +16,13 @@ class InputError(Exception):
 
 class ReadTaxonomy(object):
 	"""docstring for ReadTaxonomy."""
-	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=".taxonomydb",verbose=False,ncbi=False):
+	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,ncbi=False):
 		super(ReadTaxonomy, self).__init__()
 		### Connect to or create database
-		self.database = DatabaseFunctions(database,verbose=verbose)
+		if database:
+			self.database = DatabaseFunctions(database,verbose=verbose)
+		else:
+			raise InputError("No database was provided to ReadTaxonomy, abort!")
 		self.taxonomy_file = taxonomy_file
 		self.verbose = verbose
 		self.taxonomy = {}
