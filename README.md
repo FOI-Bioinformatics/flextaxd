@@ -2,6 +2,9 @@
 
 Flexible Taxonomy Databases - A cross platform tool for customization and merging of various taxonomic classification sources.
 
+New to FlexTaxD? --> see [wiki](https://github.com/FOI-Bioinformatics/flextaxd/wiki) 
+
+
 Supported sources in version later than v0.2.0:
 * QIIME (GTDB)
 * NCBI
