@@ -16,7 +16,7 @@ class InputError(Exception):
 
 class ReadTaxonomy(object):
 	"""docstring for ReadTaxonomy."""
-	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,ncbi=False):
+	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,ncbi=False,**kwargs):
 		super(ReadTaxonomy, self).__init__()
 		### Connect to or create database
 		if database:

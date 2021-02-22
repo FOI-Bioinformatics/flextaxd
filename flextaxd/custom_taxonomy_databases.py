@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.3.5"
+__version__ = "0.3.6"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -103,45 +103,47 @@ def main():
     required.add_argument('-db', '--database',metavar="", type=str, default="FlexTaxD.db" , help="FlexTaxD taxonomy sqlite3 database file (fullpath)")
 
     basic = parser.add_argument_group('basic', 'Basic commands')
-    basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory")
-    basic.add_argument("--dump", action='store_true', help="Write database to names.dmp and nodes.dmp")
-    basic.add_argument('--dump_mini', action='store_true', help="Dump minimal file with tab as separator")
-    basic.add_argument("--force", action='store_true', help="use when script is implemented in pipeline to avoid security questions on overwrite!")
-    basic.add_argument('--validate', action='store_true', help="Validate database format")
-    basic.add_argument('--stats', action='store_true', help="Print some statistics from the database")
+    basic.add_argument('-o', '--outdir',metavar="", default=".",                    help="Output directory")
+    basic.add_argument("--dump", action='store_true',                               help="Write database to names.dmp and nodes.dmp")
+    basic.add_argument('--dump_mini', action='store_true',                          help="Dump minimal file with tab as separator")
+    basic.add_argument("--force", action='store_true',                              help="use when script is implemented in pipeline to avoid security questions on overwrite!")
+    basic.add_argument('--validate', action='store_true',                           help="Validate database format")
+    basic.add_argument('--stats', action='store_true',                              help="Print some statistics from the database")
 
     rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
-    read_opts.add_argument('-tf', '--taxonomy_file',metavar="", default=None, help="Taxonomy source file")
-    read_opts.add_argument('-tt', '--taxonomy_type',metavar="", default="", choices=rmodules, help="Source format of taxonomy input file ({modules})".format(modules=",".join(rmodules)))
-    read_opts.add_argument('--taxid_base', metavar="", type=int, default=1, help="The base for internal taxonomy ID numbers, when using NCBI as base select base at minimum 3000000 (default = 1)")
+    read_opts.add_argument('-tf', '--taxonomy_file',metavar="", default=None,                   help="Taxonomy source file")
+    read_opts.add_argument('-tt', '--taxonomy_type',metavar="", default="", choices=rmodules,   help="Source format of taxonomy input file ({modules})".format(modules=",".join(rmodules)))
+    read_opts.add_argument('--taxid_base', metavar="", type=int, default=1,                     help="The base for internal taxonomy ID numbers, when using NCBI as base select base at minimum 3000000 (default = 1)")
 
     mod_opts = parser.add_argument_group('mod_opts', "Database modification options")
-    mod_opts.add_argument('-mf','--mod_file', metavar="", default=False, help="File contaning modifications parent,child,(taxonomy level)")
-    mod_opts.add_argument('-md', '--mod_database', metavar="",default=False, help="Database file containing modifications")
-    mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False, help="File that lists which node a genome should be assigned to")
-    mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,  help='Path to genome folder is required when using NCBI_taxonomy as source')
-    mod_opts.add_argument('-p', '--parent',metavar="", default=False, help="Parent from which to add (replace see below) branch")
-    mod_opts.add_argument('--replace', action='store_true', help="Add if existing children of parents should be removed!")
-    mod_opts.add_argument('--clean_database',	action='store_true', help="Clean up database from unannotated nodes")
+    mod_opts.add_argument('-mf','--mod_file', metavar="", default=False,                help="File contaning modifications parent,child,(taxonomy level)")
+    mod_opts.add_argument('-md', '--mod_database', metavar="",default=False,            help="Database file containing modifications")
+    mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
+    mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
+    mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to add (replace see below) branch")
+    mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed!")
+    mod_opts.add_argument('--clean_database',	action='store_true',                    help="Clean up database from unannotated nodes")
+    mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
+
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
-    out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__, help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
-    out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes", help="change dump prefix reqires two names default(names,nodes)")
-    out_opts.add_argument('--dump_sep', metavar="", default="\t|\t", help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
-    out_opts.add_argument('--dump_descriptions', action='store_true', default=False, help="Dump description names instead of database integers")
+    out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__,  help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
+    out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes",                       help="change dump prefix reqires two names default(names,nodes)")
+    out_opts.add_argument('--dump_sep', metavar="", default="\t|\t",                                help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
+    out_opts.add_argument('--dump_descriptions', action='store_true', default=False,                help="Dump description names instead of database integers")
 
     vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
-    vis_opts.add_argument('--visualise_node', metavar='', default=False, help="Visualise tree from selected node")
+    vis_opts.add_argument('--visualise_node', metavar='', default=False,                            help="Visualise tree from selected node")
     vis_opts.add_argument('--vis_type', metavar='', default="newick", choices=__suppored_visualizations__, help="Choices [{allowed}]".format(allowed=", ".join(__suppored_visualizations__)))
-    vis_opts.add_argument('--vis_depth', metavar='', type=int, default=3, help="Maximum depth from node to visualise default 3, 0 = all levels")
+    vis_opts.add_argument('--vis_depth', metavar='', type=int, default=3,                           help="Maximum depth from node to visualise default 3, 0 = all levels")
 
     debugopts = parser.add_argument_group("Logging and debug options")
-    debugopts.add_argument('--logs', 				metavar='', default="logs/", 		help="Specify log directory")
+    debugopts.add_argument('--logs', 				metavar='', default="logs/", 		                    help="Specify log directory")
     debugopts.add_argument('--verbose',			    action='store_const', const=logging.INFO,				help="Verbose output")
     debugopts.add_argument('--debug',				action='store_const', const=logging.DEBUG,				help="Debug output")
     debugopts.add_argument('--supress',				action='store_const', const=logging.ERROR,	default=logging.WARNING,			help="Supress warnings")
-    debugopts.add_argument('--quiet',               action='store_true', default=False, help="Dont show logging messages in terminal!")
+    debugopts.add_argument('--quiet',               action='store_true', default=False,                     help="Dont show logging messages in terminal!")
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
@@ -260,7 +262,7 @@ def main():
             '''Load taxonomy module'''
             logger.info("Loading module: ReadTaxonomy{type}".format(type=args.taxonomy_type))
             read_module = dynamic_import("modules", "ReadTaxonomy{type}".format(type=args.taxonomy_type))
-            read_obj = read_module(args.taxonomy_file, database=args.database)
+            read_obj = read_module(args.taxonomy_file, database=args.database,skip_annotation=args.skip_annotation)
             logger.info("Parse taxonomy")
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 

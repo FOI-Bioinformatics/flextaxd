@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class ReadTaxonomyNCBI(ReadTaxonomy):
 	"""docstring for ReadTaxonomyNCBI."""
-	def __init__(self, taxonomy_file=False, database=False):
+	def __init__(self, taxonomy_file=False, database=False,**kwargs):
 		super(ReadTaxonomyNCBI, self).__init__(database=database,ncbi=True)
 		self.taxonomy_file = taxonomy_file
 		self.names_dmp = taxonomy_file.replace("nodes","names")
