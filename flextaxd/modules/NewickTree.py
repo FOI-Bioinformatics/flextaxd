@@ -108,11 +108,13 @@ class NewickTree(object):
 		super(NewickTree, self).__init__()
 		self.database = ModifyFunctions(database) ## Initiate database connection with CanSNPdbFunctions
 		if taxid:
+			logger.info("Visualise {taxid}".format(taxid=taxid))
 			self.taxid = self.database.get_id(taxid)
 		self.nodeDict = {}							## Dictionary to store references to all newick nodes
 		self.c_p_set = set()
 		self.tree_file = "{outdir}/{name}_tree.pdf".format(outdir=outdir.rstrip("/"),name=name) ## output file
 		self.tmp_tree = "{outdir}/.newick"
+		self.taxonomy = self.database.get_nodes()
 		## Build the newick tree
 		self.maxdepth = maxdepth
 		self.newickTree = str(self.build_tree(taxid=self.taxid,maxdepth=self.maxdepth))
@@ -205,6 +207,7 @@ class NewickTree(object):
 		'''return parent'''
 		#QUERY = '''SELECT parent,child,rank FROM tree LEFT JOIN rank on (tree.rank_i = rank.rank_i) WHERE child = "{node}"'''.format(node=name)
 		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child = "{node}"'''.format(node=name)
+		logger.debug(QUERY)
 		res = self.database.query(QUERY).fetchone()
 		return res
 
@@ -212,32 +215,43 @@ class NewickTree(object):
 		'''return child'''
 		#QUERY = '''SELECT child,child,rank FROM tree LEFT JOIN rank on (tree.rank_i = rank.rank_i) WHERE child = "{node}"'''.format(node=name)
 		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE parent = "{node}"'''.format(node=name)
+		logger.debug(QUERY)
 		res = self.database.query(QUERY).fetchone()
 		return res
 
 	def new_node(self,child,nodes,parent):
 		'''Function that adds a new node to the newick tree'''
+		if self.link_exists == (child,parent): ## This has already been tried return directly
+			return False
 		try:
-			if len(self.c_p_set & set([(child,parent)])) == 0:
+			if len(self.c_p_set & set([(child,parent),(parent,child)])) == 0: ## If link does not exist
 				node = NewickNode(child, nodes[child], self.nodeDict[parent])  		## this works also for root as root has itself as child
 				'''Make sure link to parent was not made before'''
 				self.c_p_set |= set([(child,parent)])
 				self.c_p_set |= set([(parent,child)])
 				self.nodeDict[child] = node
+				self.link_exists=False
 			else:
-				logger.debug("Link {child}-{parent} already exists, retrieve node!".format(child=child,parent=parent))
+				logger.debug("Link {parent}-{child} already exists, retrieve node!".format(child=child,parent=parent))
+				self.link_exists = (child,parent)
 				node = self.nodeDict[child]										## add a reference to the node so that children can be added
 			pnode = self.nodeDict[parent]										## add child to the parent node
 			pnode.add_child(node)
 		except KeyError:
-			logger.debug("Error in adding NewickNode parent: {parent} does not exist, trying to add parent".format(parent=parent))
-			t_parent,t_child,rank = self.get_parent(parent)
-			logger.debug("Adding parent: {parent} of parent: {child}".format(parent=t_parent,child=t_child))
-			self.new_node(t_child,nodes,t_parent)
-			self.new_node(child,nodes,parent)
-			return
+			logger.debug("Error in adding NewickNode of {child} parent: {parent} does not exist, trying to add parent".format(parent=parent,child=child))
+			try:
+				t_parent,t_child,rank = self.get_parent(parent)
+			except KeyError:
+				raise Error("Something is wrong")
+			logger.debug("Adding parent: [{parent},{pname}] of child: [{child},{cname}]".format(parent=t_parent,pname=self.taxonomy[t_parent],cname=self.taxonomy[t_child],child=t_child))
+			if self.new_node(t_child,nodes,t_parent): ## Add the missing parent
+				self.new_node(child,nodes,parent)	  ## Try again to add the node
+			else:
+				self.added_parent = child
+				return False
+			return True
 		logger.debug("NewickNode p:{parent} c: {child} added".format(parent=parent,child=child))
-		return
+		return True
 
 	def build_tree(self,taxid=False,maxdepth=3):
 		'''Build newick tree from database
@@ -251,10 +265,11 @@ class NewickTree(object):
 						NewickTree nodeDict by their node name
 		'''
 		tree,nodes = self.get_tree(taxid=taxid,maxdepth=maxdepth)
-		nodes = self.get_nodes(nodes & set([self.taxid]))
+		nodes = self.get_nodes(nodes | set([self.taxid]))
 		logger.debug("Nodes: {n} Links: {l}".format(n=len(nodes),l=len(tree)))
 		logger.debug([nodes,tree])
-
+		self.added_parent = False
+		self.link_exists=False
 		'''Add root node as incoming taxid'''
 		if taxid:
 			parent,child,rank = self.get_child(taxid)
