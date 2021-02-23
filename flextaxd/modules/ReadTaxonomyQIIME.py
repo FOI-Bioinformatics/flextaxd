@@ -45,8 +45,8 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		oth_id = self.add_node("Other")
 		unc_id = self.add_node("Unclassified")
 
-		self.add_rank("n")
-		self.add_rank("sk")
+		self.add_rank("n",qiime=True)
+		self.add_rank("sk",qiime=True)
 		## Add basic links
 		self.add_link(child=rootid, parent=rootid,rank="n")
 		self.add_link(child=coid, parent=rootid,rank="n")

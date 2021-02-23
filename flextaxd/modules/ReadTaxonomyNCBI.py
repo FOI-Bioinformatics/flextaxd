@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ReadTaxonomyNCBI(ReadTaxonomy):
 	"""docstring for ReadTaxonomyNCBI."""
 	def __init__(self, taxonomy_file=False, database=False,**kwargs):
-		super(ReadTaxonomyNCBI, self).__init__(database=database,ncbi=True)
+		super(ReadTaxonomyNCBI, self).__init__(database=database)
 		self.taxonomy_file = taxonomy_file
 		self.names_dmp = taxonomy_file.replace("nodes","names")
 		self.names = {}
@@ -51,7 +51,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 				if rank == "None" or rank == None:
 					rank = "no rank"
 				if rank not in self.rank:
-					self.add_rank(rank,ncbi=True)
+					self.add_rank(rank)
 				lev = self.rank[rank]
 				self.database.add_link(child=data[0],parent=data[1],rank=lev)
 			self.database.commit()

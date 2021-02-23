@@ -41,8 +41,8 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		root_i = self.add_node(root_name)
 		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
-		self.add_rank(rank,ncbi=True)
-		self.add_rank("no rank",ncbi=True)
+		self.add_rank(rank)
+		self.add_rank("no rank")
 		self.add_link(root_i, root_i,rank=rank)
 		self.names = {}
 		self.root = root_i
