@@ -163,8 +163,6 @@ class ModifyTree(object):
 		self.new_nodes.add(child_i)
 
 		rank_i = self.add_rank(rank)
-		## add link
-		#logger.info(", ".join([str(parent_i),str(child_i),str(rank_i)]))
 		self.new_links.add((parent_i,child_i,rank_i))
 		return
 
@@ -253,8 +251,6 @@ class ModifyTree(object):
 		self.existing_links = set()
 		# ### Get the connecting link between the two databases
 		self.parent_link = self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent))
-		#print(self.parent)
-		#print("dbparent", self.translate(self.parent_link))
 		if not self.parent_link:
 			raise InputError("The selected parent node ({parent}) count not be found in the source database!".format(parent=self.parent))
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
@@ -390,8 +386,6 @@ class ModifyTree(object):
 		'''Add parents to all nodes that may not have annotations'''
 		logger.info("Retrieve all parents of annotated nodes")
 		self.annotated_nodes |= self.taxonomydb.get_parents(self.annotated_nodes,find_all=True)
-		# for node in progressBar(list(self.annotated_nodes), prefix = 'Progress:', suffix = 'Complete', length = 50):
-		# 	self.annotated_nodes |= self.taxonomydb.get_parents(node)
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
