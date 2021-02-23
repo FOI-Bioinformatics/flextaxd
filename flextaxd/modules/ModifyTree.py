@@ -82,12 +82,12 @@ class ModifyTree(object):
 			self.taxid_base = self._taxfix(self.taxid_base)
 			self.taxid_set = int(self.taxid_base)
 			logger.debug("Taxid base: {taxidbase}".format(taxidbase=self.taxid_base))
-
-
 		if mod_database:
 			if not os.path.exists(mod_database):
 				raise FileNotFoundError("The modification database was not found {path}".format(path=mod_database))
-			self.modsource = self.parse_modification(ModifyFunctions(mod_database,verbose=verbose),"database")
+			self.moddb = ModifyFunctions(mod_database,verbose=verbose)
+			self.dbmod_annotation = self.moddb.get_nodes(col=1)
+			self.modsource = self.parse_modification(self.moddb,"database")
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
 		elif update_genomes or clean_database:
@@ -168,16 +168,16 @@ class ModifyTree(object):
 		self.new_links.add((parent_i,child_i,rank_i))
 		return
 
-	def database_mod(self,database):
+	def database_mod(self,database,parent="root"):
 		'''Handle database modification '''
 		logger.debug(database)
-		logger.info("Parse database...")
+		logger.info("Parse mod database... {db}".format(db=database))
 		### Get translation dictionaries (from internal node index to description)
 		self.dbmod_annotation = database.get_nodes(col=1)
 		logger.debug(self.dbmod_annotation)
 		self.dbmod_rank = database.get_rank(col=1)
 		### Translate node ids between databases and add non existing nodes into current database
-		for link in database.get_links(self.dbmod_annotation.keys()):
+		for link in database.get_links(database.get_children(set([database.get_id(parent)]))):
 			link = list(link)
 			logger.debug(link)
 
@@ -185,14 +185,15 @@ class ModifyTree(object):
 				if self.replace:
 					if int(link[0]) != 1: ## Root to root
 						self.new_links.add(self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent)))
-						logger.debug("New links: {}".format(self.new_links))
+						logger.debug("New root link: {}".format(self.new_links))
 			else:
 				try:
 					parent,child,rank = self.dbmod_annotation[link[0]].strip(),self.dbmod_annotation[link[1]].strip(),self.dbmod_rank[link[2]]
-					#logger.debug("New link: [{p}, {c}, {r}]".format(p=parent,c=child,r=rank))
+					logger.debug("New link: [{p}, {c}, {r}]".format(p=parent,c=child,r=rank))
 					self._parse_new_links(parent=parent,child=child,rank=rank)
 
 				except:
+					logger.warning("Warning something is wrong! Check debug option")
 					logger.debug(self.dbmod_annotation)
 					logger.debug(self.dbmod_annotation[link[0]])
 					logger.debug(self.dbmod_annotation[link[1]])
@@ -231,6 +232,17 @@ class ModifyTree(object):
 				self._parse_new_links(parent=parent,child=child,rank=rank)
 		return
 
+	def translate(self,node,mod=False):
+		'''from node id to node name'''
+		n1,n2,r = node
+		if mod:
+			translate_dict = self.dbmod_annotation
+		else:
+			translate_dict = self.nodeDict
+		n1=translate_dict[n1]
+		n2=translate_dict[n2]
+		return (n1,n2,r)
+
 	def parse_modification(self, input,modtype="database"):
 		'''Retrieve all links to update from an existing database'''
 		## Retrieve all nodes annotated in the modified database
@@ -241,16 +253,20 @@ class ModifyTree(object):
 		self.existing_links = set()
 		# ### Get the connecting link between the two databases
 		self.parent_link = self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent))
+		#print(self.parent)
+		#print("dbparent", self.translate(self.parent_link))
 		if not self.parent_link:
 			raise InputError("The selected parent node ({parent}) count not be found in the source database!".format(parent=self.parent))
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
 		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
 		if len(self.existing_nodes) > 0:
 			self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
-		logger.info("{n} existing links to {parent}".format(n=len(self.existing_links),parent=self.parent))
+		modparent = self.moddb.get_parent(self.moddb.get_id(self.parent))
+		parentlinks = set(self.taxonomydb.get_links([self.taxonomydb.get_id(self.parent)]))
+		logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
 
 		if modtype == "database":
-			self.mod_genomes = self.database_mod(input)
+			self.mod_genomes = self.database_mod(input,self.parent)
 		elif modtype == "file":
 			self.file_mod(input)
 		else:
@@ -258,13 +274,14 @@ class ModifyTree(object):
 
 		### get links from current database
 		self.old_nodes = self.existing_nodes - self.new_nodes
-		logger.debug("nodes:")
-		logger.debug("old: {old}".format(old=len(self.old_nodes)))
-		logger.debug("new: {new}".format(new=len(self.new_nodes)))
-		logger.debug("ovl: {ovl}".format(ovl=len(self.existing_nodes & self.new_nodes)))
 
+		logger.info("nodes:")
+		logger.info("old: {old}".format(old=len(self.old_nodes)))
+		logger.info("new: {new}".format(new=len(self.new_nodes)))
+		logger.info("ovl: {ovl}".format(ovl=len(self.existing_nodes & self.new_nodes)))
 		if self.replace and len(self.existing_nodes) > 0:  ## remove nodes connected to old nodes that is not replaced
-			self.non_overlapping_old_links = set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes) - set([self.taxonomydb.get_id(self.parent)])))  ## Remove all links related to new nodes
+			if len((self.existing_nodes & self.new_nodes)) > 0:
+				self.non_overlapping_old_links = set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes) - set([self.taxonomydb.get_id(self.parent)])))  ## Remove all links related to new nodes
 
 		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
 		self.old_links = self.existing_links - self.new_links
@@ -277,7 +294,7 @@ class ModifyTree(object):
 			logger.debug("rm: {rm}".format(rm=len(self.non_overlapping_old_links)))
 			logger.debug(self.non_overlapping_old_links)
 		'''Get all genomes annotated to new nodes in existing database'''
-		return self.overlapping_links
+		return True
 
 	def update_annotations(self, genomeid2taxid):
 		'''Function that adds annotation of genome ids to nodes'''
@@ -413,7 +430,7 @@ class ModifyTree(object):
 			self.taxonomydb.query("vacuum") ## Actually remove the data from database
 			if len(self.non_overlapping_old_links) + len(self.old_nodes) > 0:
 				logger.info("Replace tree, deleting all nodes downstream of selected parent!")
-			if len(self.non_overlapping_old_links-set(self.parent_link)) > 0:
+			if len(self.old_links | self.non_overlapping_old_links-set(self.parent_link)) > 0:
 				logger.debug("Delete links no longer valid!")
 				self.taxonomydb.delete_links((self.old_links | self.non_overlapping_old_links)-set(self.parent_link))
 			if len(self.old_nodes):
@@ -423,7 +440,7 @@ class ModifyTree(object):
 		logger.debug("New links: [{links}]".format(links=self.new_links))
 		links,nodes = self.taxonomydb.add_links(self.new_links)
 		if len(links) + len(nodes) + len(self.non_overlapping_old_links) > 0:
-			if self.replace and len(self.old_nodes) > 0: logger.info("Deleted {n} links and {n2} nodes that are no longer valid".format(n=len(self.non_overlapping_old_links-set(self.parent_link)),n2=len(self.old_nodes)))
+			if self.replace and len(self.old_nodes) > 0: logger.info("Deleted {n} links and {n2} nodes that are no longer valid".format(n=len(self.old_links | self.non_overlapping_old_links-set(self.parent_link)),n2=len(self.old_nodes)))
 			if len(self.new_nodes) > 1: logger.info("Adding {n} new nodes".format(n=len(nodes)))
 			if len(links) > 1: logger.info("Adding {n} new links".format(n=len(links)))
 
