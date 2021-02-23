@@ -73,6 +73,9 @@ class ProcessDirectory(object):
 		'''
 		try:
 			GCX,END,REST = fname.split("_",2)  ## If a name contains anything after the GCF number remove this if split by _
+			if GCX in ["GB","RS"]:
+				GCX = END
+				END,REST = REST.split("_",1) ## GTDB stype input remove GB or RS definitions
 			if debug:
 				logger.debug("[{} {} {}]".format(GCX,END,REST))
 			NUM,version = END.split(".",1)
