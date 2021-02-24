@@ -690,7 +690,7 @@ class ModifyFunctions(DatabaseFunctions):
 		------
 			int - node id from node name
 		'''
-		QUERY = '''SELECT id FROM nodes WHERE name = "{node}"'''.format(node=name)
+		QUERY = '''SELECT id FROM nodes WHERE name = "{node}" COLLATE NOCASE'''.format(node=name)
 		try:
 			res = self.query(QUERY).fetchone()[0]
 		except TypeError:
