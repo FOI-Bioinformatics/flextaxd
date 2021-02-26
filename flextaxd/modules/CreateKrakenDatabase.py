@@ -67,13 +67,34 @@ class CreateKrakenDatabase(object):
 			self.taxidmap_debug = self.database.get_nodes()
 		self.seqhead_validator = {}
 		self.seqhead_count = 0
+		self.skiptax = set()
+		self.skipfiles = set()
 		if skip:
-			self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
-		else:
-			self.skiptax = []
+			if type(skip) == type(dict()):
+				self.skipfiles = skip["genome_id"]
+
+				self.skiptax = self.parse_taxid_names(skip["tax_id"])
+				logger.info(self.skiptax)
+			else:
+				self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
+
 		logger.info("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
 		if not os.path.exists("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb)):
 			os.system("mkdir -p {krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
+
+	def parse_taxid_names(self,skiptax):
+		'''Parse taxid names'''
+		taxidmap = self.database.get_nodes()
+		newset = set()
+		for tid in skiptax:
+			if not tid.isdigit():
+				try:
+					newset.add(taxidmap[tid])
+				except KeyError:
+					logger.info("# WARNING: {taxa} not in database".format(taxa=tid))
+		if len(newset) > 0:
+			skiptax = newset
+		return skiptax
 
 	def _split(self,a, n):
 		k, m = divmod(len(a), n)
@@ -104,6 +125,10 @@ class CreateKrakenDatabase(object):
 		tmplog = "{outdir}/{rand}.log".format(outdir=self.outdir.rstrip("/"),rand=batchint)
 		for i in range(len(genomes)):
 			genome = genomes[i]
+			if len(set([genome]) & self.skipfiles) > 0: ## Skip file if in skipfiles
+				logger.debug("Skip {genome}".format(genome=genome))
+				logger.info("Skip {genome}".format(genome=genome))
+				continue
 			filepath = self.genome_path[genome]
 			kraken_header = "kraken:taxid"
 			tmpname = ".tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
@@ -123,7 +148,7 @@ class CreateKrakenDatabase(object):
 
 					continue
 			if self.create_db:
-				if taxid not in self.skiptax:
+				if len(set([taxid]) & self.skiptax) == 0:
 					'''Open temp file for manipulated (unzipped) genome fasta files'''
 					tmpfile = zopen(tmppath,"w")
 					taxidlines = []  ## Holder for sequences to be added to the seqid2taxid map from each file
@@ -134,6 +159,13 @@ class CreateKrakenDatabase(object):
 								if line.startswith(">"):
 									taxidmap = []
 									row = line.strip().split(" ")
+									kh = line.strip().split("|")
+									if len(kh) > 1:
+										if kh[1].startswith("kraken"):
+											'''Assume kraken header is already present'''
+											kh = True
+									else:
+										kh = False
 									seq_header = row[0]
 									if self.debug:
 										self.seqhead_validator[seq_header] = [seq_header, genome, str(taxid),self.taxidmap_debug[taxid],filepath]
@@ -143,9 +175,11 @@ class CreateKrakenDatabase(object):
 									endhead = " ".join(row[1:])
 									if True:  ## Remove end heading in all files as it may contain bad chars
 										endhead = "\n"
-									'''Format sequence header'''
-									if not self.krakenversion == "krakenuniq":
+
+									'''Format sequence header unless header already have kraken header'''
+									if not self.krakenversion == "krakenuniq" and not kh:
 										line = row[0] + "|" + kraken_header + "|" + str(taxid) + "  " + endhead	 ## Nessesary to be able to add sequences outside NCBI
+
 									'''Format seqid2taxid map'''
 									if not self.krakenversion == "kraken2":
 										taxidmap = [row[0].lstrip(">"), str(taxid), endhead]

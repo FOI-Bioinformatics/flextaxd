@@ -15,6 +15,7 @@ __status__ = "Beta"
 __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 from flextaxd.custom_taxonomy_databases import __version__
+from flextaxd.modules.functions import read_skip_file
 from importlib import import_module
 import shutil
 
@@ -104,7 +105,7 @@ def main():
 	classifier_opts.add_argument('--params', metavar="", default="",  help="Add extra params to create command (supports kraken*)")
 	classifier_opts.add_argument('--test', action='store_true', help="test database structure, only use 100 seqs")
 	classifier_opts.add_argument('--keep', action='store_true', help="Keep temporary files")
-	classifier_opts.add_argument('--skip', metavar="", default="", help="Do not include genomes within this taxonomy (child tree) in the database (works for kraken)")
+	classifier_opts.add_argument('--skip', metavar="", default="", help="Do not include genomes within this taxonomy (child tree) in the database (works for kraken), can be a file ending with txt and genome ids one per row")
 	classifier_opts.add_argument('-kp', '--build_processes',metavar="",type=int, default = None, help="Use a different number of cores for kraken classification")
 
 
@@ -156,6 +157,7 @@ def main():
 	logger.info("FlexTaxD-create logging initiated!")
 	logger.debug("Supported formats: {formats}".format(formats=programs))
 
+
 	'''
 		Process data
 	'''
@@ -163,7 +165,7 @@ def main():
 		if not os.path.exists(args.outdir):
 			os.system("mkdir -p {outdir}".format(outdir = args.outdir))
 	skip=False
-	if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
+	if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)) or os.path.exists("{db_path}/.tmp0.fasta"):
 		ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
 		if ans in ["o", "O"]:
 			logger.info("Overwrite current build progress")
@@ -209,6 +211,10 @@ def main():
 		if not skip:
 			genomes = process_directory_obj.get_genome_path_dict()
 		else: genomes=False
+		if args.skip:
+			if args.skip.endswith(".txt"):
+				args.skip = read_skip_file(args.skip)
+				logger.info("File passed to skip, {n} genomes and {x} taxids added to skiplist".format(n=len(args.skip["genome_id"]),x=len(args.skip["tax_id"])))
 		classifierDB = classifier(args.database, args.db_name, genomes,args.outdir,
 										create_db=args.create_db,
 										limit=limit,
@@ -231,8 +237,9 @@ def main():
 		logger.info("Create database")
 		try:
 			classifierDB.create_database(args.outdir,args.keep)
-		except UnboundLocalError:
-			logger.error("#Error: No kraken database name was given!")
+		except UnboundLocalError as e:
+			logger.error("#Error: No database name was given!")
+			logger.error("#UnboundLocalError "+e)
 			exit()
 
 	logger.debug(report_time(start_time,final=True))

@@ -137,3 +137,44 @@ def download_genomes(genomes,added,filepath,missing,force=False):
 					filepath.put(outdir)
 				else:
 					missing.put(genome["accession"].strip())
+
+def read_file(fin):
+	'''Read a one column file (or at least use only first column) and return list
+		Parameters
+			str - filepath
+		------
+		Returns
+			set - set of first (or only column sep by tab)
+	'''
+	fset = set()
+	with open(fin) as f:
+
+		for row in f:
+			fc = row.strip().split("\t")[0]
+			fset.add(fc)
+	return fset
+
+def read_skip_file(fin):
+	'''Read a skip file with potentially two types of formats (genomes) and or (taxids/names)
+		Parameters
+			str - filepath
+		------
+		Returns
+			dict - set of genome_ids and set of taxids
+	'''
+	tset = set()
+	gset = set()
+	result = {"tax_id":tset,"genome_id":gset}
+	with open(fin) as f:
+		for row in f:
+			data = row.strip().split("\t")[0]
+			if data.strip() == "tax_id":
+				ldict = result["tax_id"]
+				continue
+			elif data.strip() == "genome_id":
+				ldict = result["genome_id"]
+				continue
+			else:
+				fc = row.strip().split("\t")[0]
+				ldict.add(fc)
+	return result

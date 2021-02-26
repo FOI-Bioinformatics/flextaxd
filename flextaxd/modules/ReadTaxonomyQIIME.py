@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class ReadTaxonomyQIIME(ReadTaxonomy):
 	"""docstring for ReadTaxonomyQIIME."""
-	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1):
+	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1,skip_annotation=False):
 		super(ReadTaxonomyQIIME, self).__init__(database=database,verbose=verbose)
 		#self.database = DatabaseFunctions(database,verbose=verbose)
 		self.input = taxonomy_file
@@ -20,6 +20,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.taxonomy = {}
 		self.length = 0
 		self.ids = 0
+		self.skip_annotation = skip_annotation
 		self.levelDict = {
 				"n": "no rank",
 				"sk": "superkingdom",
@@ -44,8 +45,8 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		oth_id = self.add_node("Other")
 		unc_id = self.add_node("Unclassified")
 
-		self.add_rank("n")
-		self.add_rank("sk")
+		self.add_rank("n",qiime=True)
+		self.add_rank("sk",qiime=True)
 		## Add basic links
 		self.add_link(child=rootid, parent=rootid,rank="n")
 		self.add_link(child=coid, parent=rootid,rank="n")
@@ -103,12 +104,16 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.added = 0
 		taxid_start = self.taxid_base
 		raiseWarning = False
+		if self.skip_annotation:
+			logger.info("Skip annotation is true, annotations in QIIME input file will be ignored.")
 		with open(self.input) as f:
 			'''Each row defines a genome annotation file connected to a tree level'''
 			for row in f:
 				if row.strip() != "":  ## If there are trailing empty lines in the file
 					data = row.strip().split("\t")
-					if len(data) != 2:  ## If the QIIME file is annotated it will contain two columns
+					if self.skip_annotation:
+						genome_id = False
+					elif len(data) != 2:  ## If the QIIME file is annotated it will contain two columns
 						if len(data) > 2:
 							raise InputError("The input format is not correct for QIIME. THe QIIME source format requires one [QIIME-tree] or two columns [gene_id\\tQIIME-tree]")
 						raiseWarning = True
@@ -140,6 +145,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.database.commit()
 		self.length = self.taxid_base - taxid_start
 		if raiseWarning: logger.warning("Warning no genomeid2taxid file given and your QIIME formatted file does not seem to contain annotations!")
-		logger.info("Genomes added to database: {genomes}".format(genomes=self.added))
-		logger.debug("Genomes not added to database {missed} errors {errors}".format(missed=self.missed,errors=self.errors))
+		if not self.skip_annotation:
+			logger.info("Genomes added to database: {genomes}".format(genomes=self.added))
+			logger.debug("Genomes not added to database {missed} errors {errors}".format(missed=self.missed,errors=self.errors))
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))

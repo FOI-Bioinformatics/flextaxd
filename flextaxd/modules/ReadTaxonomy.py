@@ -16,7 +16,7 @@ class InputError(Exception):
 
 class ReadTaxonomy(object):
 	"""docstring for ReadTaxonomy."""
-	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,ncbi=False):
+	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,ncbi=False,**kwargs):
 		super(ReadTaxonomy, self).__init__()
 		### Connect to or create database
 		if database:
@@ -35,7 +35,7 @@ class ReadTaxonomy(object):
 
 		## Add base node
 		self.add_node("root")
-		self.add_rank("no rank",ncbi=True)
+		self.add_rank("no rank")
 		## Add basic link
 		self.add_link(child=1, parent=1,rank="no rank")
 
@@ -51,21 +51,17 @@ class ReadTaxonomy(object):
 		'''Change separator from default (\t)'''
 		self.sep = sep
 
-	def add_rank(self, rank,ncbi=False):
+	def add_rank(self, rank,qiime=False):
 		'''Insert rank into database'''
 		try:
 			return self.rank[rank]
 		except KeyError:
 			pass
 		if rank:
-			try:
-				rank = int(rank)
+			if qiime:
+				rank_i = self.database.add_rank(self.levelDict.get(rank))
+			else:
 				rank_i = self.database.add_rank(rank)
-			except ValueError:
-				if not ncbi:
-					rank_i = self.database.add_rank(self.levelDict.get(rank))
-				else:
-					rank_i = self.database.add_rank(rank)
 			self.rank[rank] = rank_i
 		else:
 			return False

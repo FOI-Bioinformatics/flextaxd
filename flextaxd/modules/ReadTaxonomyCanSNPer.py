@@ -26,7 +26,7 @@ class ImportFormatError(Exception):
 
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", verbose=False):
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", verbose=False,**kwargs):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
 		self.taxonomy = {}
@@ -41,8 +41,8 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		root_i = self.add_node(root_name)
 		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
-		self.add_rank(rank,ncbi=True)
-		self.add_rank("no rank",ncbi=True)
+		self.add_rank(rank)
+		self.add_rank("no rank")
 		self.add_link(root_i, root_i,rank=rank)
 		self.names = {}
 		self.root = root_i
