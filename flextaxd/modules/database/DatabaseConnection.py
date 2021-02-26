@@ -217,11 +217,15 @@ class DatabaseFunctions(DatabaseConnection):
 			self.tree_nodes.add(edge[1])
 		logger.info("Validate parents")
 		res = self.check_parent()
+		extra = ""
 		if len(res) > 0:
 			failed_nodes = [self.nodes[x[0]] for x in list(res)]
+			logger.debug(failed_nodes)
 			if len(failed_nodes) > 10:
+				logger.info(failed_nodes[:10])
 				failed_nodes = len(failed_nodes)
-			raise TreeError("There are nodes with multiple parents {nodes}".format(nodes=failed_nodes))
+				extra = "total failed nodes: "
+			raise TreeError("There are nodes with multiple parents {extra}{nodes}".format(nodes=failed_nodes,extra=extra))
 		stats = """Tree statistics
 					Nodes: {nodes}
 					Links: {links}
