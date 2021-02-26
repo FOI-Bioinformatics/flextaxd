@@ -152,7 +152,7 @@ class ModifyTree(object):
 			self.nodeDict[desc] = i
 			return i
 
-	def _parse_new_links(self, parent=None,child=None,rank=None):
+	def _parse_new_links(self, parent=None,child=None,rank="no rank"):
 		'''Help function for parse_mod_file, gets existing node id or adds new node'''
 		## add new nodes
 		if not child and parent:
@@ -257,9 +257,10 @@ class ModifyTree(object):
 		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
 		if len(self.existing_nodes) > 0:
 			self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
-		modparent = self.moddb.get_parent(self.moddb.get_id(self.parent))
 		parentlinks = set(self.taxonomydb.get_links([self.taxonomydb.get_id(self.parent)]))
-		logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
+		if modtype == "database":
+			modparent = self.moddb.get_parent(self.moddb.get_id(self.parent))
+			logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
 
 		if modtype == "database":
 			self.mod_genomes = self.database_mod(input,self.parent)
