@@ -88,7 +88,7 @@ class WriteTaxonomy(object):
 					link[0],link[1] = link[1],link[0]
 				if self.dump_descriptions:
 					link[0],link[1] = self.nodeDict[link[0]],self.nodeDict[link[1]]
-				if self.dbprogram in ["bracken","kraken2"]:
+				if self.dbprogram in ["bracken"]:
 					link = list(link)+["-"]
 				# if self.dbprogram == "kraken2":
 				# 	link = list(link)+["",""] ## Make sure to add enough extra columns so that kraken2 does not trim away nessesary columns
