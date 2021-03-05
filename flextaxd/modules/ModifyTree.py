@@ -348,6 +348,8 @@ class ModifyTree(object):
 		added = 0
 		notadded = 0
 		'''Database has been updated, so the internal nodeDict needs to be updated'''
+		if len(self.mod_genomes) >= 100:
+			allupdates = []
 		self.nodeDict = self.taxonomydb.get_nodes()
 		for genome in self.mod_genomes:
 			'''Translate incoming database node id to taxonomydb node id'''
@@ -358,18 +360,28 @@ class ModifyTree(object):
 				#logger.debug("Genome not added {genome}".format(genome=genome))
 				notadded +=1
 				continue
-			update["set_value"] = id
-			update["where"] = genomeid
-			res = self.taxonomydb.update_genome(update)
-			if self.taxonomydb.rowcount()!=0:
-				if res:
-					updated += 1
-				else:
-					added += 1
+			if len(self.mod_genomes) < 100:
+				update["set_value"] = id
+				update["where"] = genomeid
+				res = self.taxonomydb.update_genome(update)
+				if self.taxonomydb.rowcount()!=0:
+					if res:
+						updated += 1
+					else:
+						added += 1
+			else:
+				allupdates.append("({id},'{genomeid}')".format(id=id,genomeid=genomeid))
+		if len(self.mod_genomes) >= 100:
+			update["set_value"] = "id"
+			update["where_value"] = "genome"
+			update["data"] = allupdates
+			self.taxonomydb.multi_update(update,"genomes")
+			logger.info("Genomes transfered to increase speed no statistics were calculated")
+		else:
+			if notadded > 0:
+				logger.info("{notadded} genomes not added, taxonomy id does not exist in the receiving database".format(notadded=notadded))
+			logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		self.taxonomydb.commit()
-		if notadded > 0:
-			logger.info("{notadded} genomes not added, taxonomy id does not exist in the receiving database".format(notadded=notadded))
-		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
 
 	def clean_database(self, ncbi=False):
