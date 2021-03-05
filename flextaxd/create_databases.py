@@ -95,8 +95,6 @@ def main():
 	download_opts.add_argument('--force_download', action='store_true', help="Download sequences from genbank if not in refseq (WARNING: might include genome withdrawals)")
 	download_opts.add_argument('--genomes_path', metavar="",default=None,  help='path to genomes')
 
-
-
 	###  Kraken options not needed for public version this script is made to export names and nodes.dmp files
 	classifier_opts = parser.add_argument_group('classifier_opts', "Classifier options")
 	classifier_opts.add_argument('--create_db', action ='store_true',  help="Start create db after loading databases")
@@ -123,6 +121,9 @@ def main():
 	if not os.path.exists(args.database):
 		raise FileNotFoundError("No database file could be found, please provide a FlexTaxD database to run FlexTaxD!")
 
+	if not os.path.exists(args.genomes_path):
+		raise FileNotFoundError("Directory {path} does not exist".format(path=args.genomes_path))
+
 	if args.version:
 		print("{name}: version {version}".format(name=__pkgname__,version=__version__))
 		print("Maintaner group: {maintaner} ({email})".format(maintaner=__maintainer__,email=", ".join(__email__)))
@@ -144,7 +145,6 @@ def main():
 	if os.path.exists(logpath):
 		logpath=logpath.format("-{:%H:%M}".format(t))
 	else: logpath = logpath.format("")
-
 
 	logging.basicConfig(
 			level=logval,
