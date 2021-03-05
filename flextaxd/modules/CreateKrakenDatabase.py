@@ -266,6 +266,10 @@ class CreateKrakenDatabase(object):
 			os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
 		if not keep:
 			os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
+			## re-add taxonomy
+			os.system("mkdir -p {krakendb}/taxonomy".format(outdir=outdir, krakendb=self.krakendb))
+			os.system("cp {outdir}/*names.dmp {krakendb}/taxonomy/names.dmp".format(outdir=outdir,krakendb=self.krakendb))
+			os.system("cp {outdir}/*nodes.dmp {krakendb}/taxonomy/nodes.dmp".format(outdir=outdir,krakendb=self.krakendb))
 			# logger.info("Cleaning up tmp files")
 			# os.system('find {krakendb} -maxdepth 1 -name "*.f*a" -print0 | xargs -0 rm'.format(krakendb=self.krakendb))
 		logger.info("{krakenversion} database created".format(krakenversion=self.krakenversion))
