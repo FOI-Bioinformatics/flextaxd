@@ -152,11 +152,37 @@ class DatabaseConnection(object):
 			WHERE {where_column} = ?
 		'''.format(table=table,set_column=data["set_column"],where_column=data["where_column"])
 		udata = tuple([data["set_value"],data["where"]])
-		#logger.debug("{q} {d}".format(q=UPDATE_QUERY,d=udata))
+		logger.debug("{q} {d}".format(q=UPDATE_QUERY,d=udata))
 		res = self.query(UPDATE_QUERY,udata,error=True)
 		if self.rowcount() == 0:
 			res = self.insert({data["set_column"]:data["set_value"],data["where_column"]:data["where"]}, table)
 			return False
+		return True
+
+	def multi_update(self,data,table):
+		'''Update function requires table column which column to identify row with and value to replace
+		Parameters
+			list - data in form of a list with updates
+			table - which table to update
+		------
+		Returns
+			boolean - 	True: if rowcount of update is not zero
+						False if column is not set (value is inserted)
+		'''
+		UPDATE_QUERY = '''
+			INSERT INTO {table} ({set_column},{where_column})
+			VALUES {data}
+			ON CONFLICT({where_column}) DO UPDATE SET
+			{where_column} = {where_column},
+			{set_column}   = {set_column};
+		'''.format(table=table,set_column=data["set_column"],where_column=data["where_column"],data=",".join(data["data"]))
+		#udata = tuple([data["set_value"],data["where"]])
+		logger.debug("{q}".format(q=UPDATE_QUERY))
+		#exit()
+		res = self.query(UPDATE_QUERY,error=True)
+		#if self.rowcount() == 0:
+		#	res = self.insert({data["set_column"]:data["set_value"],data["where_column"]:data["where"]}, table)
+		#	return False
 		return True
 
 	def delete(self,nodes,table):
