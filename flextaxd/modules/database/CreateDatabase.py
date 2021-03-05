@@ -40,7 +40,7 @@ class CreateDatabase(object):
 
         self.sql_create_genomes_table = """ CREATE TABLE IF NOT EXISTS genomes (
                                             id integer NOT NULL,
-                                            genome text NOT NULL,
+                                            genome VARCHAR(255) NOT NULL UNIQUE,
                                             FOREIGN KEY (id) REFERENCES nodes (id)
                                         ); """
 
