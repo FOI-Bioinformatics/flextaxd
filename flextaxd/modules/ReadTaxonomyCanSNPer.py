@@ -29,7 +29,7 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", verbose=False,**kwargs):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
 		self.input = taxonomy_file
-		self.taxonomy = {}
+		#self.taxonomy = {}
 		self.taxid_num = taxid_base
 		## Initiate database
 		logger.info(taxonomy_file)
@@ -37,8 +37,11 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		if not root_name:
 			logger.info("Fetching root name from file")
 			root_name = self.get_root_name(taxonomy_file)
-		logger.info("Adding root node {node}!".format(node=root_name))
-		root_i = self.add_node(root_name)
+		if root_name != "root":
+			root_i = self.add_node(root_name)
+			logger.info("Adding root node {node}!".format(node=root_name))
+		else:
+			root_i = self.taxonomy[root_name]
 		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
 		self.add_rank(rank)
