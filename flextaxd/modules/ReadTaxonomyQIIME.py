@@ -17,7 +17,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.input = taxonomy_file
 		self.names = {}
 		self.taxid_base = taxid_base
-		self.taxonomy = {}
+		#self.taxonomy = {}
 		self.length = 0
 		self.ids = 0
 		self.skip_annotation = skip_annotation
@@ -68,7 +68,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		if description.strip() == "":
 			return False
 		if level not in self.taxonomy:
-			self.add_rank(level)
+			self.add_rank(level,qiime=True)
 		if current_i == len(tree)-1:
 			'''Top parent reached return top parent id'''
 			try:
