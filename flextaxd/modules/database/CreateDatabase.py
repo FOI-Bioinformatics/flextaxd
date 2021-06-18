@@ -30,7 +30,7 @@ class CreateDatabase(object):
                                         FOREIGN KEY (parent) REFERENCES nodes (id),
                                         FOREIGN KEY (child) REFERENCES nodes (id),
                                         FOREIGN KEY (rank_i) REFERENCES rank (rank_i),
-                                        unique (parent, child)
+                                        unique (parent, child,rank_i)
                                     );"""
 
         self.sql_create_rank_table = """CREATE TABLE IF NOT EXISTS rank (
