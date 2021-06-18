@@ -1,11 +1,13 @@
 #!/usr/bin/env python3 -c
 
 '''
-Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
+Read SILVA taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .database.DatabaseConnection import DatabaseFunctions
 import logging
+import gzip
+import sys
 logger = logging.getLogger(__name__)
 
 class InputError(Exception):
@@ -16,7 +18,7 @@ class InputError(Exception):
 
 class ReadTaxonomy(object):
 	"""docstring for ReadTaxonomy."""
-	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,ncbi=False,**kwargs):
+	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,**kwargs):
 		super(ReadTaxonomy, self).__init__()
 		### Connect to or create database
 		if database:
@@ -34,13 +36,24 @@ class ReadTaxonomy(object):
 		self.qiime = 0
 
 		## Add base node
-		self.add_node("root")
+		self.root = self.add_node("root")
 		self.add_rank("no rank")
 		## Add basic link
 		self.add_link(child=1, parent=1,rank="no rank")
 
 	def set_qiime(self,opt):
 		self.qiime = opt
+
+	def zopen(self, path,*args, **kwargs):
+		'''Redefine open to handle zipped files automatically'''
+		if path.endswith(".gz"):
+			if str(*args) in ["r","w"] and sys.version_info.major >= 3:
+				## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
+				args = (str(*args)+"t",)
+			else:
+				args = ("rt")
+			return gzip.open(path,*args,**kwargs)
+		return open(path,*args,**kwargs)
 
 	#@staticmethod
 	def parse_taxonomy(self,treefile=False):
@@ -93,7 +106,7 @@ class ReadTaxonomy(object):
 		rank = "no rank"  #Base rank if rank is not used
 		if not treefile:
 			treefile = self.taxonomy_file
-		with open(treefile, "r") as _treefile:
+		with self.zopen(treefile, "r") as _treefile:
 			headers = _treefile.readline().strip().split(self.sep)
 			if "parent" not in headers or "child" not in headers:
 				raise InputError("Your input tree file does not contain the headers to specify child and parent!")
@@ -130,7 +143,7 @@ class ReadTaxonomy(object):
 	def parse_genomeid2taxid(self,genomeid2taxid):
 		'''Parse file that annotates genome_id´s to nodes in the tree'''
 		nodeDict = self.database.get_nodes()
-		with open(genomeid2taxid,"rt") as f:
+		with self.zopen(genomeid2taxid,"rt") as f:
 			headers = f.readline().strip().split("\t")
 			for row in f:
 				if row.strip() != "": ## If there are trailing empty lines in the file
