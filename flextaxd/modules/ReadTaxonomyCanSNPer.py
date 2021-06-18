@@ -27,9 +27,9 @@ class ImportFormatError(Exception):
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
 	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", verbose=False,**kwargs):
-		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose)
+		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose,**kwargs)
 		self.input = taxonomy_file
-		#self.taxonomy = {}
+		self.taxonomy = {}
 		self.taxid_num = taxid_base
 		## Initiate database
 		logger.info(taxonomy_file)
@@ -37,16 +37,20 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		if not root_name:
 			logger.info("Fetching root name from file")
 			root_name = self.get_root_name(taxonomy_file)
-		if root_name != "root":
-			root_i = self.add_node(root_name)
-			logger.info("Adding root node {node}!".format(node=root_name))
-		else:
-			root_i = self.taxonomy[root_name]
+		logger.info("Adding, cellular organism node")
+		c_i = self.add_node("cellular organisms")
+		logger.info("Adding root node {node}!".format(node=root_name))
+		root_i = self.add_node(root_name)
 		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
+		if rank != "no rank":
+			self.add_rank("no rank")
 		self.add_rank(rank)
-		self.add_rank("no rank")
-		self.add_link(root_i, root_i,rank=rank)
+		if root_name != "cellular organisms":
+			self.add_link(c_i,1)
+		if root_name != "root":
+			self.add_link(root_i,c_i,rank=rank) ## root is always added as top parent if not one force 1
+			self.taxonomy[root_i] = 1  ## Add local link to root
 		self.names = {}
 		self.root = root_i
 		self.length = 0
@@ -57,7 +61,7 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 
 	def get_root_name(self,fin):
 		'''Get the root name of the CanSNP file unless root is specified'''
-		with open(fin) as f:
+		with self.zopen(fin) as f:
 			firstline = f.readline()
 			firstline = firstline.strip().replace("\t",";")
 			root = firstline.split(";") ## Root should be either the leftmost annotation in the tree or the only annotation on that row
@@ -87,10 +91,11 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	def parse_taxonomy(self):
 		'''Retrieve node description from CanSNPer formatted tree'''
 		logger.info("Parse CanSNP tree file")
-		with open(self.taxonomy_file,"r") as f:
+		with self.zopen(self.taxonomy_file,"r") as f:
 			for row in f:
 				row = row.strip().replace("\t",";")  ## Also accept tab separated tree files
 				nodes = row.strip().split(";")  ## get node and all its parents in a list
+				logger.debug(nodes)
 				child = nodes[-1]  ## get name of child node
 				'''If the tree was not properly formatted an a parent is missing make sure that function works anyway by adding any parent node above child'''
 				try:
