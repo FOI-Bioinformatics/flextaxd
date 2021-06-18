@@ -159,6 +159,35 @@ class NewickTree(object):
 		pylab.savefig("flextaxd.vis.png",)
 		return True
 
+	def double_opts_vis(self,links,taxid="name",full=False):
+		'''vis double opt'''
+		import inquirer
+		tn = self.database.get_nodes()
+		if taxid != "name":
+			taxid = tn[taxid]
+		parents = [tn[x[0]] for x in links]
+		questions = [
+		  inquirer.List('parent',
+		                message="The node {name} has multiple optional parents, select which line to visualise: ".format(name=taxid),
+		                choices=parents,
+		            ),
+		]
+		answers = inquirer.prompt(questions)
+		selected = tn[answers["parent"]] ## Return back to id
+		taxids = []
+		unique = set()
+		for link in links:
+			if link[0] == selected:
+				rank = link[2]
+				taxids.append(link[1])
+				'''Update incoming taxid which may not be correct'''
+				self.taxid = link[1]
+			unique.add(link[1])
+		rank = rank +1
+		if len(unique) > len(taxids):
+			rank = False
+		return rank,taxids ## Parent rank is selected, child rank is plus one
+
 	def get_tree(self,table="tree",taxid=False,maxdepth=3):
 		'''Parameters
 			table 	- table in database (default tree)
@@ -173,13 +202,23 @@ class NewickTree(object):
 			or
 			list	- List of links in tree, False
 		'''
+		selected = False
 		if taxid:
 			if maxdepth == 0:
 				maxdepth = 1000  ## It is not reasonable to expect trees with more than 1000 levels, if so bug has to be raised
-			nodes = self.database.get_children([taxid],maxdepth=maxdepth)
+			'''Check if double parent'''
+			links = self.database.get_links([taxid],order=True)
+			nodes = self.database.get_node(self.taxonomy[taxid])
+			find_tax = [taxid]
+			if len(nodes) > len(links):
+				links = self.database.get_links(nodes,order=True)
+			if len(links) > 1:
+				selected,find_tax = self.double_opts_vis(links,taxid)
+			nodes = self.database.get_children(find_tax,maxdepth=maxdepth,selected=selected)
 			if len(nodes) == 0:
 				raise VisualisationError("Given node has no children")
-			return self.database.get_links(nodes,order=True),nodes
+			links = self.database.get_links(nodes,order=True)
+			return links,nodes
 		else:
 			SELECT = "SELECT parent,child,rank_i FROM {table} ORDER BY child ASC".format(table=table)
 			return self.database.query(SELECT).fetchall(),False
@@ -211,29 +250,34 @@ class NewickTree(object):
 		res = self.database.query(QUERY).fetchone()
 		return res
 
-	def get_child(self,name):
+	def get_child(self,name,rank_i=False):
 		'''return child'''
 		#QUERY = '''SELECT child,child,rank FROM tree LEFT JOIN rank on (tree.rank_i = rank.rank_i) WHERE child = "{node}"'''.format(node=name)
 		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE parent = "{node}"'''.format(node=name)
+		if rank_i:
+			QUERY = '''SELECT parent,child,rank_i FROM tree WHERE parent = "{node}" and rank_i ={rank}'''.format(node=name,rank=rank_i)
 		logger.debug(QUERY)
 		res = self.database.query(QUERY).fetchone()
 		return res
 
-	def new_node(self,child,nodes,parent):
+	def new_node(self,child,nodes,parent,link=1):
 		'''Function that adds a new node to the newick tree'''
-		if self.link_exists == (child,parent): ## This has already been tried return directly
+		if self.link_exists == (child,parent,link): ## This has already been tried return directly
 			return False
 		try:
-			if len(self.c_p_set & set([(child,parent),(parent,child)])) == 0: ## If link does not exist
-				node = NewickNode(child, nodes[child], self.nodeDict[parent])  		## this works also for root as root has itself as child
+			if len(self.c_p_set & set([(child,parent,link),(parent,child,link)])) == 0: ## If link does not exist
+				try:
+					node = NewickNode(child, nodes[child], self.nodeDict[parent])  		## this works also for root as root has itself as child
+				except KeyError:
+					return False
 				'''Make sure link to parent was not made before'''
-				self.c_p_set |= set([(child,parent)])
-				self.c_p_set |= set([(parent,child)])
+				self.c_p_set |= set([(child,parent,link)])
+				self.c_p_set |= set([(parent,child,link)])
 				self.nodeDict[child] = node
 				self.link_exists=False
 			else:
 				logger.debug("Link {parent}-{child} already exists, retrieve node!".format(child=child,parent=parent))
-				self.link_exists = (child,parent)
+				self.link_exists = (child,parent,link)
 				node = self.nodeDict[child]										## add a reference to the node so that children can be added
 			pnode = self.nodeDict[parent]										## add child to the parent node
 			pnode.add_child(node)
@@ -244,8 +288,8 @@ class NewickTree(object):
 			except KeyError:
 				raise Error("Something is wrong")
 			logger.debug("Adding parent: [{parent},{pname}] of child: [{child},{cname}]".format(parent=t_parent,pname=self.taxonomy[t_parent],cname=self.taxonomy[t_child],child=t_child))
-			if self.new_node(t_child,nodes,t_parent): ## Add the missing parent
-				self.new_node(child,nodes,parent)	  ## Try again to add the node
+			if self.new_node(t_child,nodes,t_parent,link=link-1): ## Add the missing parent
+				self.new_node(child,nodes,parent,link)	  ## Try again to add the node
 			else:
 				self.added_parent = child
 				return False
@@ -253,7 +297,91 @@ class NewickTree(object):
 		logger.debug("NewickNode p:{parent} c: {child} added".format(parent=parent,child=child))
 		return True
 
-	def build_tree(self,taxid=False,maxdepth=3):
+	def unique_indexes(self,nodes):
+		'''Check duplicated indexes and give them unique IDs before print'''
+		QUERY = "SELECT child FROM tree WHERE child in ({nodes}) GROUP BY child HAVING count(parent) > 1 ".format(nodes=",".join(map(str,nodes)))  ## Thanks to andrewjmc@github for this suggestion
+		child_w_dpi = self.database.query(QUERY).fetchall()  ## Fetch all conflicting links and give them unique index before printing
+		child_w_dpi = list(*child_w_dpi)
+		return child_w_dpi
+
+	def fix_names(self,nodes,tn,tr):
+		'''Return names instead of taxid'''
+		nnodes = []
+		for x in range(len(nodes)):
+			fixnames = list(nodes[x])
+			fixnames[0] = tn[fixnames[0]]
+			fixnames[1] = tn[fixnames[1]]
+			fixnames[2] = tr[fixnames[2]]
+			nnodes.append(fixnames)
+		return nnodes
+
+
+	def double_vis_path(self,duplicates,taxid,nodes):
+		'''The range in the tree has two identical nodes, ask user to resolve which path goes where'''
+		import inquirer,random
+		tn = self.database.get_nodes()
+		tr = self.database.get_rank()
+		children = self.database.get_links(self.database.get_children([taxid],maxdepth=1))
+		parents = duplicates[taxid]
+		if len(children) > 2:
+			raise VisualisationError("Names occuring three times in the same tree are not taken care of at this time, export function does however!")
+		children_N = self.fix_names(children,tn,tr)
+		parents_N = self.fix_names(parents,tn,tr)
+		selto = parents_N[0]
+		default = children_N[0]
+		if taxid != "name":
+			taxid = tn[taxid]
+		questions = [
+		  inquirer.List('parent',
+		                message="The node {name} has two paths, select the correct path to ({p1})".format(name=taxid,p1=selto,children=children_N),
+		                choices=children_N,
+		            ),
+		]
+		selected = inquirer.prompt(questions)["parent"]
+		import random
+		n = random.randint(10000000,10100000)
+		if selected != default:
+			children[0],children[1] = children[1],children[0]
+		## Change id for first pair
+		pc = list(parents[0])
+		pc[1] = n
+		parents[0] = tuple(pc)
+		pc = list(children[0])
+		pc[0] = n
+		children[0] = tuple(pc)
+		nodes[n] = taxid
+		return [*children,*parents],nodes
+
+	def duplicate_parents_check(self,nodes,tree,taxid):
+		'''Check if any node have optional parents
+			Parameters:
+				nodes - the list of nodes of interest
+			Returns:
+				list - list of nodes with optional parents
+		'''
+		duplicates = self.unique_indexes(nodes)
+		optional_parents = {}
+		for child in duplicates:
+			optional_parents[child] = self.database.get_parent(child,all=True)
+		return optional_parents
+
+	def fix_tree(self,tree,duplicates,nodes):
+		'''Change index for one all but one duplicate to make sure tree is printed correctly'''
+		update_tree = []
+		dup = [duplicates[k] for k in duplicates.keys()]
+		for link in tree:
+			if len(set([link]) & set(*dup)) > 0:
+				pass
+			else:
+				update_tree.append(link)
+		changes = []
+		for child in duplicates.keys():
+			changes,nodes = self.double_vis_path(duplicates,child,nodes)
+			update_tree += changes
+		tree = sorted(update_tree,key=lambda x:x[2])
+		return tree,nodes
+
+	def build_tree(self,taxid=False,maxdepth=3,check_parent=False):
 		'''Build newick tree from database
 			This function walks through a database of nodes and creates NewickNode objects
 			self-aware of their decending newick tree or their parent lineage,
@@ -265,7 +393,10 @@ class NewickTree(object):
 						NewickTree nodeDict by their node name
 		'''
 		tree,nodes = self.get_tree(taxid=taxid,maxdepth=maxdepth)
-		nodes = self.get_nodes(nodes | set([self.taxid]))
+		duplicates = self.duplicate_parents_check(nodes - set([self.taxid]),tree,taxid)
+		nodes = self.get_nodes(nodes | set([self.taxid]),col=1)
+		if len(duplicates) > 0:
+			tree,nodes = self.fix_tree(tree,duplicates,nodes)
 		logger.debug("Nodes: {n} Links: {l}".format(n=len(nodes),l=len(tree)))
 		logger.debug([nodes,tree])
 		self.added_parent = False
@@ -284,7 +415,7 @@ class NewickTree(object):
 				self.nodeDict["root"] = root									## Also add this reference as "root"
 				newickTree = root  												## The master parent will contain the full tree
 				continue
-			self.new_node(child,nodes,parent)
+			self.new_node(child,nodes,parent,link=rank)
 
 		## The newickTree is the same as the master parent (containing the full tree, the root node is defined on row 135)
 		logger.debug("Tree complete, return newickTree")
