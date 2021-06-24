@@ -326,13 +326,21 @@ class DatabaseFunctions(DatabaseConnection):
 			True: if node has one and only one parent
 		'''
 		try:
-			QUERY = "SELECT parent FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
+			QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 			logger.debug(QUERY)
-			return self.query(QUERY).fetchall()
+			child_w_dp = self.query(QUERY).fetchall()
+			QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=",".join(map(str,list(*child_w_dp))))
+			p_ranks = self.query(QUERY).fetchall()
+			if len(p_ranks) != len(set(p_ranks)):
+				logger.error("Nodes with two parents have identical ranks, Fatal Error")
+			elif len(child_w_dp) > 0:
+				logger.info("Found: {n} nodes with multiple parents, however in different lineages, OK.".format(n=len(child_w_dp)))
+				return []
+			return child_w_dp
 		except AttributeError:
 			logger.info("AttributeError occured")
 			logger.info(QUERY)
-			logger.info(res)
+			logger.info(child_w_dp)
 		raise TreeError("Node: {node} has more than one parent!".format(node=name))
 
 	'''Get functions of class'''
@@ -379,6 +387,18 @@ class DatabaseFunctions(DatabaseConnection):
 			genomeDict[genome] = id
 		return genomeDict
 
+	def get_node(self, name, database=False):
+		'''Retrieve one node by name
+
+		------
+		Returns
+			list - list with node id
+		'''
+		QUERY = '''SELECT id FROM nodes where name = "{name}"'''.format(name=name)
+		if not database:
+			database = self.database
+		return [n[0] for n in self.query(QUERY).fetchall()]
+
 	def get_nodes(self, database=False,col=False):
 		'''Retrieve the whole node info table of the database to decrease the number of database calls!
 
@@ -412,10 +432,10 @@ class DatabaseFunctions(DatabaseConnection):
 
 		if only_parents and nodes:
 			QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
+		elif nodes and order:
+			QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes}) ORDER BY parent ASC'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
 		elif nodes:
 			QUERY = '''SELECT {order},rank_i FROM tree WHERE parent in ({nodes}) OR child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
-		elif nodes and order:
-			 QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes}) ORDER BY child ASC'''
 		else:
 			QUERY = '''SELECT {order},rank_i FROM tree'''.format(order=",".join(order))
 		logger.debug(QUERY)
@@ -642,15 +662,20 @@ class ModifyFunctions(DatabaseFunctions):
 			rankDict[rank[1]] = rank[0]
 		return rankDict
 
-	def get_children(self,parents,children=set(),level=0,maxdepth=50):
+	def get_children(self,parents,children=set(),level=0,maxdepth=50,selected=False):
 		'''Get all children from a parent
 
 		Returns
 		------
 			set - unique list of children from a decending tree
 		'''
+		if level >= maxdepth:
+			return children
 		QUERY = '''SELECT child FROM tree WHERE parent in({nodes})'''.format(nodes=",".join(map(str,list(parents))))
+		if selected:
+			QUERY = '''SELECT child FROM tree WHERE parent in({nodes}) and rank_i = {rank}'''.format(nodes=",".join(map(str,list(parents))), rank=selected)
 		#logger.debug(QUERY)
+		#print(QUERY)
 		res = self.query(QUERY).fetchall()
 		if (len(res) + len(children)) != 0:
 			children = set([child_i[0] for child_i in res])
@@ -658,7 +683,7 @@ class ModifyFunctions(DatabaseFunctions):
 				children |= self.get_children(parents=children,level=level+1,maxdepth=maxdepth)
 		return children
 
-	def get_parent(self,name):
+	def get_parent(self,name,all=False):
 		'''Get parent from node id parent
 
 		Returns
@@ -668,7 +693,10 @@ class ModifyFunctions(DatabaseFunctions):
 		#QUERY = '''SELECT parent,child,rank FROM tree LEFT JOIN rank on (tree.rank_i = rank.rank_i) WHERE child = "{node}"'''.format(node=name)
 		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child = "{node}"'''.format(node=name)
 		logger.debug(QUERY)
-		res = self.query(QUERY).fetchone()
+		if all:
+			res = self.query(QUERY).fetchall()
+		else:
+			res = self.query(QUERY).fetchone()
 		return res
 
 	def get_parents(self,name,parents=set(),depth=0,find_all=False):
@@ -679,10 +707,15 @@ class ModifyFunctions(DatabaseFunctions):
 			list - all parents of a node
 		'''
 		ld = depth+1
-		name = set(list(map(int,name))) ## Make sure all names are int
+		try:
+			name = set(list(map(int,name))) ## Make sure all names are int
+		except TypeError:
+			name = set(list(map(int,[x[0] for x in name]))) ## Make sure all names are int
 		if isinstance(name, int):
 			name = [name]
-		QUERY = '''SELECT parent,child FROM tree WHERE child in ({node})'''.format(node=",".join(map(str,name)))
+		if len(name & set([1])) > 0:
+			return parents
+		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child in ({node})'''.format(node=",".join(map(str,name)))
 		#logger.debug(QUERY)
 		res = self.query(QUERY).fetchall()
 		if not find_all:
@@ -691,6 +724,10 @@ class ModifyFunctions(DatabaseFunctions):
 			except IndexError:
 				logger.warning("WARNING: parent could not be found for node {res} \n{query}".format(query=QUERY, res=name))
 				return set()
+			except TypeError:
+				#print(res)
+				logger.error("ERROR: cannot fetch parents when parents are duplicated!")
+				raise TreeError("cannot fetch parents when parents are duplicated!")
 			if res[0] == res[1]:  ## Special for root
 				return set([res[0]])
 			else:
@@ -702,7 +739,7 @@ class ModifyFunctions(DatabaseFunctions):
 			## Add current node
 			parents |= set([int(res[0])])
 		else:
-			parents = set([int(pc[0]) for pc in res])
+			parents = set([(int(pc[0]),int(pc[-1])) for pc in res])
 			if len(parents-name) == 0:  ## There are no more parents to fetch
 				return parents
 			else:

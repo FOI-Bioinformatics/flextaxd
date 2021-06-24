@@ -23,6 +23,7 @@ class WriteTaxonomy(object):
 		self.dump_descriptions = desc
 		logging.debug("Add descriptions: {desc}".format(desc=self.dump_descriptions))
 		### Allows a minimal output file with only nessesary fields default is NCBI id | name | empty | scientific name
+		self.updated = False
 		self.minimal = minimal
 		if self.minimal:
 			if dbprogram:
@@ -72,18 +73,44 @@ class WriteTaxonomy(object):
 		logging.debug(QUERY)
 		return self.database.query(QUERY).fetchall()
 
+	def unique_indexes(self):
+		'''Check duplicated indexes and give them unique IDs before print'''
+		QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
+		child_w_dpi = self.database.query(QUERY).fetchall()  ## Fetch all conflicting links and give them unique index before printing
+		child_w_dpi = list(*child_w_dpi)
+		lmax = 10000000
+		if len(child_w_dpi) > 0:
+			self.nodeDict = self.database.get_nodes(col=1)
+			lmax = max(self.nodeDict)
+		return lmax,child_w_dpi
+
 	def nodes(self):
 		'''Write database tree to nodes.dmp'''
 		logging.info('Write tree to: {}{}.dmp'.format(self.path,self.prefix[1]))
+		child_w_dpi = []
+		checklist = {}
 		with open('{}{}.dmp'.format(self.path,self.prefix[1]),"w") as outputfile:
 			## Retrieve all links that exists in the database
 			if self.dump_descriptions:
 				self.nodeDict = self.database.get_nodes()
 				print("child\tparent\trank", sep=self.separator, end="\n", file=outputfile)
-
+			else:
+				lmax,child_w_dpi = self.unique_indexes()
 			links = self.get_links('tree','child,parent,rank')
 			for link in links:
 				link = list(link)
+				'''If child with duplicate index, make sure link has unique index, match with node'''
+				if link[0] in child_w_dpi:
+					try:
+						checklist[link[0]] += 1
+						name = self.nodeDict[link[0]]
+						'''Update node index to uniqe'''
+						link[0] = lmax+100+len(checklist.keys())+checklist[link[0]]
+						self.nodeDict[link[0]] = name
+						self.updated = True
+					except KeyError:
+						checklist[link[0]] = 0
+						## Do nothing
 				if self.link_order:
 					link[0],link[1] = link[1],link[0]
 				if self.dump_descriptions:
@@ -104,7 +131,10 @@ class WriteTaxonomy(object):
 			end = "\t|\n"
 		with open('{}{}.dmp'.format(self.path,self.prefix[0]),"w") as outputfile:
 			## Retrieve all nodes that exists in the database
-			nodes = self.get_all('nodes', 'id,name')
+			if self.updated:
+				nodes = self.nodeDict.items()
+			else:
+				nodes = self.get_all('nodes', 'id,name')
 			empty = ""
 			for node in nodes:
 				if not self.minimal:

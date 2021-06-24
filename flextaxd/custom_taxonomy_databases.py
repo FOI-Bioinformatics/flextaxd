@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.3.7"
+__version__ = "0.4.1"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -100,7 +100,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     required = parser.add_argument_group('required', 'Required')
-    required.add_argument('-db', '--database',metavar="", type=str, default="FlexTaxD.db" , help="FlexTaxD taxonomy sqlite3 database file (fullpath)")
+    required.add_argument('-db', '--database', '--db' ,metavar="", type=str, default="FlexTaxD.db" , help="FlexTaxD taxonomy sqlite3 database file (fullpath)")
 
     basic = parser.add_argument_group('basic', 'Basic commands')
     basic.add_argument('-o', '--outdir',metavar="", default=".",                    help="Output directory")
