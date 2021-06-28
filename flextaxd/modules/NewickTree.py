@@ -147,11 +147,13 @@ class NewickTree(object):
 		exists = importlib.find_loader('Bio')
 		if not exists:
 			raise VisualisationError("Visualisations other than newick requires biopython package (conda install biopython)!")
-
 		from Bio import Phylo
 		self.phylo = Phylo.read(StringIO(self.newickTree), "newick")
 		if type == "newick_vis":
 			Phylo.draw_ascii(self.phylo)
+		exists = importlib.find_loader('matplotlib')
+		if not exists:
+			raise VisualisationError("Visualisations using newick tree requires the matplotlib package (conda install matplotlib)!")
 		import matplotlib.pylab as pylab
 		if type == "tree":
 			Phylo.draw(self.phylo)
