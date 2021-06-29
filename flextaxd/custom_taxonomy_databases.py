@@ -147,6 +147,10 @@ def main():
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
+    if len(sys.argv)==1:
+        parser.print_help(sys.stderr)
+    sys.exit(1)
+
     args = parser.parse_args()
 
     if args.version:
