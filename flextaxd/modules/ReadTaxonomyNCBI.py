@@ -6,6 +6,7 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 
 from .ReadTaxonomy import ReadTaxonomy
 from gzip import open as zopen
+import zlib
 import os
 import logging
 logger = logging.getLogger(__name__)
@@ -98,18 +99,30 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
 		annotated_genome = set()
-		with zopen(annotation_file,"r") as f:
-			headers = f.readline().split(b"\t")
-			for row in f:
-				if row.strip() != "": ## If there are trailing empty lines in the file
-					refseqid,taxid = row.split(b"\t")[1:3]
-					try:
-						genebankid = self.refseqid_to_GCF[refseqid]
-						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"))
-						annotated_genome.add(refseqid)
-					except:
-						pass
-			self.database.commit()
+		try:
+			with zopen(annotation_file,"r") as f:
+				headers = f.readline().split(b"\t")
+				for row in f:
+					if row.strip() != "": ## If there are trailing empty lines in the file
+						if len(row.split(b"\t")) > 2:
+							try:
+								refseqid,taxid = row.split(b"\t")[1:3]
+							except:
+								logger.info(row)
+								logger.info(row.split(b"\t"))
+								if len(annotated_genome) > 0:
+									logger.info("Potential error in last row?")
+								else:
+									logger.info("Error on first line in annotation file, check format!")
+							try:
+								genebankid = self.refseqid_to_GCF[refseqid]
+								self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"))
+								annotated_genome.add(refseqid)
+							except KeyError:
+								pass
+				self.database.commit()
+		except zlib.error as e:
+			logger.info("Error in annotation file {e}".format(e=e))
 		missing = set(self.refseqid_to_GCF.keys()) - annotated_genome
 		missing = [self.refseqid_to_GCF[m] for m in missing] ## Translate to GCF ids
 		if logging.root.level <=20: ## Equal to --verbose
