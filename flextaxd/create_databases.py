@@ -117,8 +117,8 @@ def main():
 	parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
 	if len(sys.argv)==1:
-    	parser.print_help(sys.stderr)
-    sys.exit(1)
+		parser.print_help(sys.stderr)
+		sys.exit(1)
 
 	args = parser.parse_args()
 
@@ -213,6 +213,7 @@ def main():
 			limit = 10
 		'''Use the genome -> path dictionary to build database'''
 		if not skip:
+			logger.info("Get genomes from input directory!")
 			genomes = process_directory_obj.get_genome_path_dict()
 		else: genomes=False
 		if args.skip:
