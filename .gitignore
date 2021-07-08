@@ -3,8 +3,8 @@ build*
 test*
 *.dmp
 .ctbd
-*.db
-*.txt
+#*.db
+#*.txt
 *egg*
 dist*
 logs*
