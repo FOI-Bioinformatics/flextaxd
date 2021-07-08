@@ -149,7 +149,7 @@ def main():
 
     if len(sys.argv)==1:
         parser.print_help(sys.stderr)
-    sys.exit(1)
+        sys.exit(1)
 
     args = parser.parse_args()
 
@@ -190,6 +190,7 @@ def main():
     force = False
     if args.force:
         force = True
+
 
     ### Run pipeline
 
