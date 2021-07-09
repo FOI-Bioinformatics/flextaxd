@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 from modules.functions import download_genomes
 from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE
-import os
+import os,time
 
 class DownloadGenomes(object):
 	"""DownloadGenomes takes a list of genome names (GCF or GCA) and download (if possible) files from NCBI refseq and or genbank"""
@@ -114,51 +114,61 @@ class DownloadGenomes(object):
 		Returns
 			list - list of files not downloaded
 		'''
-		logger.info("Downloading {files} files".format(files=len(files)))
-		if len(files) < self.processes:
-			self.processes = len(files)
-		self.download_map = self._split(files,self.processes)
-		logger.info("Using {np} parallel processes to download files".format(np=self.processes))
+		try:
+			logger.info("Downloading {files} files".format(files=len(files)))
+			if len(files) < self.processes:
+				self.processes = len(files)
+			self.download_map = self._split(files,self.processes)
+			logger.info("Using {np} parallel processes to download files".format(np=self.processes))
 
-		'''function to run download of genomes in paralell'''
-		jobs = []
-		manager = Manager()
-		added = manager.Queue()
-		fpath = manager.Queue()
-		missing = manager.Queue()
-		for i in range(self.processes):
-			p = Process(target=download_genomes, args=(self.download_map[i],added,fpath,missing,self.force))
-			p.daemon=True
-			p.start()
-			jobs.append(p)
-		for job in jobs:
-			job.join()
-		self.added = added.qsize()
-		if not any(proc.is_alive() for proc in jobs):
-			logger.info('All download processes completed')
-		elif len(added.qsize()) % 100 == 0:
-			print("{n} downloaded".format(added.qsize()),end="\r")
+			'''function to run download of genomes in paralell'''
+			jobs = []
+			manager = Manager()
+			added = manager.Queue()
+			fpath = manager.Queue()
+			missing = manager.Queue()
+			for i in range(self.processes):
+				p = Process(target=download_genomes, args=(self.download_map[i],added,fpath,missing,self.force))
+				p.daemon=True
+				p.start()
+				jobs.append(p)
+			for job in jobs:
+				job.join()
+			self.added = added.qsize()
+			if not any(proc.is_alive() for proc in jobs):
+				logger.info('All download processes completed')
+			elif len(added.qsize()) % 100 == 0:
+				print("{n} downloaded".format(added.qsize()),end="\r")
 
-		count = 0
-		while True:
-			if self.added == 0: ## Check if no genome was succesfully downlaoded if no break
-				logger.info("None of listed genomes could be downloaded! Files not downloaded will be printed to {outdir}/FlexTaxD.missing".format(outdir=self.outdir.rstrip("/")))
-				self.write_missing(files)
-				break
-			l = len(self.genome_names)
-			gen = added.get()
-			if gen:
-				self.genome_names += gen
-				self.genome_path[gen] = fpath.get()
-				if l == len(self.genome_names):
+			count = 0
+			while True:
+				if self.added == 0: ## Check if no genome was succesfully downlaoded if no break
+					logger.info("None of listed genomes could be downloaded! Files not downloaded will be printed to {outdir}/FlexTaxD.missing".format(outdir=self.outdir.rstrip("/")))
+					self.write_missing(files)
 					break
-			else:
-				self.not_downloaded += missing.get()
-				count+=1
-			if added.qsize():
-				break
-		if len(self.not_downloaded) > 0:
-			self.write_missing(self.not_downloaded)
+				l = len(self.genome_names)
+				gen = added.get()
+				if gen:
+					self.genome_names += gen
+					self.genome_path[gen] = fpath.get()
+					if l == len(self.genome_names):
+						break
+				else:
+					self.not_downloaded += missing.get()
+					count+=1
+				if added.qsize():
+					break
+			if len(self.not_downloaded) > 0:
+				self.write_missing(self.not_downloaded)
+		finally: ## Make sure all sub-processes are ended even if program is forced to quit
+			logger.info("Program interrupted: cleaning up subprocesses!")
+			if any(proc.is_alive() for proc in jobs):
+				for p in jobs:
+					print(p)
+					p.kill()
+			time.sleep(1)
+			if any(proc.is_alive() for proc in jobs):
+				logger.error("Could not stop all subprocesses check your process manager and end them manually!")
 		return self.not_downloaded
 
 	def run(self, files, representative=False,url=""):

@@ -189,7 +189,7 @@ def main():
 		if args.download or args.representative:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.outdir,force=args.force_download,download_path=args.genomes_path)
-			new_genome_path, missing = download_obj.run(missing,args.rep_path)
+			new_genome_path, missing = download_obj.run(missing,representative=args.representative,url=args.rep_path)
 			if not new_genome_path:
 				still_missing = missing
 				if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
