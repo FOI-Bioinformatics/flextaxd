@@ -1,0 +1,11 @@
+GCF_000380385.1	Francisella tularensis subsp. tularensis
+GCF_000380425.1	Francisella tularensis subsp. tularensis
+GCF_000380445.1	Francisella tularensis subsp. tularensis
+GCF_004296555.1	Francisella tularensis subsp. mediasiatica
+GCF_004213485.1	Francisella tularensis subsp. mediasiatica
+GCF_004214305.1	Francisella tularensis subsp. mediasiatica
+GCF_002027465.1	Francisella tularensis subsp. holarctica B16_japonica
+GCF_000833715.1	Francisella tularensis subsp. holarctica B16_japonica
+GCF_001696945.1	Francisella tularensis subsp. holarctica B16_japonica
+GCF_000833515.1	Francisella tularensis subsp. holarctica B2
+GCF_900491795.1	Francisella tularensis subsp. holarctica B2

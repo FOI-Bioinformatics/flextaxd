@@ -228,6 +228,8 @@ class DatabaseFunctions(DatabaseConnection):
 		Returns
 			True: if all edges has one and only one parent
 		'''
+		self.taxonomy = self.get_nodes()
+
 		logger.info("Get all database nodes")
 		self.nodes = self.get_nodes(col=1)					## get all nodes
 		logger.info("Get all database edges")
@@ -270,24 +272,28 @@ class DatabaseFunctions(DatabaseConnection):
 			lset = nodeset - self.tree_connections
 			if len(lset) > 10:
 				lset = len(lset)
+				logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("The number of nodes and the number nodes under root does not match!")
 		if len(set(self.edges) - set(self.tree_links)) != 0:
 			lset = set(self.edges) - set(self.tree_links)
 			if len(lset) > 10:
 				lset = len(lset)
+				logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("The number of edges and the number edges under root does not match!")
 		if len(self.tree_nodes - nodeset) != 0:
 			lset = self.tree_nodes - nodeset
 			if len(lset) > 10:
 				lset = len(lset)
+				logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("The number of annotated nodes does not match with the number of nodes connected to edges!")
 		if len(self.tree_connections - nodeset) != 0:
 			lset = self.tree_connections - nodeset
 			if len(lset) > 10:
 				lset = len(lset)
+				logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("There are nodes in the database not connected to the tree")
 		logger.info("Validation OK!")
@@ -418,7 +424,7 @@ class DatabaseFunctions(DatabaseConnection):
 			nodeDict[node[1]] = node[0]
 		return nodeDict
 
-	def get_links(self, nodes=False,database=False,swap=False,only_parents=False,order=False):
+	def get_links(self, nodes=False,database=False,swap=False,only_parents=False,order=False,simple=False):
 		'''This function returns all links in the given database
 
 		------
@@ -426,18 +432,20 @@ class DatabaseFunctions(DatabaseConnection):
 			list - list of child to parent (or vice versa) with rank_i
 		'''
 		order = ["parent","child"]
+		if not simple:
+			order += ["rank_i"]
 		logger.debug(nodes)
 		if swap:
 			order[1],order[0] = order[0],order[1]
 
 		if only_parents and nodes:
-			QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
+			QUERY = '''SELECT {order} FROM tree WHERE child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
 		elif nodes and order:
-			QUERY = '''SELECT {order},rank_i FROM tree WHERE child in ({nodes}) ORDER BY parent ASC'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
+			QUERY = '''SELECT {order} FROM tree WHERE child in ({nodes}) ORDER BY parent ASC'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
 		elif nodes:
-			QUERY = '''SELECT {order},rank_i FROM tree WHERE parent in ({nodes}) OR child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
+			QUERY = '''SELECT {order} FROM tree WHERE parent in ({nodes}) OR child in ({nodes})'''.format(nodes=",".join(map(str,nodes)),order=",".join(order))
 		else:
-			QUERY = '''SELECT {order},rank_i FROM tree'''.format(order=",".join(order))
+			QUERY = '''SELECT {order} FROM tree'''.format(order=",".join(order))
 		logger.debug(QUERY)
 		if not database:
 			database = self.database
@@ -558,12 +566,14 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
-		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child}"
+		logger.info("Slow clean")
+		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child} AND rank_i = {rank_i}"
 		logger.debug("Deleting {nlinks} links!".format(nlinks=len(links)))
-		logger.debug(QUERY.format(table=table,parent="",child=""))
+		logger.debug(QUERY.format(table=table,parent="",child="",rank_i=""))
+		logger.info("{links}".format(links=len(links)))
 		for parent,child,rank in links:
 			logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
-			res = self.query(QUERY.format(table=table, parent=parent, child=child))
+			res = self.query(QUERY.format(table=table, parent=parent, child=child, rank_i=rank))
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
@@ -576,6 +586,7 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
+		logger.info("Fast clean")
 		parents = set()
 		children = set()
 		QUERY = "DELETE FROM {table} WHERE parent in ({parents}) AND child in ({children})"
@@ -699,7 +710,14 @@ class ModifyFunctions(DatabaseFunctions):
 			res = self.query(QUERY).fetchone()
 		return res
 
-	def get_parents(self,name,parents=set(),depth=0,find_all=False):
+	def parse_parents(self,parents):
+		pret = set()
+		for pc in parents:
+			pret |= set([int(pc[0])])
+			pret |= set([int(pc[1])])
+		return pret
+
+	def get_parents(self,name,parents=set(),depth=0,find_all=False,simple=False,ncbi=False):
 		'''Get all parents until root
 
 		Returns
@@ -707,16 +725,24 @@ class ModifyFunctions(DatabaseFunctions):
 			list - all parents of a node
 		'''
 		ld = depth+1
+		lmax = 12
+		if ncbi and depth == 0:
+			logger.info("NCBI mode on, minimum level to check 50 (since euk has red many levels) Will take time!")
+		lmax = 50
+		if simple:
+			simple=""
+		else:
+			simple=",rank_i"
 		try:
 			name = set(list(map(int,name))) ## Make sure all names are int
 		except TypeError:
 			name = set(list(map(int,[x[0] for x in name]))) ## Make sure all names are int
 		if isinstance(name, int):
 			name = [name]
-		if len(name & set([1])) > 0:
+		if len(name & set([1])) > 0 and not ncbi:
 			return parents
-		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child in ({node})'''.format(node=",".join(map(str,name)))
-		#logger.debug(QUERY)
+		QUERY = '''SELECT parent,child{simple} FROM tree WHERE child in ({node})'''.format(simple=simple, node=",".join(map(str,name)))
+		#if find_all: logger.info(QUERY)
 		res = self.query(QUERY).fetchall()
 		if not find_all:
 			try:
@@ -733,20 +759,28 @@ class ModifyFunctions(DatabaseFunctions):
 			else:
 				## Add all parents
 				try:
-					parents |= self.get_parents([int(res[0])],depth=ld)
+					#if ncbi:
+					#	logger.info("Loop depth: {ld}".format(ld=ld))
+					parents |= self.get_parents([int(res[0])],depth=ld,ncbi=ncbi)
+
 				except RecursionError:
 					print(res, name)
 			## Add current node
 			parents |= set([int(res[0])])
 		else:
-			parents = set([(int(pc[0]),int(pc[-1])) for pc in res])
-			if len(parents-name) == 0:  ## There are no more parents to fetch
+			parents = self.parse_parents(res) #set([(int(pc[0]),int(pc[-1])) for pc in res])
+			if len(parents-name) == 1 and ld > lmax:  ## There are no more parents to fetch
 				return parents
 			else:
 				## Add all parents
+				if ld > lmax:
+					return parents
 				try:
-					parents |= self.get_parents(parents,depth=ld,find_all=find_all)
+					#if ncbi:
+					#	logger.info("Loop depth: {ld}".format(ld=ld))
+					parents |= self.get_parents(parents,find_all=find_all,depth=ld,ncbi=ncbi)
 				except RecursionError:
+					logger.info("RecursionError, node requested")
 					print(res, name)
 		return parents
 

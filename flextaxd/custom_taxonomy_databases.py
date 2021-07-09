@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -147,6 +147,10 @@ def main():
 
     parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
+    if len(sys.argv)==1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
     args = parser.parse_args()
 
     if args.version:
@@ -186,6 +190,7 @@ def main():
     force = False
     if args.force:
         force = True
+
 
     ### Run pipeline
 

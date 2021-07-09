@@ -84,7 +84,7 @@ def main():
 	parser = argparse.ArgumentParser()
 	basic = parser.add_argument_group('basic', 'Basic commands')
 	basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
-	basic.add_argument('-db', '--database',metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
+	basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
 
 	### Download options, process local directory and potentially download files
 	download_opts = parser.add_argument_group('download_opts', "Download and file handling")
@@ -115,6 +115,10 @@ def main():
 	debugopts.add_argument('--supress',                action='store_const', const=logging.ERROR,    default=logging.WARNING,            help="Supress warnings")
 
 	parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
+
+	if len(sys.argv)==1:
+		parser.print_help(sys.stderr)
+		sys.exit(1)
 
 	args = parser.parse_args()
 
@@ -185,7 +189,7 @@ def main():
 		if args.download or args.representative:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.outdir,force=args.force_download,download_path=args.genomes_path)
-			new_genome_path, missing = download_obj.run(missing,args.rep_path)
+			new_genome_path, missing = download_obj.run(missing,representative=args.representative,url=args.rep_path)
 			if not new_genome_path:
 				still_missing = missing
 				if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
@@ -209,6 +213,7 @@ def main():
 			limit = 10
 		'''Use the genome -> path dictionary to build database'''
 		if not skip:
+			logger.info("Get genomes from input directory!")
 			genomes = process_directory_obj.get_genome_path_dict()
 		else: genomes=False
 		if args.skip:

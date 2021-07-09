@@ -68,6 +68,8 @@ class ModifyTree(object):
 		self.ncbi_order = True
 		self.mod_genomes =False
 
+		self.fast_clean = True
+
 		### Connect to or create database
 		self.taxonomydb = ModifyFunctions(database,verbose=verbose)
 		self.rank= self.taxonomydb.get_rank(col=2)
@@ -398,7 +400,7 @@ class ModifyTree(object):
 		self.all_nodes = set(self.taxonomydb.get_nodes(col=1).keys())
 		'''Add parents to all nodes that may not have annotations'''
 		logger.info("Retrieve all parents of annotated nodes")
-		self.annotated_nodes |= self.taxonomydb.get_parents(self.annotated_nodes,find_all=True)
+		self.annotated_nodes |= self.taxonomydb.get_parents(self.annotated_nodes,find_all=True,ncbi=ncbi)
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
@@ -415,7 +417,12 @@ class ModifyTree(object):
 		logger.debug("Nodes remaining {nnodes}".format(nnodes=len(self.annotated_nodes)))
 		logger.info("Clean annotations related to removed nodes")
 		if len(self.clean_links) < len(self.all_links) and len(self.clean_links) > 0:
-			self.taxonomydb.fast_delete_links(self.clean_links)
+			logger.info("Cleaning {nlinks} links".format(nlinks=len(self.clean_links)))
+			if self.fast_clean:
+				self.taxonomydb.fast_delete_links(self.clean_links)
+			else:
+				logger.info("Cleaning tree (this will take a long time for large trees)")
+				self.taxonomydb.delete_links(self.clean_links)
 		if len(self.clean_nodes) < len(self.all_nodes) and len(self.clean_nodes) > 0:
 			self.taxonomydb.delete_nodes(self.clean_nodes)
 			if not ncbi:

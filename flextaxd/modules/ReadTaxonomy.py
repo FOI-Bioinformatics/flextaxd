@@ -109,6 +109,7 @@ class ReadTaxonomy(object):
 		with self.zopen(treefile, "r") as _treefile:
 			headers = _treefile.readline().strip().split(self.sep)
 			if "parent" not in headers or "child" not in headers:
+				logger.debug("Headers:  {h} separator [{sep}]".format(h=headers,sep=self.sep))
 				raise InputError("Your input tree file does not contain the headers to specify child and parent!")
 			if headers[0] == "parent":
 				swap = True

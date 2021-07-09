@@ -50,6 +50,8 @@ class CreateKrakenDatabase(object):
 		if genome_names:
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
+		else:
+			logger.error("Genome names are missing")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params

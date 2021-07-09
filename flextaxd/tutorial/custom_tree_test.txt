@@ -1,0 +1,8 @@
+parent	child	rank
+root	Francisella	genus
+Francisella	Francisella tularensis	species
+Francisella tularensis	Francisella tularensis subsp. tularensis	subspecies
+Francisella tularensis	Francisella tularensis subsp. mediasiatica	subspecies
+Francisella tularensis	Francisella tularensis subsp. holarctica	subspecies
+Francisella tularensis subsp. holarctica	Francisella tularensis subsp. holarctica B16_japonica	subsubspecies
+Francisella tularensis subsp. holarctica	Francisella tularensis subsp. holarctica B2	subsubspecies

@@ -1,0 +1,7 @@
+### Using ncbi-genome-download
+
+#https://github.com/kblin/ncbi-genome-download
+
+ncbi-genome-download -p 20 -r 50 -l complete,chromosome -F fasta -s refseq bacteria -H
+ncbi-genome-download -p 20 -r 50 -l complete,chromosome -F fasta -s refseq archaea -H
+
