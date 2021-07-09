@@ -1,0 +1,11 @@
+GCF_000001405.39	Homo sapiens
+GCF_000002315.6	Gallus gallus
+GCF_001663975.1	Xenopus laevis
+GCF_000001215.4	Drosophila melanogaster
+GCF_000002985.6	Caenorhabditis elegans
+GCF_001477545.1	Pneumocystis carinii
+GCF_000146045.2	Saccharomyces cerevisiae
+GCF_000004695.1	Dictyostelium discoideum
+GCF_000002765.5	Plasmodium falciparum
+GCF_001433935.1	Oryza sativa
+GCF_000001735.4	Arabidopsis thaliana
