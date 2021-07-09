@@ -85,7 +85,7 @@ class DownloadGenomes(object):
 		logger.debug(" ".join(args))
 		logger.info("Waiting for download process to finish (this may take a while)!")
 		p = Popen(args, stdout=PIPE)
-		(output, err) = p.communicate() 
+		(output, err) = p.communicate()
 		p_status = p.wait()
 		return input_file_name
 
@@ -141,7 +141,7 @@ class DownloadGenomes(object):
 
 		count = 0
 		while True:
-			if added.qsize() == 0: ## Check if no genome was succesfully downlaoded if no break
+			if self.added == 0: ## Check if no genome was succesfully downlaoded if no break
 				logger.info("None of listed genomes could be downloaded! Files not downloaded will be printed to {outdir}/FlexTaxD.missing".format(outdir=self.outdir.rstrip("/")))
 				self.write_missing(files)
 				break
@@ -155,11 +155,13 @@ class DownloadGenomes(object):
 			else:
 				self.not_downloaded += missing.get()
 				count+=1
+			if added.qsize():
+				break
 		if len(self.not_downloaded) > 0:
 			self.write_missing(self.not_downloaded)
 		return self.not_downloaded
 
-	def run(self, files, representatives=False):
+	def run(self, files, representative=False,url=""):
 		'''Download list of GCF and or GCA files from NCBI or download represenative genomes
 
 		Parameters
@@ -169,12 +171,14 @@ class DownloadGenomes(object):
 		Returns
 			list - list of files not downloaded
 		'''
-		if representatives:
-			tarfile = self.download_represenatives(genome_path=self.download_path, url=representatives)
+		if representative:
+			logger.info("Download GTDB Representative genomes")
+			tarfile = self.download_represenatives(genome_path=self.download_path, url=url)
 			folder_path = self.parse_representatives(tarfile)
 			'''Process the downloaded folder'''
 			return folder_path,[]
 		else:
 			if len(files) > 0:
+				logger.info("Download missing genomes")
 				not_downloaded = self.download_files(files)
 				return False,not_downloaded
