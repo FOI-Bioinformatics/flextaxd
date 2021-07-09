@@ -160,8 +160,9 @@ class DownloadGenomes(object):
 					break
 			if len(self.not_downloaded) > 0:
 				self.write_missing(self.not_downloaded)
+		except KeyboardInterrupt:
+			logger.info("Program was interrupted by user: cleaning up subprocesses!")
 		finally: ## Make sure all sub-processes are ended even if program is forced to quit
-			logger.info("Program interrupted: cleaning up subprocesses!")
 			if any(proc.is_alive() for proc in jobs):
 				for p in jobs:
 					print(p)
