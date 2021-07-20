@@ -2,14 +2,17 @@
 
 Flexible Taxonomy Databases - A cross platform tool for customization and merging of various taxonomic classification sources.
 
-New to FlexTaxD? --> see [wiki](https://github.com/FOI-Bioinformatics/flextaxd/wiki) 
+New to FlexTaxD? --> see [wiki](https://github.com/FOI-Bioinformatics/flextaxd/wiki)
 
 
-Supported sources in version later than v0.2.0:
-* QIIME (GTDB)
+Supported input formats in version later than v0.4.2: For details see [Formats-wiki](https://github.com/FOI-Bioinformatics/flextaxd/wiki/Formats)
 * NCBI
-* CanSNPer
 * TSV
+* MPI-style
+    * GTDB
+    * QIIME
+    * SILVA
+    * CanSNPer
 
 Supported database build programs
 * kraken2
@@ -17,9 +20,9 @@ Supported database build programs
 * krakenuniq
 * centrifuge
 
-The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIME or CanSNPer source formats and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation). 
+The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIME or CanSNPer source formats and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation).
 ### Create database
-* Create your database from source files --taxonomy_file 
+* Create your database from source files --taxonomy_file
 * and select --taxonomy_type [supported formats]
 
 ### Modify Databases
@@ -44,7 +47,10 @@ Python >=3.6
 ## additional requirements depending on executed functions
 ncbi-genome-download - to download additional genomes from NCBI
 ## Visualisation
-biopython - required for visualisation (plain newick format can be printed to stdout without biopython).
+required for visualisation (plain newick format can be printed to stdout without biopython).
+* biopython     - required for newick_vis
+* matplotlib    - required for tree
+* inquirer      - required when multiple parents are present
 ## Database program requirement if create_database is executed
 kraken2
 krakenuniq
@@ -62,14 +68,14 @@ python setup.py install
 ```
 # Usage
 
-Read more about flextaxd on Wiki 
+Read more about flextaxd on Wiki
 -> https://github.com/FOI-Bioinformatics/flextaxd/wiki
 
 ## Quick tutorial
 
 #### Save the default FlexTaxD into a custom taxonomy database
 ```
-flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --database .ftd
+flextaxd --taxonomy_file taxonomy.tsv --database .ftd
 ```
 
 ### Write the database into NCBI formatted nodes and names.dmp
@@ -87,23 +93,25 @@ Use the --help option for a complete list of parameters
 flextaxd --help
 ```
 
+## Formats
+The different formats supported and used by FlexTaxD are described in the wiki
+-> https://github.com/FOI-Bioinformatics/flextaxd/wiki/Formats
+
 ## Modify your database
 The database update function can use either a previously built flextaxd database or directly through a TAB separated text file with headers (parent, child, (level))). Using the --parent parameter, all nodes/edges subsequent to that parent will be added (or can replace an existing node see options) with the links supplied. The parent node must exist in the database/tables and must have the same name (ex "<i>Francisella tularensis</i>"). Using the (--replace) parameter all children in the old database under the given parent will be removed, if you only want to replace for example <i>Francisella tularensis</i> be sure not to choose <i>Francisella</i> as parent.
 
 #### Modify the database and add sub-species specifications (for <i>Francisella tularensis</i>)
 ```
-flextaxd --mod_file custom_modification.txt --parent "Francisella tularensis" --genomeid2taxid custom_genome_annotations.txt
+flextaxd --mod_file custom_tree_file.txt --parent "Francisella tularensis" --genomeid2taxid custom_genome_annotations.txt
 ```
-The different formats supported and used by FlexTaxD are described in the wiki
--> https://github.com/FOI-Bioinformatics/flextaxd/wiki/Formats
+
 
 ## One liner version
 Create, modify and dump your database (observe modification can only be done simultanously when GTDB is the source, otw the genomeid2taxid is occupied with other nessesary files)
 Parent gives the name of the node where the modification should happen --replace will remove all child nodes of the given parent.
 ```
-flextaxd --taxonomy_file taxonomy.tsv --taxonomy_type QIIME --mod_file custom_modification.txt --genomeid2taxid custom_genome_annotations.txt --parent "Francisella tularensis" --dump
+flextaxd --taxonomy_file taxonomy.tsv --mod_file custom_modification.txt --genomeid2taxid custom_genome_annotations.txt --parent "Francisella tularensis" --dump
 ```
-
 
 #####
 #    Create a kraken database
