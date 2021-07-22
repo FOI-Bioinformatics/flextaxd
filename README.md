@@ -8,7 +8,7 @@ New to FlexTaxD? --> see [wiki](https://github.com/FOI-Bioinformatics/flextaxd/w
 Supported input formats in version later than v0.4.2: For details see [Formats-wiki](https://github.com/FOI-Bioinformatics/flextaxd/wiki/Formats)
 * NCBI
 * TSV
-* MPI-style
+* MP-style
     * GTDB
     * QIIME
     * SILVA
@@ -20,7 +20,7 @@ Supported database build programs
 * krakenuniq
 * centrifuge
 
-The flextaxd (flextaxd) script allows customization of databases from NCBI, QIIME or CanSNPer source formats and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation).
+The flextaxd (flextaxd) script allows customization of databases from several sources (See supported source formats above) and supports export functions into NCBI formatted names and nodes.dmp files as well as a standard tab separated file (or a selected separation).
 ### Create database
 * Create your database from source files --taxonomy_file
 * and select --taxonomy_type [supported formats]
