@@ -8,7 +8,7 @@ New to FlexTaxD? --> see [wiki](https://github.com/FOI-Bioinformatics/flextaxd/w
 Supported input formats in version later than v0.4.2: For details see [Formats-wiki](https://github.com/FOI-Bioinformatics/flextaxd/wiki/Formats)
 * NCBI
 * TSV
-* MPI-style
+* MP-style
     * GTDB
     * QIIME
     * SILVA
