@@ -206,4 +206,6 @@ Remove branches, the --skip parameter was implemented for benchmarking purposes 
 flextaxd-create --skip "taxid,taxid2"
 
 # Citation
-Publication of FlexTaxD will be available soon
+https://pubmed.ncbi.nlm.nih.gov/34469515/
+
+Sundell, D. et al. (2021) ‘FlexTaxD: flexible modification of taxonomy databases for improved sequence classification’, Bioinformatics. Edited by J. Kelso. Bioinformatics. doi: 10.1093/bioinformatics/btab621.
