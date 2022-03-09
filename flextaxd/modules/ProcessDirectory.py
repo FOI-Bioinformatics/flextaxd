@@ -164,7 +164,7 @@ class ProcessDirectory(object):
 		logger.info("Process genome path ({path})".format(path=folder_path))
 		for root, dirs, files in os.walk(folder_path,followlinks=True):
 			for file in files:
-				fname = file.strip(".gz") ## remove gz if present
+				fname = file.rstrip(".gz") ## remove gz if present
 				if fname.endswith(tuple(self.ext)):
 					if count % 1000 == 0:
 						print("Processed {count} genomes".format(count=count), end="\r")
