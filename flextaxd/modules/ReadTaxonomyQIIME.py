@@ -36,7 +36,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		}
 		self.set_qiime(True)
 		### Add root name these manual nodes are required when parsing the GTDB database!
-		rootid = self.add_node("root")  ## Allways set in ReadTaxonomy
+		rootid = self.root ## Allways set in ReadTaxonomy
 		coid = self.add_node("cellular organisms")
 		bac_id = self.add_node("Bacteria")
 		Euk_id = self.add_node("Eukaryota")
@@ -48,7 +48,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.add_rank("n",qiime=True)
 		self.add_rank("sk",qiime=True)
 		## Add basic links
-		self.add_link(child=rootid, parent=rootid,rank="n")
+		#self.add_link(child=rootid, parent=rootid,rank="n") ## Already done in ReadTaxonomy
 		self.add_link(child=coid, parent=rootid,rank="n")
 		self.add_link(child=bac_id, parent=coid,rank="sk")
 		self.add_link(child=Euk_id, parent=coid,rank="sk")
