@@ -91,6 +91,7 @@ def main():
 	download_opts.add_argument('-p', '--processes',metavar="",type=int, default = 8, help="Use multiple cores for downloading genomes and kraken if -kp is not set")
 	download_opts.add_argument('--download', action='store_true', help="Download additional sequences")
 	download_opts.add_argument('-r', '--representative',   action='store_true', help="Download GTDB representative genomes")
+	download_opts.add_argument('--download_file', default=False, help="Download genomes from file (path to file)")
 	download_opts.add_argument('--rep_path', metavar="URL", default=latest_genome_reps, help="Specify GTDB representative version URL full path")
 	download_opts.add_argument('--force_download', action='store_true', help="Download sequences from genbank if not in refseq (WARNING: might include genome withdrawals)")
 	download_opts.add_argument('--genomes_path', metavar="",default=None,  help='path to genomes')
@@ -125,6 +126,8 @@ def main():
 	if not os.path.exists(args.database):
 		raise FileNotFoundError("No database file could be found, please provide a FlexTaxD database to run FlexTaxD!")
 
+	if args.create_db and not args.genomes_path:
+		raise InputError("genomes_path parameter was not given")
 	if not os.path.exists(args.genomes_path):
 		raise FileNotFoundError("Directory {path} does not exist".format(path=args.genomes_path))
 
@@ -186,16 +189,19 @@ def main():
 		process_directory_obj = process_directory(args.database)
 		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
 		''' 2. Download missing files'''
-		if args.download or args.representative:
+		if args.download or args.representative or args.download_file:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.outdir,force=args.force_download,download_path=args.genomes_path)
-			new_genome_path, missing = download_obj.run(missing,representative=args.representative,url=args.rep_path)
-			if not new_genome_path:
-				still_missing = missing
-				if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
+			if args.download_file:
+				download_obj.download_from_file(args.download_file)
 			else:
-				new_genomes, missing = process_directory_obj.process_folder(new_genome_path)
-				genomes += new_genomes
+				new_genome_path, missing = download_obj.run(missing,args.rep_path)
+				if not new_genome_path:
+					still_missing = missing
+					if len(still_missing) > 0: print("Not able to download: {nr}".format(nr=len(still_missing)))
+				else:
+					new_genomes, missing = process_directory_obj.process_folder(new_genome_path)
+					genomes += new_genomes
 		else:
 			if len(missing) > 0:
 				logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
