@@ -23,6 +23,7 @@ class ProcessDirectory(object):
 		self.genome_names = []
 		self.genome_path_dict = {}
 		self.files = []
+		#logger.debug(self.genome_id_dict)
 
 	def get_genome_names(self):
 		'''
@@ -73,10 +74,6 @@ class ProcessDirectory(object):
 		'''
 		try:
 			GCX,END,REST = fname.split("_",2)  ## If a name contains anything after the GCF number remove this if split by _
-			if GCX in ["GB","RS"]:
-				return False ## GTDB stype input treat as non GCF
-				#GCX = END
-				#END,REST = REST.split("_",1)  #remove GB or RS definitions
 			if debug:
 				logger.debug("[{} {} {}]".format(GCX,END,REST))
 			NUM,version = END.split(".",1)
@@ -162,6 +159,7 @@ class ProcessDirectory(object):
 		if not folder_path:
 			raise IOError("Parameter --genomes_path was not set".format(folder_path))
 		logger.info("Process genome path ({path})".format(path=folder_path))
+		logger.debug("Extensions valid: ({f})".format(f=self.ext))
 		for root, dirs, files in os.walk(folder_path,followlinks=True):
 			for file in files:
 				fname = file.strip(".gz") ## remove gz if present
@@ -177,6 +175,8 @@ class ProcessDirectory(object):
 		logger.info("Processed {count} genomes".format(count=count))
 		self.files = list(set(self.files))
 		self.genome_names = list(set(self.genome_names))
+		if len(self.genome_names) == 0:
+			logger.info("# WARNING: No genomes from the input folder was added! Are your genomes annotated properly in the database?")
 		return self.files, self.genome_names
 
 	def process_folder(self,folder_path):
