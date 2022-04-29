@@ -318,10 +318,10 @@ def main():
         modify_obj = modify_module(database=args.database, update_genomes=True,taxid_base=args.taxid_base)
         modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
 
-    if args.update_names:
-        modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
-        modify_obj.update_node_names(args.update_names)
+    # if args.update_names:
+    #     modify_module = dynamic_import("modules", "ModifyTree")
+    #     modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
+    #     modify_obj.update_node_names(args.update_names)
 
     if (args.mod_file or args.mod_database) and args.clean_database:
         modify_module = dynamic_import("modules", "ModifyTree")
