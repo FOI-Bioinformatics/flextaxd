@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class WriteTaxonomy(object):
 	"""docstring for WriteTaxonomy."""
-	def __init__(self, path, database=".taxonomydb",separator="\t|\t",minimal=False,prefix="names,nodes",desc=False,dbprogram=None):
+	def __init__(self, path, database=".taxonomydb",separator="\t|\t",minimal=False,prefix="names,nodes",desc=False,dbprogram=None,dump_genomes=False):
 		super(WriteTaxonomy, self).__init__()
 		self.database = DatabaseFunctions(database)
 		logging.debug("Write settings: ")
@@ -39,6 +39,26 @@ class WriteTaxonomy(object):
 		self.link_order = False ## Default print is NCBI structure with child in the first column
 		logging.debug("NCBI structure (child first): {parent}".format(parent=self.link_order))
 
+	def dump_genomes(self):
+		'''Write the list of annotated genomes to a file'''
+		with open('{}{}.dmp'.format(self.path,"genomes"),"w") as outputfile:
+			genomes = self.get_all('genomes', 'genome,reference', sort="reference")
+			for genome in genomes:
+				print(*genome, sep="\t", end="\n", file=outputfile)
+		return
+
+	def dump_genome_annotations(self, sort="reference"):
+		'''Dump all genomes, including their taxonomy reference (will work as input file for genomeid2taxid)'''
+		select = "genome,name,reference"
+		QUERY = "SELECT {select} FROM genomes JOIN nodes ON nodes.id=genomes.id".format(select=select)
+		if sort:
+			QUERY += " ORDER BY {col} DESC".format(col=sort)
+		logging.debug(QUERY)
+		with open('{}{}.dmp'.format(self.path,"genomes"),"w") as outputfile:
+			genomes = self.database.query(QUERY).fetchall()
+			for genome in genomes:
+				print(*genome, sep="\t", end="\n", file=outputfile)
+		return
 
 	def set_separator(self,sep):
 		self.separator=sep
@@ -63,8 +83,10 @@ class WriteTaxonomy(object):
 		logging.debug("Update output prefix nodes:{nodes} names:{names} ".format(nodes=self.prefix[1],names=self.prefix[0]))
 		return self.prefix
 
-	def get_all(self, table, select="*"):
+	def get_all(self, table, select="*", sort=False):
 		QUERY = "SELECT {select} FROM {table}".format(select=select, table=table)
+		if sort:
+			QUERY += " ORDER BY {col} DESC".format(col=sort)
 		logging.debug(QUERY)
 		return self.database.query(QUERY).fetchall()
 
