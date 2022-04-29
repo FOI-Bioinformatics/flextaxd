@@ -44,8 +44,8 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		oth_id = self.add_node("Other")
 		unc_id = self.add_node("Unclassified")
 
-		self.add_rank("n")
-		self.add_rank("sk")
+		self.add_rank("n",qiime=True)
+		self.add_rank("sk",qiime=True)
 		## Add basic links
 		self.add_link(child=rootid, parent=rootid,rank="n")
 		self.add_link(child=coid, parent=rootid,rank="n")
@@ -67,7 +67,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		if description.strip() == "":
 			return False
 		if level not in self.taxonomy:
-			self.add_rank(level)
+			self.add_rank(level,qiime=True)
 		if current_i == len(tree)-1:
 			'''Top parent reached return top parent id'''
 			try:
