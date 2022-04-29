@@ -15,6 +15,11 @@ import sys
 import logging
 logger = logging.getLogger(__name__)
 
+try:
+	import inquirer
+except:
+	Raise(ImportError("The package inquirer is required for flextaxd visualisation"))
+
 
 __version__ = "0.0.1"
 __author__ = "David Sundell"
@@ -340,7 +345,6 @@ class NewickTree(object):
 		            ),
 		]
 		selected = inquirer.prompt(questions)["parent"]
-		import random
 		n = random.randint(10000000,10100000)
 		if selected != default:
 			children[0],children[1] = children[1],children[0]
