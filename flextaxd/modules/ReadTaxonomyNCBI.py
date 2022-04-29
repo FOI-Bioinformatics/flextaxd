@@ -83,7 +83,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.refseqid_to_GCF[refseqid] = genebankid
 		return
 
-	def parse_genomeid2taxid(self, genomes_path,annotation_file):
+	def parse_genomeid2taxid(self, genomes_path,annotation_file,reference="refseq"):
 		'''To allow NCBI databases to be build from scratch the sequences names needs to be stored in the database,
 			this function parses the accession2taxid file from NCBI to speed up the function and reduce the amount
 			of stored datata only sequences in input genomes_path will be fetched
@@ -116,7 +116,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 									logger.info("Error on first line in annotation file, check format!")
 							try:
 								genebankid = self.refseqid_to_GCF[refseqid]
-								self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"))
+								self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"),reference=reference)
 								annotated_genome.add(refseqid)
 							except KeyError:
 								pass
