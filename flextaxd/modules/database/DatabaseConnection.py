@@ -350,7 +350,7 @@ class DatabaseFunctions(DatabaseConnection):
 		raise TreeError("Node: {node} has more than one parent!".format(node=name))
 
 	'''Get functions of class'''
-	def get_all(self, database=False, table=False):
+	def get_all(self, database=False, table=False,sort=False):
 		'''Get full table from table
 
 		------
@@ -360,6 +360,8 @@ class DatabaseFunctions(DatabaseConnection):
 		if not table:
 			raise Exception("Table was not supplied to DatabaseFuction get_all()")
 		QUERY = '''SELECT * FROM {table}'''.format(table)
+		if sort:
+			QUERY += " ORDER BY {col} ASC".format(sort=sort)
 		return self.query(QUERY).fetchall()
 
 	def get_taxid_base(self):
@@ -503,7 +505,7 @@ class DatabaseFunctions(DatabaseConnection):
 		logger.debug("link added:  child {}, parent {}, rank {} ".format(child,parent,rank))
 		return self.insert(info, table="tree")
 
-	def add_genome(self, genome, _id=False):
+	def add_genome(self, genome, _id=False,reference=False):
 		'''Add genome annotation to nodes
 
 		Returns
@@ -513,8 +515,12 @@ class DatabaseFunctions(DatabaseConnection):
 		info = {
 			"genome": genome
 		}
+
 		if _id:
 			info["id"] = _id
+		if reference:
+			info["reference"] = reference
+		logger.debug(info)
 		return self.insert(info, table="genomes")
 
 	def add_links(self,links, table="tree",hold=False):
@@ -799,6 +805,15 @@ class ModifyFunctions(DatabaseFunctions):
 			raise NameError("Name not found in the database! {name}".format(name=name))
 		return res
 
+	def update_table(self,data,table):
+		'''Add annotation to table
+
+		Returns
+		------
+			see update responses
+		'''
+		return self.update(data, table=table)
+
 	def update_genome(self,data):
 		'''Add genome annotation to nodes
 
@@ -806,4 +821,4 @@ class ModifyFunctions(DatabaseFunctions):
 		------
 			see update responses
 		'''
-		return self.update(data, table="genomes")
+		return self.update_table(data, table="genomes")
