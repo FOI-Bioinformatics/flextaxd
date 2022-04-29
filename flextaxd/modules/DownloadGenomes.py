@@ -172,6 +172,16 @@ class DownloadGenomes(object):
 				logger.error("Could not stop all subprocesses check your process manager and end them manually!")
 		return self.not_downloaded
 
+	def download_from_file(self,inputfile,exclude="",all=False):
+		'''Download files with ncbis download script using an accession input file'''
+		if not all:
+			exclude = " ".join([exclude,"--exclude-gff3 --exclude-protein --exclude-rna --exclude-genomic-cds"])
+		args = ["genome", "accession" ,"--inputfile", input_file, exclude"]
+		p = Popen(args, stdout=PIPE,cwd=self.location)
+		(output, err) = p.communicate()
+		p_status = p.wait()
+		return self.location
+
 	def run(self, files, representative=False,url=""):
 		'''Download list of GCF and or GCA files from NCBI or download represenative genomes
 
