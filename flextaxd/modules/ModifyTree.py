@@ -440,7 +440,7 @@ class ModifyTree(object):
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
-			self.keep = set(self.taxonomydb.get_children([1],maxdepth=1))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
+			self.keep = set(self.taxonomydb.get_children([1],maxdepth=2))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
 		'''Get all links related to an annotated node and its parents'''
