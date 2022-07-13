@@ -13,7 +13,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 	"""docstring for ReadTaxonomyQIIME."""
 	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1,**kwargs):
 		super(ReadTaxonomyQIIME, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose,**kwargs)
-		self.database = DatabaseFunctions(database,verbose=verbose)
+		#self.database = DatabaseFunctions(database,verbose=verbose)  # Not nessesary opens in parent class
 		self.input = taxonomy_file
 		self.names = {}
 		self.taxid_base = taxid_base
@@ -35,7 +35,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		}
 		self.set_qiime(True)
 		### Add root name these manual nodes are required when parsing the GTDB database!
-		rootid = self.add_node("root")  ## Allways set in ReadTaxonomy
+		#rootid = self.add_node("root")  ## Allways set in ReadTaxonomy
 		coid = self.add_node("cellular organisms")
 		bac_id = self.add_node("Bacteria")
 		Euk_id = self.add_node("Eukaryota")
@@ -47,14 +47,14 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.add_rank("n",qiime=True)
 		self.add_rank("sk",qiime=True)
 		## Add basic links
-		self.add_link(child=rootid, parent=rootid,rank="n")
-		self.add_link(child=coid, parent=rootid,rank="n")
+		self.add_link(child=self.root, parent=self.root,rank="n")
+		self.add_link(child=coid, parent=self.root,rank="n")
 		self.add_link(child=bac_id, parent=coid,rank="sk")
 		self.add_link(child=Euk_id, parent=coid,rank="sk")
 		self.add_link(child=arc_id, parent=coid,rank="sk")
-		self.add_link(child=vir_id, parent=rootid,rank="sk")
-		self.add_link(child=oth_id, parent=rootid,rank="n")
-		self.add_link(child=unc_id, parent=rootid, rank="n")
+		self.add_link(child=vir_id, parent=self.root,rank="sk")
+		self.add_link(child=oth_id, parent=self.root,rank="n")
+		self.add_link(child=unc_id, parent=self.root, rank="n")
 
 	def parse_taxonomy(self):
 		'''Parse taxonomy information'''
