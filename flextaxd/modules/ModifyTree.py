@@ -55,13 +55,15 @@ class TreeError(Exception):
 
 class ModifyTree(object):
 	"""docstring for ModifyTree."""
-	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False,update_genomes=False, separator="\t",verbose=False,parent=False,replace=False,**kwargs):
+	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False,update_genomes=False, update_node_names=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
 		logger.info("Modify Tree")
 		self.sep = separator
 		self.taxonomy = {}
 		self.names = {}
+
+		self.keep_rank = {} ## Place holder for parent rank
 
 		self.parent=parent
 		self.replace = replace
@@ -92,7 +94,7 @@ class ModifyTree(object):
 			self.modsource = self.parse_modification(self.moddb,"database")
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
-		elif update_genomes or clean_database:
+		elif update_genomes or clean_database or update_node_names:
 			pass
 		else:
 			raise InputError("No modification source could be found both mod_database and mod_file file are empty!")
@@ -163,8 +165,16 @@ class ModifyTree(object):
 		self.new_nodes.add(parent_i)
 		child_i = self.get_id(child)
 		self.new_nodes.add(child_i)
-
-		rank_i = self.add_rank(rank)
+		'''If node has no level (no rank), check if parent database had a classified level. If so default add level'''
+		try:
+			level = self.parent_levels[int(child_i)]
+			logger.info("Rank kept for {node}, {rank}".format(node=child, rank=level))
+		except:
+			level = False
+		if not level:
+			rank_i = self.add_rank(rank)
+		else:
+			rank_i = level
 		self.new_links.add((parent_i,child_i,rank_i))
 		return
 
@@ -263,17 +273,15 @@ class ModifyTree(object):
 		if modtype == "database":
 			modparent = self.moddb.get_parent(self.moddb.get_id(self.parent))
 			logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
-
+		self.parent_levels = self.keep_levels(self.existing_links | parentlinks | set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes))))
 		if modtype == "database":
 			self.mod_genomes = self.database_mod(input,self.parent)
 		elif modtype == "file":
 			self.file_mod(input)
 		else:
 			raise InputError("Wrong modification input database or file must be supplied")
-
 		### get links from current database
 		self.old_nodes = self.existing_nodes - self.new_nodes
-
 		logger.info("nodes:")
 		logger.info("old: {old}".format(old=len(self.old_nodes)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))
@@ -284,7 +292,6 @@ class ModifyTree(object):
 
 		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
 		self.old_links = self.existing_links - self.new_links
-
 		logger.info("links:")
 		logger.info("old: {old}".format(old=len(self.old_links)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))
@@ -295,21 +302,27 @@ class ModifyTree(object):
 		'''Get all genomes annotated to new nodes in existing database'''
 		return True
 
-	def update_annotations(self, genomeid2taxid):
+	def update_annotations(self, genomeid2taxid, reference=False):
 		'''Function that adds annotation of genome ids to nodes'''
 		logger.info("Update genome to taxid annotations using {genomeid2taxid}".format(genomeid2taxid=genomeid2taxid))
+		_ref = reference
 		update = {
 			"set_column": "id",
 			"where_column": "genome",
 			"set_value": "",
 			"where": ""
 		}
+		#if _ref:
+		#	update[""]
 		updated = 0
 		added = 0
 		with open(genomeid2taxid) as f:
 			for row in f:
 				try:
-					genome,name = row.strip().split(self.sep)
+					if len(row.strip().split(self.sep)) > 2:
+						genome,name,reference = row.strip().split(self.sep)
+					else:
+						genome,name = row.strip().split(self.sep)
 				except ValueError:
 					genome,name = row.strip().split("    ")
 				logger.debug("genome: {genome}, name: {name}".format(genome=genome,name=name))
@@ -386,6 +399,36 @@ class ModifyTree(object):
 		self.taxonomydb.commit()
 		return
 
+	def update_node_names(self, refdict):
+		'''Function that adds annotation of genome ids to nodes'''
+		logger.info("Update node names in the database from {refdict}".format(refdict=refdict))
+		update = {
+			"set_column": "name",
+			"where_column": "name",
+			"set_value": "",
+			"where": ""
+		}
+		updated = 0
+		added = 0
+		with open(refdict) as f:
+			for row in f:
+				try:
+					old_name,name = row.strip().split(self.sep)
+				except ValueError:
+					old_name,name = row.strip().split("    ")
+				logger.debug("old_name: {old_name}, name: {name}".format(old_name=old_name,name=name))
+				## If no exception occured add old_name
+				update["set_value"] = name
+				update["where"] = old_name.strip()
+				res = self.taxonomydb.update_table(update,table="nodes")
+				if self.taxonomydb.rowcount()!=0:
+					if res:
+						updated += 1
+		self.taxonomydb.commit()
+		gid = self.taxonomydb.get_genomes()
+		logger.info("{updated} annotations were updated!".format(added=added, updated=updated))
+		return
+
 	def clean_database(self, ncbi=False):
 		'''Function that removes all node and node paths without annotation'''
 		logger.info("Fetch annotated nodes")
@@ -404,7 +447,7 @@ class ModifyTree(object):
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
-			self.keep = set(self.taxonomydb.get_children([1],maxdepth=1))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
+			self.keep = set(self.taxonomydb.get_children([1],maxdepth=3))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
 		'''Get all links related to an annotated node and its parents'''
@@ -434,6 +477,14 @@ class ModifyTree(object):
 			self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
 
+	def keep_levels(self, links):
+		parent_levels = {}
+		for c,p,l in links:
+			if self.rank[l] != 1:
+				parent_levels[p] = l
+		print(parent_levels)
+		return parent_levels
+
 	def update_database(self):
 		'''Update the database file'''
 		if self.replace:
@@ -446,6 +497,7 @@ class ModifyTree(object):
 				logger.info("Replace tree, deleting all nodes downstream of selected parent!")
 			if len(self.old_links | self.non_overlapping_old_links-set(self.parent_link)) > 0:
 				logger.debug("Delete links no longer valid!")
+				'''Add function to keep taxonomy level from previous database (belongs to parent)'''
 				self.taxonomydb.delete_links((self.old_links | self.non_overlapping_old_links)-set(self.parent_link))
 			if len(self.old_nodes):
 				logger.debug("Delete nodes!")

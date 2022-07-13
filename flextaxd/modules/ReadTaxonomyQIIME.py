@@ -4,23 +4,22 @@
 Read QIIME formatted taxonomy files and holds a dictionary with taxonomy tree and name translation
 '''
 
-from .ReadTaxonomy import ReadTaxonomy,InputError
+from .ReadTaxonomy import ReadTaxonomy
 from .database.DatabaseConnection import DatabaseFunctions
 import logging
 logger = logging.getLogger(__name__)
 
 class ReadTaxonomyQIIME(ReadTaxonomy):
 	"""docstring for ReadTaxonomyQIIME."""
-	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1,skip_annotation=False):
-		super(ReadTaxonomyQIIME, self).__init__(database=database,verbose=verbose)
-		#self.database = DatabaseFunctions(database,verbose=verbose)
+	def __init__(self, taxonomy_file=False, names_dmp=False, database=False, verbose=False, taxid_base=1,**kwargs):
+		super(ReadTaxonomyQIIME, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose,**kwargs)
+		#self.database = DatabaseFunctions(database,verbose=verbose)  # Not nessesary opens in parent class
 		self.input = taxonomy_file
 		self.names = {}
 		self.taxid_base = taxid_base
-		#self.taxonomy = {}
+		self.taxonomy = {}
 		self.length = 0
 		self.ids = 0
-		self.skip_annotation = skip_annotation
 		self.levelDict = {
 				"n": "no rank",
 				"sk": "superkingdom",
@@ -36,7 +35,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		}
 		self.set_qiime(True)
 		### Add root name these manual nodes are required when parsing the GTDB database!
-		rootid = self.root ## Allways set in ReadTaxonomy
+		#rootid = self.add_node("root")  ## Allways set in ReadTaxonomy
 		coid = self.add_node("cellular organisms")
 		bac_id = self.add_node("Bacteria")
 		Euk_id = self.add_node("Eukaryota")
@@ -48,14 +47,14 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.add_rank("n",qiime=True)
 		self.add_rank("sk",qiime=True)
 		## Add basic links
-		#self.add_link(child=rootid, parent=rootid,rank="n") ## Already done in ReadTaxonomy
-		self.add_link(child=coid, parent=rootid,rank="n")
+		self.add_link(child=self.root, parent=self.root,rank="n")
+		self.add_link(child=coid, parent=self.root,rank="n")
 		self.add_link(child=bac_id, parent=coid,rank="sk")
 		self.add_link(child=Euk_id, parent=coid,rank="sk")
 		self.add_link(child=arc_id, parent=coid,rank="sk")
-		self.add_link(child=vir_id, parent=rootid,rank="sk")
-		self.add_link(child=oth_id, parent=rootid,rank="n")
-		self.add_link(child=unc_id, parent=rootid, rank="n")
+		self.add_link(child=vir_id, parent=self.root,rank="sk")
+		self.add_link(child=oth_id, parent=self.root,rank="n")
+		self.add_link(child=unc_id, parent=self.root, rank="n")
 
 	def parse_taxonomy(self):
 		'''Parse taxonomy information'''
@@ -93,59 +92,54 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		'''Retrieve node description from QIIME formatted tree'''
 		current_level = tree[current_i]
 		level, description = current_level.split("__")
+		'''Fix greengenes bug with empty end nodes'''
+		if description == "":
+			level, description = self.parse_description(tree,current_i+1)
 		return level,description
 
-	def qiime_to_tree(self, sep="\t"):
+
+	def qiime_to_tree(self, sep="\t",reference=False):
 		'''Read the qiime format file and parse out the relation tree (nodes.dmp)'''
 		self.sep = sep
 		self.tree = set()
 		self.missed = 0
 		self.errors = 0
 		self.added = 0
+		_ref = reference
+		refDict = {"RS":"refseq","GB":"genbank"}  ## Refdict for GTDB formatted sources
 		taxid_start = self.taxid_base
-		raiseWarning = False
-		if self.skip_annotation:
-			logger.info("Skip annotation is true, annotations in QIIME input file will be ignored.")
 		with open(self.input) as f:
 			'''Each row defines a genome annotation file connected to a tree level'''
 			for row in f:
 				if row.strip() != "":  ## If there are trailing empty lines in the file
 					data = row.strip().split("\t")
-					if self.skip_annotation:
-						genome_id = False
-					elif len(data) != 2:  ## If the QIIME file is annotated it will contain two columns
-						if len(data) > 2:
-							raise InputError("The input format is not correct for QIIME. THe QIIME source format requires one [QIIME-tree] or two columns [gene_id\\tQIIME-tree]")
-						raiseWarning = True
-						genome_id = False
-					else: 				## Annotation is given in column one
-						try:
-							if data[0].startswith(("RS","GB")):
-								'''GTDB genome annotations contain one additional annotation to their genome names eg. RS_, this function removes this'''
-								genome_id = data[0].split("_",1)[1].strip()   ## Genome ID
-							else:
-								genome_id = data[0].strip()
-							#print(genome_id)
-						except IndexError:
-							logger.debug("Row {row} could not be parsed".format(row=data))
-							self.errors +=1
+					try:
+						if data[0].startswith(("RS","GB")):
+							'''GTDB genome annotations contain one additional annotation to their genome names eg. RS_, this function removes this'''
+							reference,genome_id = data[0].split("_",1)   ## Genome ID
+							genome_id = genome_id.strip()
+							if not _ref:
+								reference = refDict[reference]
+						else:
+							genome_id = data[0].strip()
+							'''Greengenes adaption, empty levels'''
 
+						#print(genome_id)
+					except IndexError:
+						logger.debug("Row {row} could not be parsed".format(row=data))
+						self.errors +=1
 					### Walk through tree and make sure all nodes back to root are annotated!
 					taxonomy = list(reversed(data[-1].split(";")))
 					taxonomy_i = self.parse_tree(taxonomy)
-					if taxonomy_i and genome_id:
-						test = self.database.add_genome(genome=genome_id,_id=taxonomy_i)
+					if taxonomy_i:
+						test = self.database.add_genome(genome=genome_id,_id=taxonomy_i,reference=reference)
 						if not str(test).startswith("UNIQUE"):
 							self.added +=1
-					elif not genome_id: ## No genome id suggest a QIIME file with no annotation
-						pass
 					else:
 						logger.debug("Warning taxonomy: {taxonomy} could not be parsed!!")
 						self.missed +=1
 		self.database.commit()
 		self.length = self.taxid_base - taxid_start
-		if raiseWarning: logger.warning("Warning no genomeid2taxid file given and your QIIME formatted file does not seem to contain annotations!")
-		if not self.skip_annotation:
-			logger.info("Genomes added to database: {genomes}".format(genomes=self.added))
-			logger.debug("Genomes not added to database {missed} errors {errors}".format(missed=self.missed,errors=self.errors))
+		logger.info("Genomes added to database: {genomes}".format(genomes=self.added))
+		logger.debug("Genomes not added to database {missed} errors {errors}".format(missed=self.missed,errors=self.errors))
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))

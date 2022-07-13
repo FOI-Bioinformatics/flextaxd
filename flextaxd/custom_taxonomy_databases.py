@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -121,10 +121,12 @@ def main():
     mod_opts.add_argument('-md', '--mod_database', metavar="",default=False,            help="Database file containing modifications")
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
+    #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
     mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to add (replace see below) branch")
     mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed!")
     mod_opts.add_argument('--clean_database',	action='store_true',                    help="Clean up database from unannotated nodes")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
+    mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
 
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
@@ -132,6 +134,8 @@ def main():
     out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes",                       help="change dump prefix reqires two names default(names,nodes)")
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t",                                help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False,                help="Dump description names instead of database integers")
+    out_opts.add_argument('--dump_genomes', action='store_true', default=False,                     help="Print list of genomes (and source) to file")
+    out_opts.add_argument('--dump_genome_annotations', action='store_true', default=False,          help="Add genome taxid annotation to genomes dump")
 
     vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
     vis_opts.add_argument('--visualise_node', metavar='', default=False,                            help="Visualise tree from selected node")
@@ -261,6 +265,16 @@ def main():
         modify_obj = modify_module(database=args.database,clean_database=args.clean_database,taxid_base=args.taxid_base)
         modify_obj.clean_database(ncbi=ncbi)
 
+    '''Dump option, export list of genomes, added in flextaxd version 0.4.2'''
+    if args.dump_genomes:
+        logger.info("Dump list of genomes")
+        write_module = dynamic_import("modules", "WriteTaxonomy")
+        write_obj = write_module(args.outdir, database=args.database,prefix=args.dump_prefix,separator=args.dump_sep,minimal=args.dump_mini,desc=args.dump_descriptions,dbprogram=args.dbprogram,dump_genomes=True)
+        if args.dump_genome_annotations:
+            write_obj.dump_genome_annotations()
+        else:
+            write_obj.dump_genomes()
+
     ''' 0. Create taxonomy database (if it does not exist)'''
     if args.taxonomy_file:
         if not os.path.exists(args.database) or force:
@@ -303,6 +317,11 @@ def main():
         modify_module = dynamic_import("modules", "ModifyTree")
         modify_obj = modify_module(database=args.database, update_genomes=True,taxid_base=args.taxid_base)
         modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
+
+    # if args.update_names:
+    #     modify_module = dynamic_import("modules", "ModifyTree")
+    #     modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
+    #     modify_obj.update_node_names(args.update_names)
 
     if (args.mod_file or args.mod_database) and args.clean_database:
         modify_module = dynamic_import("modules", "ModifyTree")

@@ -141,16 +141,23 @@ class ReadTaxonomy(object):
 				self.length +=1
 			self.database.commit()
 
-	def parse_genomeid2taxid(self,genomeid2taxid):
+	def parse_genomeid2taxid(self,genomeid2taxid,reference=False):
 		'''Parse file that annotates genome_id´s to nodes in the tree'''
 		nodeDict = self.database.get_nodes()
+		_ref = reference
 		with self.zopen(genomeid2taxid,"rt") as f:
 			headers = f.readline().strip().split("\t")
 			for row in f:
 				if row.strip() != "": ## If there are trailing empty lines in the file
-					genomeid,taxid = row.strip().split("\t")
 					try:
-						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()])
+						genomeid,taxid = row.strip().split("\t")
+					except:
+						if not _ref: ## override if there is a reference in file, and use given ref
+							genomeid,taxid,reference = row.strip().split("\t")
+						else:
+							genomeid,taxid,override = row.strip().split("\t")
+					try:
+						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()],reference=reference)
 					except KeyError:
 						logger.warning("# WARNING: {taxid} not found in the database".format(taxid=taxid))
 			self.database.commit()
