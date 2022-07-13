@@ -61,7 +61,19 @@ centrifuge
 # Installation
 ```
 ## Using conda
-conda install (-c conda-forge -c bioconda -c defaults) flextaxd
+Install mamba in your base conda environment. 
+```
+conda install mamba -n base -c conda-forge
+```
+
+We will then use mamba to create a self-contained conda environment with flextaxd:
+
+```
+mamba create -c conda-forge -c bioconda -n flextaxd flextaxd d
+```
+
+(For user new to conda please see the [conda guide])
+
 
 ## Manual install python - download git release https://github.com/FOI-Bioinformatics/flextaxd and run
 python setup.py install
@@ -206,4 +218,6 @@ Remove branches, the --skip parameter was implemented for benchmarking purposes 
 flextaxd-create --skip "taxid,taxid2"
 
 # Citation
-Publication of FlexTaxD will be available soon
+https://academic.oup.com/bioinformatics/advance-article-abstract/doi/10.1093/bioinformatics/btab621/6361544
+
+Sundell, D. et al. (2021) ‘FlexTaxD: flexible modification of taxonomy databases for improved sequence classification’, Bioinformatics. Edited by J. Kelso. Bioinformatics. doi: 10.1093/bioinformatics/btab621.

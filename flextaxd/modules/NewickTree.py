@@ -15,6 +15,11 @@ import sys
 import logging
 logger = logging.getLogger(__name__)
 
+try:
+	import inquirer
+except:
+	Raise(ImportError("The package inquirer is required for flextaxd visualisation"))
+
 
 __version__ = "0.0.1"
 __author__ = "David Sundell"
@@ -146,14 +151,14 @@ class NewickTree(object):
 		'''Local import allows default newickTree output to be independent of non standard python libraries'''
 		exists = importlib.find_loader('Bio')
 		if not exists:
-			raise VisualisationError("Visualisations other than newick requires biopython package (conda install biopython)!")
+			raise VisualisationError("Visualisations other than newick requires biopython package (mamba install biopython)!")
 		from Bio import Phylo
 		self.phylo = Phylo.read(StringIO(self.newickTree), "newick")
 		if type == "newick_vis":
 			Phylo.draw_ascii(self.phylo)
 		exists = importlib.find_loader('matplotlib')
 		if not exists:
-			raise VisualisationError("Visualisations using newick tree requires the matplotlib package (conda install matplotlib)!")
+			raise VisualisationError("Visualisations using newick tree requires the matplotlib package (mamba install matplotlib-base)!")
 		import matplotlib.pylab as pylab
 		if type == "tree":
 			Phylo.draw(self.phylo)
@@ -340,7 +345,6 @@ class NewickTree(object):
 		            ),
 		]
 		selected = inquirer.prompt(questions)["parent"]
-		import random
 		n = random.randint(10000000,10100000)
 		if selected != default:
 			children[0],children[1] = children[1],children[0]
