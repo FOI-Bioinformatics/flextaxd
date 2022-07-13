@@ -63,6 +63,8 @@ class ModifyTree(object):
 		self.taxonomy = {}
 		self.names = {}
 
+		self.keep_rank = {} ## Place holder for parent rank
+
 		self.parent=parent
 		self.replace = replace
 		self.ncbi_order = True
@@ -163,8 +165,16 @@ class ModifyTree(object):
 		self.new_nodes.add(parent_i)
 		child_i = self.get_id(child)
 		self.new_nodes.add(child_i)
-
-		rank_i = self.add_rank(rank)
+		'''If node has no level (no rank), check if parent database had a classified level. If so default add level'''
+		try:
+			level = self.parent_levels[int(child_i)]
+			logger.info("Rank kept for {node}, {rank}".format(node=child, rank=level))
+		except:
+			level = False
+		if not level:
+			rank_i = self.add_rank(rank)
+		else:
+			rank_i = level
 		self.new_links.add((parent_i,child_i,rank_i))
 		return
 
@@ -263,17 +273,15 @@ class ModifyTree(object):
 		if modtype == "database":
 			modparent = self.moddb.get_parent(self.moddb.get_id(self.parent))
 			logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
-
+		self.parent_levels = self.keep_levels(self.existing_links | parentlinks | set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes))))
 		if modtype == "database":
 			self.mod_genomes = self.database_mod(input,self.parent)
 		elif modtype == "file":
 			self.file_mod(input)
 		else:
 			raise InputError("Wrong modification input database or file must be supplied")
-
 		### get links from current database
 		self.old_nodes = self.existing_nodes - self.new_nodes
-
 		logger.info("nodes:")
 		logger.info("old: {old}".format(old=len(self.old_nodes)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))
@@ -284,7 +292,6 @@ class ModifyTree(object):
 
 		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
 		self.old_links = self.existing_links - self.new_links
-
 		logger.info("links:")
 		logger.info("old: {old}".format(old=len(self.old_links)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))
@@ -440,7 +447,7 @@ class ModifyTree(object):
 		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
-			self.keep = set(self.taxonomydb.get_children([1],maxdepth=2))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
+			self.keep = set(self.taxonomydb.get_children([1],maxdepth=3))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
 		'''Get all links related to an annotated node and its parents'''
@@ -470,6 +477,14 @@ class ModifyTree(object):
 			self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
 
+	def keep_levels(self, links):
+		parent_levels = {}
+		for c,p,l in links:
+			if self.rank[l] != 1:
+				parent_levels[p] = l
+		print(parent_levels)
+		return parent_levels
+
 	def update_database(self):
 		'''Update the database file'''
 		if self.replace:
@@ -482,6 +497,7 @@ class ModifyTree(object):
 				logger.info("Replace tree, deleting all nodes downstream of selected parent!")
 			if len(self.old_links | self.non_overlapping_old_links-set(self.parent_link)) > 0:
 				logger.debug("Delete links no longer valid!")
+				'''Add function to keep taxonomy level from previous database (belongs to parent)'''
 				self.taxonomydb.delete_links((self.old_links | self.non_overlapping_old_links)-set(self.parent_link))
 			if len(self.old_nodes):
 				logger.debug("Delete nodes!")
