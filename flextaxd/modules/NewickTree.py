@@ -124,6 +124,41 @@ class NewickTree(object):
 		self.maxdepth = maxdepth
 		self.newickTree = str(self.build_tree(taxid=self.taxid,maxdepth=self.maxdepth))
 
+		## Check difference between database and constructed tree
+		# Get nodes from database
+		db_index_nodes = self.get_nodes(col=1)
+		db_nodes = set()
+		for index,node in db_index_nodes.items():
+			if node == 'cellular organisms': continue # do not add this arbitrary taxonomy
+			db_nodes.add(node.lower())
+		#/
+		# Get nodes from tree
+		"""
+		# Ete3 returns full node names. Bio-phylo returns only the last work after splitting for spaces. But we dont use Ete3 anywhere else, so I stick with Bio-phylo for now.
+		#                               This means exact-matches between nodes in database and tree cannot be made. We have to resort to comparing number of nodes.
+		from ete3 import Tree
+		tree = Tree(self.newickTree,format=1)
+		num_nodes = 0
+		tree_nodes = set()
+		for node in tree.traverse():
+			tree_nodes.add(node.name.lower())
+			num_nodes += 1
+		"""
+		from Bio import Phylo
+		tree = Phylo.read(StringIO(self.newickTree), "newick")
+		tree_nodes = set()
+		for node in tree.find_clades():
+			tree_nodes.add(node.name.lower())
+		#/
+		#print(tree_nodes.difference(db_nodes))
+		#print(db_nodes.difference(tree_nodes))
+		# Check if identical
+		if not len(db_nodes) == len(tree_nodes):
+			print('Warning: there is a difference between the database and newick tree. The displayed tree may lack nodes.')
+			logger.debug('Inconsistent datasets returned from database and the contructed Newick tree.\n'+','.join(map(str,db_nodes))+'\n'+','.join(map(str,tree_nodes)))
+		#/
+		##/
+
 	def __repr__(self):
 		return "NewickTree()"
 
@@ -276,7 +311,8 @@ class NewickTree(object):
 				try:
 					node = NewickNode(child, nodes[child], self.nodeDict[parent])  		## this works also for root as root has itself as child
 				except KeyError:
-					return False
+					logger.debug("Unable to add NewickNode for child={child} and parent={parent}. Returning -1 as flag to add later".format(child=child,parent=parent))
+					return -1 # all returns with -1 will be re-added in a secondary loop
 				'''Make sure link to parent was not made before'''
 				self.c_p_set |= set([(child,parent,link)])
 				self.c_p_set |= set([(parent,child,link)])
@@ -414,6 +450,8 @@ class NewickTree(object):
 			self.nodeDict[self.taxid] = root										## Add the root node to the node dictionary
 			self.nodeDict["root"] = root									## Also add this reference as "root"
 			newickTree = root  												## The master parent will contain the full tree
+
+		post_add = [] # keep track of which entries in tree failed due to error when adding
 		for parent,child,rank in tree:
 			if parent == child:  ## root
 				root = NewickNode(child, nodes[child], False)					## Create the root node
@@ -421,7 +459,29 @@ class NewickTree(object):
 				self.nodeDict["root"] = root									## Also add this reference as "root"
 				newickTree = root  												## The master parent will contain the full tree
 				continue
-			self.new_node(child,nodes,parent,link=rank)
+			new_node_status = self.new_node(child,nodes,parent,link=rank)
+			if new_node_status == -1:
+				post_add.append([parent,child,rank])
+
+		# Try to add all failed nodes
+		if post_add:
+			logger.debug('Had '+str(len(post_add))+' nodes that failed to add. Will try to rescue them now...')
+		post_adds_done = set()
+		maxiterations = (len(post_add)*len(post_add))+len(post_add) # set a maximum number of attempts to add (number of post-adds squared plus a margin of the number of post-adds)
+		iterations_done = 0
+		while not len(post_adds_done) == len(post_add):
+			for enum,(parent,child,rank) in enumerate(post_add):
+				new_node_status = self.new_node(child,nodes,parent,link=rank) # try to add node
+				post_adds_done.add(enum) # mark done as added
+				if new_node_status == -1: # if it fails...
+					post_adds_done.remove(enum) #           ... then remove mark as done
+			
+			iterations_done += 1
+			if iterations_done > maxiterations: # check if we have performed the maximum number of add attempts
+				print('Warning: Many nodes returned an error when building Newick-tree. Reached maximum number of recues, aborting...')
+				logger.debug('Reached limit when adding nodes, aborted. Limit='+str(maxiterations))
+				break
+		#/
 
 		## The newickTree is the same as the master parent (containing the full tree, the root node is defined on row 135)
 		logger.debug("Tree complete, return newickTree")
