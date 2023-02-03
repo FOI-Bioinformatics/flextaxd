@@ -55,7 +55,7 @@ class TreeError(Exception):
 
 class ModifyTree(object):
 	"""docstring for ModifyTree."""
-	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False,update_genomes=False, update_node_names=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
+	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False,update_genomes=False, update_node_names=False,rename_node=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
 		logger.info("Modify Tree")
@@ -94,7 +94,7 @@ class ModifyTree(object):
 			self.modsource = self.parse_modification(self.moddb,"database")
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
-		elif update_genomes or clean_database or update_node_names:
+		elif update_genomes or clean_database or update_node_names or rename_node:
 			pass
 		else:
 			raise InputError("No modification source could be found both mod_database and mod_file file are empty!")
@@ -429,6 +429,16 @@ class ModifyTree(object):
 		logger.info("{updated} annotations were updated!".format(added=added, updated=updated))
 		return
 
+	def rename_node(self, data, table):
+		'''Function that renames a node in the database'''
+		try:
+			print('[WARNING] Naivly attempting rename. This function needs validation-checks and warnings.')
+			self.taxonomydb.update(data, table)
+			self.taxonomydb.commit()
+		except:
+			print('Could not rename node. Make sure that it exists in the database')
+		return
+
 	def clean_database(self, ncbi=False):
 		'''Function that removes all node and node paths without annotation'''
 		logger.info("Fetch annotated nodes")
@@ -482,7 +492,6 @@ class ModifyTree(object):
 		for c,p,l in links:
 			if self.rank[l] != 1:
 				parent_levels[p] = l
-		print(parent_levels)
 		return parent_levels
 
 	def update_database(self):
