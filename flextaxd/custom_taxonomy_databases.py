@@ -122,6 +122,8 @@ def main():
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
     #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
+    mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
+    mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
     mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to add (replace see below) branch")
     mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed!")
     mod_opts.add_argument('--clean_database',	action='store_true',                    help="Clean up database from unannotated nodes")
@@ -322,6 +324,12 @@ def main():
     #     modify_module = dynamic_import("modules", "ModifyTree")
     #     modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
     #     modify_obj.update_node_names(args.update_names)
+    
+    if args.rename_from and args.rename_to:
+        modify_module = dynamic_import("modules", "ModifyTree")
+        data = {'set_column':'name','set_value':args.rename_to,'where_column':'name','where':args.rename_from}
+        modify_obj = modify_module(database=args.database,rename_node=True)#taxid_base=args.taxid_base)
+        modify_obj.rename_node(data,'nodes')
 
     if (args.mod_file or args.mod_database) and args.clean_database:
         modify_module = dynamic_import("modules", "ModifyTree")
