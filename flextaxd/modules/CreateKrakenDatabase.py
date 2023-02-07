@@ -258,7 +258,7 @@ class CreateKrakenDatabase(object):
 		if self.krakenversion != "kraken2": os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 		else: os.system("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
 		logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
-		logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+		logger.info(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 		os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 
 		if self.krakenversion in ["kraken2"]:
