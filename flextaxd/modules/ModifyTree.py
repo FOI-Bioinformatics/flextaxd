@@ -142,6 +142,7 @@ class ModifyTree(object):
 			rank_i = self.taxonomydb.add_rank(rank)
 			self.rank[rank] = rank_i
 			self.rank[rank_i] = rank
+		#print(rank,rank_i)
 		return rank_i
 
 	def get_id(self, desc):
@@ -230,12 +231,12 @@ class ModifyTree(object):
 					continue
 				line = row.strip().split(self.sep)
 				if len(line) == 2:
-					line +=["-"] ## Add no specified rank to line
+					line +=["no rank"] ## Add no specified rank to line
 				parent,child,rank = line
 				try:
-					rank = self.rank[rank]
+					rank_i = self.rank[rank]
 				except:
-					rank = self.add_rank(rank)
+					rank_i = self.add_rank(rank)
 				if swap:
 					## Make sure that the order between parent and child nodes are correct and consistent with the database
 					child,parent = parent,child
