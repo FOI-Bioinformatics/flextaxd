@@ -60,7 +60,7 @@ def main():
 
 	def write_missing(missing):
 		'''Write missing genomes to file'''
-		with open("{outdir}/FlexTaxD.missing".format(outdir=args.outdir), "w") as of:
+		with open("{outdir}/FlexTaxD.missing".format(outdir=args.tmpdir), "w") as of:
 			for gen in missing:
 				print(gen["genome_id"], end="\n", file=of)
 		return
@@ -83,7 +83,7 @@ def main():
 
 	parser = argparse.ArgumentParser()
 	basic = parser.add_argument_group('basic', 'Basic commands')
-	basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
+	#basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
 	basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
 
 	### Download options, process local directory and potentially download files
@@ -115,6 +115,7 @@ def main():
 	debugopts.add_argument('--debug',                action='store_const', const=logging.DEBUG,                help="Debug output")
 	debugopts.add_argument('--supress',                action='store_const', const=logging.ERROR,    default=logging.WARNING,            help="Supress warnings")
 
+	debugopts.add_argument('--tmpdir',                 metavar='', default="tmp/",         help="Specify temp directory")
 	parser.add_argument("--version", action='store_true', help=argparse.SUPPRESS)
 
 	if len(sys.argv)==1:
@@ -164,13 +165,33 @@ def main():
 	logger.info("FlexTaxD-create logging initiated!")
 	logger.debug("Supported formats: {formats}".format(formats=programs))
 
+	'''Check if temp directory exists, otherwise create directory'''
+	if not os.path.exists(args.tmpdir):
+		os.makedirs(args.tmpdir)
 
 	'''
 		Process data
 	'''
-	if args.outdir:
-		if not os.path.exists(args.outdir):
-			os.system("mkdir -p {outdir}".format(outdir = args.outdir))
+	if True:  # Export names and nodes in expected format
+		'''Check if datase exists if it does make sure the user intends to overwrite the file'''
+		dump_prefix = "names,nodes"
+		nameprefix,nodeprefix = dump_prefix.split(",")
+		if (os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp")):
+			ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
+			if ans not in ["y","Y","yes", "Yes"]:
+				exit("Dump already exists, abort!")
+
+		'''Create print out object'''
+		write_module = dynamic_import("modules", "WriteTaxonomy")
+		write_obj = write_module(args.tmpdir, database=args.database,prefix=dump_prefix,dbprogram=args.dbprogram)
+
+		'''Print database to file'''
+		write_obj.nodes()
+		write_obj.names()
+
+	#if args.outdir:
+	#    if not os.path.exists(args.outdir):
+	#        os.system("mkdir -p {outdir}".format(outdir = args.outdir))
 	skip=False
 	if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)) or os.path.exists("{db_path}/.tmp0.fasta"):
 		ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
@@ -191,7 +212,7 @@ def main():
 		''' 2. Download missing files'''
 		if args.download or args.representative or args.download_file:
 			download = dynamic_import("modules", "DownloadGenomes")
-			download_obj = download(args.processes,outdir=args.outdir,force=args.force_download,download_path=args.genomes_path)
+			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if args.download_file:
 				download_obj.download_from_file(args.download_file)
 			else:
@@ -226,7 +247,7 @@ def main():
 			if args.skip.endswith(".txt"):
 				args.skip = read_skip_file(args.skip)
 				logger.info("File passed to skip, {n} genomes and {x} taxids added to skiplist".format(n=len(args.skip["genome_id"]),x=len(args.skip["tax_id"])))
-		classifierDB = classifier(args.database, args.db_name, genomes,args.outdir,
+		classifierDB = classifier(args.database, args.db_name, genomes,args.tmpdir,
 										create_db=args.create_db,
 										limit=limit,
 										dbprogram=args.dbprogram,
@@ -247,11 +268,17 @@ def main():
 		report_time(current_time)
 		logger.info("Create database")
 		try:
-			classifierDB.create_database(args.outdir,args.keep)
+			classifierDB.create_database(args.tmpdir,args.keep)
 		except UnboundLocalError as e:
 			logger.error("#Error: No database name was given!")
 			logger.error("#UnboundLocalError "+e)
 			exit()
+
+	'''Clean up temp files'''
+	if os.path.exists(args.tmpdir) and not args.keep:
+		logger.info("Cleaning up temp directory")
+		shutil.rmtree(args.tmpdir)
+
 
 	logger.debug(report_time(start_time,final=True))
 
