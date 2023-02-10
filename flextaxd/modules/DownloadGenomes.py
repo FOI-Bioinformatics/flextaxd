@@ -56,7 +56,7 @@ class DownloadGenomes(object):
 				print(gen["genome_id"], end="\n", file=of)
 		return
 
-	def download_represenatives(self,genome_path,url="https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/bac120_marker_genes_reps.tar.gz"):
+	def download_represenatives(self,genome_path,url="https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_genomes_reps.tar.gz"):
 		'''Specific function for GTDB download using their tar files instead of downloading from NCBI
 			Parameters
 				str - url
