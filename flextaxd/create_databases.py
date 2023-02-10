@@ -215,7 +215,7 @@ def main():
 		process_directory_obj = process_directory(args.database)
 		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
 		''' 2. Download missing files'''
-		if args.download or args.representative or args.download_file or 1:
+		if args.download or args.representative or args.download_file:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if args.download_file:
