@@ -176,18 +176,19 @@ class DownloadGenomes(object):
 		'''Download files with ncbis download script using an accession input file'''
 		if not all:
 			exclude = " ".join([exclude,"--exclude-gff3 --exclude-protein --exclude-rna --exclude-genomic-cds"])
-		args = ["genome", "accession" ,"--inputfile", input_file, exclude"]
+		args = ["genome", "accession" ,"--inputfile", inputfile, exclude] # jacke, removed " after exclude and changed input_file to inputfile
 		p = Popen(args, stdout=PIPE,cwd=self.location)
 		(output, err) = p.communicate()
 		p_status = p.wait()
 		return self.location
 
-	def run(self, files, representative=False,url=""):
+	def run(self, files, representative=False,url="https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_genomes_reps.tar.gz"): # jacke added url, before it was "" and it gave that to the self.download_representatives function...
 		'''Download list of GCF and or GCA files from NCBI or download represenative genomes
 
 		Parameters
 			list - list of GCF/GCA ids
 			bool - download representative genomes instead of list
+			url - e.g., https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_genomes_reps.tar.gz or https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/bac120_marker_genes_reps.tar.gz # jacke
 
 		Returns
 			list - list of files not downloaded

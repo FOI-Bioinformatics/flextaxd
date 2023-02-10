@@ -130,7 +130,10 @@ def main():
 	if args.create_db and not args.genomes_path:
 		raise InputError("genomes_path parameter was not given")
 	if not os.path.exists(args.genomes_path):
-		raise FileNotFoundError("Directory {path} does not exist".format(path=args.genomes_path))
+		ans = input("Warning: directory for downloaded genomes does not exist, do you want to create it? (y/n): ")
+		if ans not in ["y","Y","yes", "Yes"]:
+			exit('terminating...')
+		os.makedirs(args.genomes_path)
 
 	if args.version:
 		print("{name}: version {version}".format(name=__pkgname__,version=__version__))
@@ -212,7 +215,7 @@ def main():
 		process_directory_obj = process_directory(args.database)
 		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
 		''' 2. Download missing files'''
-		if args.download or args.representative or args.download_file:
+		if args.download or args.representative or args.download_file or 1:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if args.download_file:
