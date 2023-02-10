@@ -149,6 +149,8 @@ def main():
 	from datetime import time as dtime
 	t = dtime()
 	today = date.today()
+	if not os.path.exists(args.logs):
+		os.mkdir(args.logs)
 	logpath = args.logs+"FlexTaxD-create-"+today.strftime("%b-%d-%Y")+"{}.log"
 	if os.path.exists(logpath):
 		logpath=logpath.format("-{:%H:%M}".format(t))
