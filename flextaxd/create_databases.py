@@ -130,7 +130,10 @@ def main():
 	if args.create_db and not args.genomes_path:
 		raise InputError("genomes_path parameter was not given")
 	if not os.path.exists(args.genomes_path):
-		raise FileNotFoundError("Directory {path} does not exist".format(path=args.genomes_path))
+		ans = input("Warning: directory for downloaded genomes does not exist, do you want to create it? (y/n): ")
+		if ans not in ["y","Y","yes", "Yes"]:
+			exit('terminating...')
+		os.makedirs(args.genomes_path)
 
 	if args.version:
 		print("{name}: version {version}".format(name=__pkgname__,version=__version__))
