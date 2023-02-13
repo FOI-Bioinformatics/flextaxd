@@ -51,7 +51,7 @@ class CreateKrakenDatabase(object):
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
 		else:
-			logger.error("Genome names are missing")
+			logger.error("Genome names are missing. Make sure your genomes are formatted as GCF_0000000.0.fasta[.gz]")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params
@@ -78,7 +78,7 @@ class CreateKrakenDatabase(object):
 				self.skiptax = self.parse_taxid_names(skip["tax_id"])
 				logger.info(self.skiptax)
 			else:
-				self.skiptax = parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
+				self.skiptax = self.parse_skip(skip.split(","))  ## if node should be skipd this must be true, otherwise nodes in modfile are added to existing database
 
 		logger.info("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb))
 		if not os.path.exists("{krakendb}".format(outdir = self.outdir, krakendb=self.krakendb)):

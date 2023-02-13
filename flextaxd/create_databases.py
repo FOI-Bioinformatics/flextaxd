@@ -214,8 +214,23 @@ def main():
 		logger.info("Processing files; create kraken seq.map")
 		process_directory_obj = process_directory(args.database)
 		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
+		
+		# If there are missing genome files, asks the user to attempt a download of these from gtdb
+		download_prompted = False
+		if missing:
+			print('There is a discrepancy of genomes found in the database and the specified genome-folder, {numMissing} genomes are missing.\n'.format(numMissing=len(missing)))
+			print('The names of missing genomes can be found in the file "FlexTaxD.missing", located in the temporary folder. You might need to specify --keep parameter to save the temporary folder.')
+			print('The "FlexTaxD.missing" file can be input to NCBI "datasets" command line software (https://www.ncbi.nlm.nih.gov/datasets/docs/v2/reference-docs/command-line/datasets/) to download any missing genome that has an accession number (e.g. when adding genomes that are not part of the GTDB representative dataset.\n')
+			if not args.download: # Dont ask to download if the user already specified via flag to download
+				ans = input('Do you want to attempt to find these genomes in the GTDB rep-set? (y/n) ')
+				if ans in ["y","Y","yes", "Yes"]:
+					download_prompted = True
+				else:
+					print('Will naivly proceed to construct database. Genomes may be missing.')
+		#/
+		
 		''' 2. Download missing files'''
-		if args.download or args.representative or args.download_file:
+		if args.download or args.representative or args.download_file or download_prompted:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if args.download_file:
