@@ -265,7 +265,7 @@ class ModifyTree(object):
 		# ### Get the connecting link between the two databases
 		self.parent_link = self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent))
 		if not self.parent_link:
-			raise InputError("The selected parent node ({parent}) count not be found in the source database!".format(parent=self.parent))
+			raise InputError("The selected parent node ({parent}) could not be found in the source database!".format(parent=self.parent))
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
 		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
 		if len(self.existing_nodes) > 0:
