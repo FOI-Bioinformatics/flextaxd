@@ -232,7 +232,7 @@ def main():
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if download_prompted:
-				download_obj.download_files(missing[:10]) # jacke, take only first 10 datasets
+				download_obj.download_files(missing)
 				 # Move downloaded files to genomes-directory
 				for path,dirs,files in os.walk(args.genomes_path+'/'+'downloads'):
 					for file_ in files:
