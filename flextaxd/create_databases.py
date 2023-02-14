@@ -232,15 +232,18 @@ def main():
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if download_prompted:
-				download_obj.download_files(missing[:10]) # jacke, take only first 10 datasets
-				 # Move downloaded files to genomes-directory
+				download_obj.download_files(missing)
+				# Move downloaded files to genomes-directory
 				for path,dirs,files in os.walk(args.genomes_path+'/'+'downloads'):
 					for file_ in files:
 						if file_[:2] == 'GC' and file_.endswith('.gz'):
 							new_file_name = '_'.join(file_.split('_')[:2])+'.fna.gz'
 							os.rename(path+'/'+file_,args.genomes_path+'/'+new_file_name)
-				shutil.rmtree(args.genomes_path+'/'+'downloads')
-				genomes, missing = process_directory_obj.process_folder(args.genomes_path) # scan the downloaded genome files
+				try:
+					shutil.rmtree(args.genomes_path+'/'+'downloads')
+				except:
+					logger.info('no genomes were downloaded, expeted for download was: '+str(len(missing)))
+				genomes, missing = process_directory_obj.process_folder(args.genomes_path) # scan the directory of downloaded genome files
 				#/
 			elif args.download_file:
 				download_obj.download_from_file(args.download_file)
@@ -252,10 +255,12 @@ def main():
 				else:
 					new_genomes, missing = process_directory_obj.process_folder(new_genome_path)
 					genomes += new_genomes
-		else:
-			if len(missing) > 0:
-				logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
-				write_missing(missing)
+
+		if len(missing) > 0:
+			print("Warning: was unable to locate/download missing genomes, num={nr}\nYou can find the names of these genomes in file FlexTaxD.missing, located in ./tmp directory (you might need to specify --keep)".format(nr=len(missing)))
+			logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
+			write_missing(missing)
+
 	''' 3. Add genomes to database'''
 	if args.db_name:
 		if args.dbprogram.startswith("kraken"):

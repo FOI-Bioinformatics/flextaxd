@@ -198,7 +198,9 @@ class CreateKrakenDatabase(object):
 							logger.warning("Compressed file ended before the end-of-stream marker was reached {output}".format(output=genome))
 					tmpfile.close()  ## Close and save tmp file
 					with open(self.seqid2taxid, "a") as seqidtotaxid:
-						print("\n".join(taxidlines),end="\n",file=seqidtotaxid)
+						for taxidline in taxidlines:
+							print(taxidline.strip('\n'),end="\n",file=seqidtotaxid)
+
 					output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
 					os.rename(tmppath, output)
 					try:
@@ -255,11 +257,23 @@ class CreateKrakenDatabase(object):
 		logger.info("cp {outdir}/*.dmp {krakendb}/taxonomy".format(outdir=outdir,krakendb=self.krakendb))
 		os.system("cp {outdir}/*names.dmp {krakendb}/taxonomy/names.dmp".format(outdir=outdir,krakendb=self.krakendb))
 		os.system("cp {outdir}/*nodes.dmp {krakendb}/taxonomy/nodes.dmp".format(outdir=outdir,krakendb=self.krakendb))
-		if self.krakenversion != "kraken2": os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
-		else: os.system("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
-		logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
-		logger.info(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-		os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+		
+		if self.krakenversion == "krakenuniq":
+			os.system("cp {outdir}/*.map {krakendb}/library/prelim.map".format(outdir=outdir,krakendb=self.krakendb))
+			logger.info("cp {outdir}/*.map {krakendb}/library/prelim.map".format(outdir=outdir,krakendb=self.krakendb))
+		elif self.krakenversion == "kraken2":
+			os.system("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+			logger.info("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+		else:
+			os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
+			logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
+		
+		if self.krakenversion == 'krakenuniq':
+			logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			os.system(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+		else:
+			logger.info(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 
 		if self.krakenversion in ["kraken2"]:
 			logger.info("Create inspect file!")
