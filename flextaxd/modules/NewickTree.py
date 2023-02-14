@@ -148,7 +148,10 @@ class NewickTree(object):
 		tree = Phylo.read(StringIO(self.newickTree), "newick")
 		tree_nodes = set()
 		for node in tree.find_clades():
-			tree_nodes.add(node.name.lower())
+			try:
+				tree_nodes.add(node.name.lower())
+			except:
+				logger.info('Warning: node did not have a name: '+str(node))
 		#/
 		#print(tree_nodes.difference(db_nodes))
 		#print(db_nodes.difference(tree_nodes))

@@ -214,11 +214,35 @@ def main():
 		logger.info("Processing files; create kraken seq.map")
 		process_directory_obj = process_directory(args.database)
 		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
+		
+		# If there are missing genome files, asks the user to attempt a download of these from gtdb
+		download_prompted = False
+		if missing:
+			print('There is a discrepancy of genomes found in the database and the specified genome-folder, {numMissing} genomes are missing.'.format(numMissing=len(missing)))
+			if not args.download: # Dont ask to download if the user already specified via flag to download
+				ans = input('Do you want to download these genomes from NCBI? (y/n) ')
+				if ans in ["y","Y","yes", "Yes"]:
+					download_prompted = True
+				else:
+					print('Will naivly proceed to construct database. Genomes may be missing.')
+		#/
+		
 		''' 2. Download missing files'''
-		if args.download or args.representative or args.download_file:
+		if args.download or args.representative or args.download_file or download_prompted:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
-			if args.download_file:
+			if download_prompted:
+				download_obj.download_files(missing)
+				 # Move downloaded files to genomes-directory
+				for path,dirs,files in os.walk(args.genomes_path+'/'+'downloads'):
+					for file_ in files:
+						if file_[:2] == 'GC' and file_.endswith('.gz'):
+							new_file_name = '_'.join(file_.split('_')[:2])+'.fna.gz'
+							os.rename(path+'/'+file_,args.genomes_path+'/'+new_file_name)
+				shutil.rmtree(args.genomes_path+'/'+'downloads')
+				genomes, missing = process_directory_obj.process_folder(args.genomes_path) # scan the downloaded genome files
+				#/
+			elif args.download_file:
 				download_obj.download_from_file(args.download_file)
 			else:
 				new_genome_path, missing = download_obj.run(missing,args.rep_path)

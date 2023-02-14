@@ -73,7 +73,7 @@ class DownloadGenomes(object):
 			ans = input("A represenative file already exist, (u)se file, (o)verwrite (c)ancel? (u o,c): ")
 			if ans in ["o", "O"]:
 				logger.info("Overwrite current progress")
-				os.remove("{file}".format(file=input_file_name))
+				os.remove(self.location+"/"+"{file}".format(file=input_file_name))
 			elif ans.strip() in ["u", "U"]:
 				logger.info("Resume database build")
 				return input_file_name
