@@ -243,6 +243,7 @@ def main():
 					shutil.rmtree(args.genomes_path+'/'+'downloads')
 				except:
 					logger.info('no genomes were downloaded, expeted for download was: '+str(len(missing)))
+				genomes, missing = process_directory_obj.process_folder(args.genomes_path)
 				#/
 			elif args.download_file:
 				download_obj.download_from_file(args.download_file)
