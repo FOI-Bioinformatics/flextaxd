@@ -215,10 +215,11 @@ def main():
 		process_directory_obj = process_directory(args.database)
 		genomes, missing = process_directory_obj.process_folder(args.genomes_path)
 		
+		''' 2. Download missing files'''
 		# If there are missing genome files, asks the user to attempt a download of these from gtdb
 		download_prompted = False
-		if missing:
-			print('There is a discrepancy of genomes found in the database and the specified genome-folder, {numMissing} genomes are missing.'.format(numMissing=len(missing)))
+		if missing and not (args.download or args.representative or args.download_file):
+			print('There is a discrepancy of genomes found in the database and the specified genome-folder, {numFound} genomes were found and {numMissing} genomes are missing.'.format(numFound=len(genomes),numMissing=len(missing)))
 			if not args.download: # Dont ask to download if the user already specified via flag to download
 				ans = input('Do you want to download these genomes from NCBI? (y/n) ')
 				if ans in ["y","Y","yes", "Yes"]:
@@ -226,12 +227,11 @@ def main():
 				else:
 					print('Will naivly proceed to construct database. Genomes may be missing.')
 		#/
-		
-		''' 2. Download missing files'''
 		if args.download or args.representative or args.download_file or download_prompted:
 			download = dynamic_import("modules", "DownloadGenomes")
 			download_obj = download(args.processes,outdir=args.tmpdir,force=args.force_download,download_path=args.genomes_path)
 			if download_prompted:
+				logger.info('Download of individual genomes from NCBI, num='+str(len(missing)))
 				download_obj.download_files(missing)
 				# Move downloaded files to genomes-directory
 				for path,dirs,files in os.walk(args.genomes_path+'/'+'downloads'):
@@ -243,7 +243,6 @@ def main():
 					shutil.rmtree(args.genomes_path+'/'+'downloads')
 				except:
 					logger.info('no genomes were downloaded, expeted for download was: '+str(len(missing)))
-				genomes, missing = process_directory_obj.process_folder(args.genomes_path) # scan the directory of downloaded genome files
 				#/
 			elif args.download_file:
 				download_obj.download_from_file(args.download_file)
@@ -256,8 +255,9 @@ def main():
 					new_genomes, missing = process_directory_obj.process_folder(new_genome_path)
 					genomes += new_genomes
 
-		if len(missing) > 0:
-			print("Warning: was unable to locate/download missing genomes, num={nr}\nYou can find the names of these genomes in file FlexTaxD.missing, located in ./tmp directory (you might need to specify --keep)".format(nr=len(missing)))
+		if not (args.download or args.representative or args.download_file) and len(missing) > 0:
+			print("Warning: was unable to locate/download missing genomes. Found/missing: {numFound}/{numMissing}".format(numFound=len(genomes),numMissing=len(missing)))
+			print("You can find the names of these genomes in file FlexTaxD.missing, located in ./tmp directory (you might need to specify --keep)")
 			logger.info("Genome annotations with no matching source: {nr}".format(nr=len(missing)))
 			write_missing(missing)
 
