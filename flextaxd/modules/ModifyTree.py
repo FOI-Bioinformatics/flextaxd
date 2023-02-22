@@ -55,7 +55,7 @@ class TreeError(Exception):
 
 class ModifyTree(object):
 	"""docstring for ModifyTree."""
-	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False,update_genomes=False, update_node_names=False,rename_node=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
+	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False, purge_database=False,update_genomes=False, update_node_names=False,rename_node=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
 		logger.info("Modify Tree")
@@ -94,7 +94,7 @@ class ModifyTree(object):
 			self.modsource = self.parse_modification(self.moddb,"database")
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
-		elif update_genomes or clean_database or update_node_names or rename_node:
+		elif update_genomes or clean_database or update_node_names or rename_node or purge_database:
 			pass
 		else:
 			raise InputError("No modification source could be found both mod_database and mod_file file are empty!")
@@ -487,6 +487,70 @@ class ModifyTree(object):
 			logger.info("Vacuum database")
 			self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
+
+	def purge_database(self, genomes_list = None, force_genome_delete = False):
+		''' This function takes as input a list of genomes that are missing in the genomes directory specified as --genomes_path in flextaxd-create.
+            It gets the nodes for these genomes and then traverses the tables of the FlexTaxD-database, removing entries (e.g. parent-relations)
+            that are exclusive to such nodes. It tests so that any parent node is not a parent for a node that is not deleted.
+            Optionally, missing genomes that have no distinct nodes in the tree can be removed (force_genome_delete)
+                This occurs when using GTDB taxonomy (full GTDB-database) but only using the representative genomes.
+                The nodes of such datasets have multiple children, of which one is the representative genome and the other children can be removed.
+                When this flag is applied, the function will remove missing entries from all tables wherever possible ("truly missing" datasets)
+                in addition to naively removing all missing genomes (datasets that are missing due to exhaustive import of taxonomy information)
+        '''
+		logger.info('Entered purge_database')
+		if not type(genomes_list) == set:
+			genomes_list = set(genomes_list) # Convert input list to hashmap for lookup speed
+		if genomes_list:
+			print('Have '+str(len(genomes_list))+' missing genomes, looking them up in the database...')
+			# Get nodes and genomes from database
+			logger.info('Fetching id,genome from database')
+			genomes_nodes = self.taxonomydb.get_genomes(table='genomes',cols='id,genome') # get_gnomes returns dict of "genome"->"id"
+			#/
+			# Determine which nodes to keep (We have to do it this way. If using GTDB, one node ID may carry multiple genomes. Thus we must decide which nodes to keep as opposed which to delete.
+			nodes_keep = set()
+			for genome,node in genomes_nodes.items():
+				if not genome in genomes_list:
+					nodes_keep.add(node)
+			#/
+			# Determine which nodes to delete (leaf-nodes [e.g. those that can hold a genome] in database) minus those that we decided to keep
+			nodes_delete = set(genomes_nodes.values()).difference(nodes_keep)
+			
+			logger.info('Number of genome-nodes from table "genomes": '+str(len(genomes_nodes)))
+			logger.info('Number of genome-nodes to keep: '+str(len(nodes_keep)))
+			logger.info('Number of genome-nodes to delete: '+str(len(nodes_delete)))
+			#/
+			# Get parents for leaf-nodes (to-keep and to-delete). Determine which parents are delete-only
+			## NOTE: for some reason the input child is also returned here. Its not intuitive, but it does not matter.
+			parents_keep = set(self.taxonomydb.get_parents(nodes_keep,find_all=True))#,only_parents=True))
+			parents_delete = set(self.taxonomydb.get_parents(nodes_delete,find_all=True))#,only_parents=True))
+			parents_deleteOnly = parents_delete.difference(parents_keep)
+			#/
+			# Perform node deletion (leaf-nodes and exclusive parent-nodes)
+			logger.info('Number of nodes to be deleted: '+str(len(parents_deleteOnly)))
+			#@ delete links from table TREE (parent in _list_ and child in _list_)
+			logger.info("Attempting delete of nodes in table 'tree'")
+			self.taxonomydb.ambigious_delete_links(parents_deleteOnly)
+			#@/
+			#@ delete nodes from table NODES
+			logger.info("Attempting delete of nodes in table 'nodes'")
+			self.taxonomydb.delete_nodes(parents_deleteOnly)
+			#@/
+			#@ delete nodes from table GENOMES
+			logger.info("Attempting delete of nodes in table 'genomes'")
+			num_rows_before = self.taxonomydb.num_rows('genomes')
+			self.taxonomydb.delete_genomes(parents_deleteOnly,genomes=list(genomes_nodes))
+			num_rows_after = self.taxonomydb.num_rows('genomes')
+			num_rows_deleted = num_rows_before - num_rows_after
+			print('Removed '+str(num_rows_deleted)+' node genomes')
+			if num_rows_deleted != len(genomes_list) and not force_genome_delete:
+				print('WARNING: Some nodes were not removed as they did not have exclusive nodes in the tree. This occurs for instance when building from GTDB taxonomy (that has taxonomy for their full database) but downloading only their representative set of genomes')
+				print('To force the removal of these genomes, apply the flag --purge_database_force')
+			if force_genome_delete: # if force delete specified, then remove all missing genomes
+				logger.info("Force-deleting missing genomes from table 'genomes' N="+str(len(genomes_list)))
+				self.taxonomydb.delete_genomes('',genomes=genomes_list,match_genome_only=True)
+				print('Removed '+str(len(genomes_list)-num_rows_deleted)+' genomes by force')
+			#/
 
 	def keep_levels(self, links):
 		parent_levels = {}

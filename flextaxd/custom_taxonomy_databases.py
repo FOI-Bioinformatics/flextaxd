@@ -129,6 +129,8 @@ def main():
     mod_opts.add_argument('--clean_database',	action='store_true',                    help="Clean up database from unannotated nodes")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
+    mod_opts.add_argument('--purge_database',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)")
+    mod_opts.add_argument('--purge_database_force',action='store_true',default=False,   help="If specified, will remove all genomes that are missing from the FlexTaxD-database, regardless if they are distinct nodes or not in the tree (default = FALSE)")
 
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
@@ -266,6 +268,30 @@ def main():
         modify_module = dynamic_import("modules", "ModifyTree")
         modify_obj = modify_module(database=args.database,clean_database=args.clean_database,taxid_base=args.taxid_base)
         modify_obj.clean_database(ncbi=ncbi)
+    
+    '''Purge database from entries that do not exist in --genomes_path [as known in flextaxd-create] directory'''
+    if args.purge_database:
+        # Check if genomes-folder provided by user exists
+        if not os.path.exists(args.purge_database):
+            exit("Could not locate directory of genomes: "+args.purge_database)
+        #/
+        # Scan directory for downloaded genomes
+        genomes_path = args.purge_database
+        process_directory = dynamic_import("modules", "ProcessDirectory")
+        logger.info("Processing files; create kraken seq.map")
+        process_directory_obj = process_directory(args.database)
+        genomes, missing = process_directory_obj.process_folder(genomes_path)
+        
+        missing_genomes = set()
+        for entry in missing:
+            missing_genomes.add(entry['genome_id'])
+        #/
+        # Send genomes to have their nodes (and parents, when loosing all their childs) removes
+        if missing:
+            modify_module = dynamic_import("modules", "ModifyTree")
+            modify_obj = modify_module(database=args.database,purge_database=True,taxid_base=args.taxid_base)
+            modify_obj.purge_database(missing_genomes,force_genome_delete=args.purge_database_force)
+        #/
 
     '''Dump option, export list of genomes, added in flextaxd version 0.4.2'''
     if args.dump_genomes:
@@ -275,7 +301,7 @@ def main():
         if args.dump_genome_annotations:
             write_obj.dump_genome_annotations()
         else:
-            write_obj.dump_genomes()
+            write_obj.dump_genomes(genomes_list = genomes)
 
     ''' 0. Create taxonomy database (if it does not exist)'''
     if args.taxonomy_file:
