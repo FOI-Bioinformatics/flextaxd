@@ -220,10 +220,13 @@ def main():
 		download_prompted = False
 		if missing and not (args.download or args.representative or args.download_file):
 			print('There is a discrepancy of genomes found in the database and the specified genome-folder, {numFound} genomes were found and {numMissing} genomes are missing.'.format(numFound=len(genomes),numMissing=len(missing)))
+			print('You may want to purge your database from missing genomes using "flextaxd --purge_database"')
 			if not args.download: # Dont ask to download if the user already specified via flag to download
-				ans = input('Do you want to download these genomes from NCBI? (y/n) ')
+				ans = input('Do you want to download these genomes from NCBI? (y)es, (n)o, (c)ancel: ')
 				if ans in ["y","Y","yes", "Yes"]:
 					download_prompted = True
+				elif type(ans) == str and not ans.isdigit() and ans.lower() in ('c','cancel',):
+					exit('Terminated.')
 				else:
 					print('Will naivly proceed to construct database. Genomes may be missing.')
 		#/
@@ -248,6 +251,9 @@ def main():
 			elif args.download_file:
 				download_obj.download_from_file(args.download_file)
 			else:
+				ans = input('Will attempt to get genomes from '+str(args.rep_path+'. Proceed? (y/n)'))
+				if not ans in ["yes","Yes","y","Y"]:
+					exit("Terminated.")
 				new_genome_path, missing = download_obj.run(missing,args.rep_path)
 				if not new_genome_path:
 					still_missing = missing

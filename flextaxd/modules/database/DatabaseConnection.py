@@ -609,6 +609,22 @@ class DatabaseFunctions(DatabaseConnection):
 			self.commit()
 		return True
 
+	def ambigious_delete_links(self,nodes,hold=False):
+		'''This funtion takes as input a list of nodes. It will search the "tree" table for rows that return on "parent in list_of_nodes" and "child in list_of_nodes"
+		Returns
+		------
+			boolean
+		'''
+		logger.info("Entered ambigious_delete_links")
+		QUERY = "DELETE FROM {table} WHERE parent in ({parents}) AND child in ({children})"
+		logger.info("Attempting delete where parent&child in: "+str(nodes))
+		res = self.query(QUERY.format(table='tree', parents=",".join(list(map(str,nodes))), children=",".join(list(map(str,nodes)))))
+		## Commit changes
+		if not hold:
+			logger.debug("Commit changes!")
+			self.commit()
+		return True
+
 	def delete_nodes(self, nodes, table="nodes",hold=False):
 		'''This function deletes all nodes given in nodes
 
@@ -626,19 +642,34 @@ class DatabaseFunctions(DatabaseConnection):
 			self.commit()
 		return True
 
-	def delete_genomes(self,nodes,table="genomes",hold=False):
+	def delete_genomes(self,nodes,genomes='',match_genome_only=False,table="genomes",hold=False):
 		'''This function clean up genomes from given nodes
 
 		Returns
 		------
 			boolean
 		'''
-		QUERY = "DELETE FROM {table} WHERE id in({nodes})"
+		if genomes: # check if genomes were specified for targeted deletion (sometimes a node can hold multiple genomes)
+			if not match_genome_only:
+				QUERY = "DELETE FROM {table} WHERE id in({nodes}) AND genome in({genomes})"
+			else:
+				QUERY = "DELETE FROM {table} WHERE genome in({genomes})"
+		else:
+			QUERY = "DELETE FROM {table} WHERE id in({nodes})"
+
 		logger.info("Deleting {nnodes} annotations!".format(nnodes=len(nodes)))
-		logger.debug(QUERY.format(table=table,nodes=""))
 		#for node in nodes:
 			#logger.info("Delete genomes from: {node}".format(node=node))
-		res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes)))))
+		if genomes:
+			if not match_genome_only:
+				logger.debug(QUERY.format(table=table,nodes="",genomes=""))
+				res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes))), genomes='"'+'","'.join(list(map(str,genomes)))+'"'))
+			else:
+				res = self.query(QUERY.format(table=table, genomes='"'+'","'.join(list(map(str,genomes)))+'"'))
+		else:
+			logger.debug(QUERY.format(table=table,nodes=""))
+			res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes)))))
+		
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
