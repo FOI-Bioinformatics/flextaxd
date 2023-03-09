@@ -109,7 +109,7 @@ class NewickTree(object):
 
 	"""
 
-	def __init__(self, database,name="newick",outdir="./",taxid=False,maxdepth=3):
+	def __init__(self, database,name="newick",outdir="./",taxid=False,maxdepth=3,label_size=None,vis_clip_labels=False):
 		super(NewickTree, self).__init__()
 		self.database = ModifyFunctions(database) ## Initiate database connection with CanSNPdbFunctions
 		if taxid:
@@ -122,6 +122,8 @@ class NewickTree(object):
 		self.taxonomy = self.database.get_nodes()
 		## Build the newick tree
 		self.maxdepth = maxdepth
+		self.label_size = label_size
+		self.vis_clip_labels = vis_clip_labels
 		self.newickTree = str(self.build_tree(taxid=self.taxid,maxdepth=self.maxdepth))
 
 		## Check difference between database and constructed tree
@@ -157,7 +159,7 @@ class NewickTree(object):
 		#print(db_nodes.difference(tree_nodes))
 		# Check if identical
 		if not len(db_nodes) == len(tree_nodes):
-			print('Warning: there is a difference between the database and newick tree. The displayed tree may lack nodes.')
+			print('Warning: there is a difference between the database and newick tree. The displayed tree may lack nodes. This error-message is normal if you are not visualising from root.')
 			logger.debug('Inconsistent datasets returned from database and the contructed Newick tree.\n'+','.join(map(str,db_nodes))+'\n'+','.join(map(str,tree_nodes)))
 		#/
 		##/
@@ -198,8 +200,16 @@ class NewickTree(object):
 		if not exists:
 			raise VisualisationError("Visualisations using newick tree requires the matplotlib package (mamba install matplotlib-base)!")
 		import matplotlib.pylab as pylab
+		import matplotlib
+		matplotlib.rcParams['axes.spines.top'] = False
+		matplotlib.rcParams['axes.spines.right'] = False
+		if self.label_size:
+			matplotlib.rc('font', size=self.label_size)
 		if type == "tree":
-			Phylo.draw(self.phylo)
+			if self.vis_clip_labels:
+				Phylo.draw(self.phylo)
+			else:
+				Phylo.draw(self.phylo,label_func=lambda leaf: leaf.name) # Replace Biopython label function that returns the full name (default, clip >40)
 		#fig.set_size_inches(5,5)
 		pylab.savefig("flextaxd.vis.png",)
 		return True
