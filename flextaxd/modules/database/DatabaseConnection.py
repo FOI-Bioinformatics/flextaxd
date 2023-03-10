@@ -272,28 +272,28 @@ class DatabaseFunctions(DatabaseConnection):
 			lset = nodeset - self.tree_connections
 			if len(lset) > 10:
 				lset = len(lset)
-				logger.debug([self.taxonomy[x] for x in lset])
+				#logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("The number of nodes and the number nodes under root does not match!")
 		if len(set(self.edges) - set(self.tree_links)) != 0:
 			lset = set(self.edges) - set(self.tree_links)
 			if len(lset) > 10:
 				lset = len(lset)
-				logger.debug([self.taxonomy[x] for x in lset])
+				#logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("The number of edges and the number edges under root does not match!")
 		if len(self.tree_nodes - nodeset) != 0:
 			lset = self.tree_nodes - nodeset
 			if len(lset) > 10:
 				lset = len(lset)
-				logger.debug([self.taxonomy[x] for x in lset])
+				#logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("The number of annotated nodes does not match with the number of nodes connected to edges!")
 		if len(self.tree_connections - nodeset) != 0:
 			lset = self.tree_connections - nodeset
 			if len(lset) > 10:
 				lset = len(lset)
-				logger.debug([self.taxonomy[x] for x in lset])
+				#logger.debug([self.taxonomy[x] for x in lset])
 			logger.info("{}".format(lset))
 			raise TreeError("There are nodes in the database not connected to the tree")
 		logger.info("Validation OK!")
@@ -784,6 +784,7 @@ class ModifyFunctions(DatabaseFunctions):
 		if isinstance(name, int):
 			name = [name]
 		if len(name & set([1])) > 0 and not ncbi:
+			#print(name)
 			return parents
 		QUERY = '''SELECT parent,child{simple} FROM tree WHERE child in ({node})'''.format(simple=simple, node=",".join(map(str,name)))
 		#if find_all: logger.info(QUERY)

@@ -51,7 +51,7 @@ class CreateKrakenDatabase(object):
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
 		else:
-			logger.error("Genome names are missing. Make sure your genomes are formatted as GCF_0000000.0.fasta[.gz]")
+			logger.error("Genome names are missing. Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params

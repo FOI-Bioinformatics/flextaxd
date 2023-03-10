@@ -3,7 +3,7 @@
 Process directory
 '''
 
-import logging,os
+import logging,os,re
 from .database.DatabaseConnection import DatabaseFunctions
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,50 @@ class ProcessDirectory(object):
 			pass
 		return False
 
+	def is_gcf_gcaJACKE(self,fname,debug=False):
+		''' NOT used at the moment. It seems find_local is used instead when parsing "custom names" fastas, regardless of GCF/GCA presence in header. Might use this reg-ex later.
+		'''
+		'''Paramterers
+			str     - File name
+
+		------
+		Returns
+			str     - GCF name
+			boolean - false if not GCF/GCA
+		'''
+		try:
+			# Check extension of file
+			if not fname.endswith(tuple(self.ref_ext)):         ## A genome downloaded from refseq or genbank will end with .fna
+				return False
+			#/
+			# Check if input matches format GCx_ddddddddd.v , where x can be A or F and d is any digit and v is any digit (GCA/GCF accessions always have 9 digits)
+			regex_pattern = r".*GC[A|F]_\d{9}\.\d*"
+			match = re.search(regex_pattern,fname)
+			if match:
+				matched_string = match.group()
+				stripped_string = re.sub(f".*({regex_pattern}).*", r"\1", matched_string)
+				genome_name = stripped_string # should be formatted as GCX_123456789.1
+				return genome_name
+			#/
+			
+			'''
+			GCX,END,REST = fname.split("_",2)  ## If a name contains anything after the GCF number remove this if split by _
+			if debug:
+				logger.debug("[{} {} {}]".format(GCX,END,REST))
+			NUM,version = END.split(".",1)
+			if debug:
+				logger.debug("[{} {}]".format(NUM,version))
+			if GCX.startswith(("GCF","GCA")):                        ## Must start with GCF/GCA
+				if len(NUM) == 9 and NUM.isdigit():                    ## All true GCF/GCA names have 9 digits
+					if len(version) <= 2 and version.isdigit():      ## version number after . is 1-99 OBS -> Will have to be updated if a genome reach version number higher than 99
+						if fname.endswith(tuple(self.ref_ext)):         ## A genome downloaded from refseq or genbank will end with .fna
+							genome_name = "{GCX}_{NUM}.{version}".format(GCX=GCX,NUM=NUM,version=version)
+							return genome_name
+			'''
+		except:        ## If the above is not true it is not a GCF file name return False
+			pass
+		return False
+
 	def find_local(self,fname):
 		'''Check if file is a custom genome defined without extension
 		Parameters
@@ -128,12 +172,15 @@ class ProcessDirectory(object):
 		'''The bulk of genomes is expected to come from official sources'''
 		genome_name = self.is_gcf_gca(fname)
 		if genome_name:
+			#print('is_gcf_gca',fname)
 			taxid = self.get_taxid(genome_name)
 		'''If the file is not a GCF or GCA file check if the file starts with GCF/GCA but is a still a custom filename'''
 		if not taxid:
+			#print('find_local',fname)
 			taxid,genome_name = self.find_local(fname)
 		'''If the file is still not matching a database entry use the complete name (including .fasta/.fna/.fa)'''
 		if not taxid:
+			#print('find_local_fasta',fname)
 			taxid,genome_name = self.find_local_fasta(fname)
 		'''In official sources there is sometimes a file called from_genomic.fna; make sure this file does not get included in the file list'''
 		if not file.strip(".gz").endswith("from_genomic.fna") and taxid:

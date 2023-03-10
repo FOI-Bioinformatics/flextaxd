@@ -146,7 +146,7 @@ class ReadTaxonomy(object):
 		nodeDict = self.database.get_nodes()
 		_ref = reference
 		with self.zopen(genomeid2taxid,"rt") as f:
-			headers = f.readline().strip().split("\t")
+			# headers = f.readline().strip().split("\t") # This line was commented away since this genomeid2taxid is not documented to have a header
 			for row in f:
 				if row.strip() != "": ## If there are trailing empty lines in the file
 					try:

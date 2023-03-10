@@ -77,13 +77,13 @@ def main():
 
     def get_read_modules():
         '''Find (ReadTaxonomy) modules and return options'''
-        read_modules = []
+        read_modules = ['GTDB'] # GTDB will be remapped to QIIME when argparse'd
         for script in os.listdir(BASE_DIR+"/modules"):
             if script.startswith("ReadTaxonomy"):
                 modname = script.lstrip("ReadTaxonomy").rstrip(".py")
                 if modname != "":
                     read_modules.append(modname)
-        return read_modules
+        return sorted(read_modules)
     #########################################################################################
     ##################################--error functions--####################################
 
@@ -118,7 +118,7 @@ def main():
 
     mod_opts = parser.add_argument_group('mod_opts', "Database modification options")
     mod_opts.add_argument('-mf','--mod_file', metavar="", default=False,                help="File contaning modifications parent,child,(taxonomy level)")
-    mod_opts.add_argument('-md', '--mod_database', metavar="",default=False,            help="Database file containing modifications")
+    mod_opts.add_argument('-md', '--mod_database', '--mod_db', metavar="",default=False,            help="Database file containing modifications")
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
     #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
@@ -126,15 +126,15 @@ def main():
     mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
     mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to add (replace see below) branch")
     mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed!")
-    mod_opts.add_argument('--clean_database',	action='store_true',                    help="Clean up database from unannotated nodes")
+    mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from unannotated nodes")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
-    mod_opts.add_argument('--purge_database',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)")
-    mod_opts.add_argument('--purge_database_force',action='store_true',default=False,   help="If specified, will remove all genomes that are missing from the FlexTaxD-database, regardless if they are distinct nodes or not in the tree (default = FALSE)")
+    mod_opts.add_argument('--purge_database','--purge_db',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)")
+    mod_opts.add_argument('--purge_database_force','--purge_db_force', action='store_true',default=False,   help="If specified, will remove all genomes that are missing from the FlexTaxD-database, regardless if they are distinct nodes or not in the tree (default = FALSE)")
 
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
-    out_opts.add_argument('--dbprogram', metavar="", default=False,choices=__programs_supported__,  help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
+    out_opts.add_argument('--dbprogram','--db_program', metavar="", default=False,choices=__programs_supported__,  help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
     out_opts.add_argument("--dump_prefix", metavar="", default="names,nodes",                       help="change dump prefix reqires two names default(names,nodes)")
     out_opts.add_argument('--dump_sep', metavar="", default="\t|\t",                                help="Set output separator default(NCBI) also adds extra trailing columns for kraken")
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False,                help="Dump description names instead of database integers")
@@ -142,9 +142,11 @@ def main():
     out_opts.add_argument('--dump_genome_annotations', action='store_true', default=False,          help="Add genome taxid annotation to genomes dump")
 
     vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
-    vis_opts.add_argument('--visualise_node', metavar='', default=False,                            help="Visualise tree from selected node")
+    vis_opts.add_argument('--vis_node','--visualise_node', metavar='', default=False,                            help="Visualise tree from selected node")
     vis_opts.add_argument('--vis_type', metavar='', default="newick", choices=__suppored_visualizations__, help="Choices [{allowed}]".format(allowed=", ".join(__suppored_visualizations__)))
     vis_opts.add_argument('--vis_depth', metavar='', type=int, default=3,                           help="Maximum depth from node to visualise default 3, 0 = all levels")
+    vis_opts.add_argument('--vis_label_size', metavar='', type=int, default=0,                           help="Adjusts the size of labels printed at drawn tree nodes")
+    vis_opts.add_argument('--vis_clip_labels', action='store_true',                             help="If specified, will clip long node names in the drawn tree")
 
     debugopts = parser.add_argument_group("Logging and debug options")
     debugopts.add_argument('--logs', 				metavar='', default="logs/", 		                    help="Specify log directory")
@@ -160,6 +162,11 @@ def main():
         sys.exit(1)
 
     args = parser.parse_args()
+
+    # Remap input taxonomy_type, if GTDB, set it to QIIME (its more intuitive. Is GTDB officially a QIIME formet?)
+    if args.taxonomy_type and args.taxonomy_type.lower() == 'gtdb':
+        args.taxonomy_type = 'QIIME'
+    #/
 
     if args.version:
         print("{name}: version {version}".format(name=__pkgname__,version=__version__))
@@ -387,9 +394,9 @@ def main():
             write_obj.set_order(True)
             write_obj.nodes()
 
-    if args.visualise_node:
+    if args.vis_node:
         modify_module = dynamic_import("modules", "NewickTree")
-        modify_obj = modify_module(database=args.database,taxid=args.visualise_node,maxdepth=args.vis_depth)
+        modify_obj = modify_module(database=args.database,taxid=args.vis_node,maxdepth=args.vis_depth,label_size=args.vis_label_size,vis_clip_labels=args.vis_clip_labels)
         modify_obj.print(args.vis_type)
     ftime=report_time(start_time,final=True)
 
