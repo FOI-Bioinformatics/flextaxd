@@ -26,7 +26,7 @@ class ImportFormatError(Exception):
 
 class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	"""docstring for ReadTaxonomyCanSNPer."""
-	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", verbose=False,**kwargs):
+	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", cnp=False, verbose=False,**kwargs):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,verbose=verbose,**kwargs)
 		self.input = taxonomy_file
 		self.taxonomy = {}
@@ -37,18 +37,20 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		if not root_name:
 			logger.info("Fetching root name from file")
 			root_name = self.get_root_name(taxonomy_file)
-		logger.info("Adding, cellular organism node")
-		c_i = self.add_node("cellular organisms")
-		logger.info("Adding root node {node}!".format(node=root_name))
+		if not cnp:
+			logger.info("Adding, cellular organism node")
+			c_i = self.add_node("cellular organisms")
+			logger.info("Adding root node {node}!".format(node=root_name))
 		root_i = self.add_node(root_name)
 		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
 		if rank != "no rank":
 			self.add_rank("no rank")
 		self.add_rank(rank)
-		if root_name != "cellular organisms":
+		
+		if root_name != "cellular organisms" and not cnp:
 			self.add_link(c_i,1)
-		if root_name != "root":
+		if root_name != "root" and not cnp:
 			self.add_link(root_i,c_i,rank=rank) ## root is always added as top parent if not one force 1
 			self.taxonomy[root_i] = 1  ## Add local link to root
 		self.names = {}
