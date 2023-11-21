@@ -1,0 +1,17 @@
+child	parent
+Francisellaceae_Francisella_tularensis_GCF_016604535.1	Francisella tularensis
+Francisellaceae_Francisella_tularensis_GCF_000742085.1	tul1
+tul1	Francisella tularensis
+Francisellaceae_Francisella_tularensis_GCF_001870885.1	tul2
+tul2	tul1
+Francisellaceae_Francisella_tularensis_GCF_001044315.2	tul3
+tul3	tul2
+Francisellaceae_Francisella_tularensis_GCF_002952075.1	tul5
+tul5	tul4
+tul4	tul3
+Francisellaceae_Francisella_tularensis_GCF_000014645.1	tul5
+Francisellaceae_Francisella_tularensis_GCF_001865695.1	tul6
+tul6	tul4
+Francisellaceae_Francisella_tularensis_GCF_000833355.1	tul7
+tul7	tul6
+Francisellaceae_Francisella_tularensis_GCF_000195535.1	tul7
