@@ -83,8 +83,12 @@ def main():
 
     parser = argparse.ArgumentParser()
     basic = parser.add_argument_group('basic', 'Basic commands')
-    #basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
+    basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
     basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
+    #basic.add_argument('--dump_map',metavar="", type=str, default=False , help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
+    basic.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
+    basic.add_argument('-nt', '--nt_source', '--nt', metavar="",type=str, default=False, help="If part of your data is merged into one file, add path to file here, example nt")
+    basic.add_argument('-mfp', '--multifile_prefix', metavar="",type=str,default=False, help="If multiple datafiles, list file prefix to handle as multi files")
 
     ### Download options, process local directory and potentially download files
     download_opts = parser.add_argument_group('download_opts', "Download and file handling")
@@ -99,6 +103,7 @@ def main():
     ###  Kraken options not needed for public version this script is made to export names and nodes.dmp files
     classifier_opts = parser.add_argument_group('classifier_opts', "Classifier options")
     classifier_opts.add_argument('--create_db', action ='store_true',  help="Start create db after loading databases")
+    classifier_opts.add_argument('--create_lib', action ='store_true',  help="Add to create kraken library file but no DB")
     classifier_opts.add_argument('--dbprogram','--db_program', metavar="", default="kraken2", choices=programs,help="Select one of the supported programs ["+", ".join(programs)+"]")
     classifier_opts.add_argument('--db_name', metavar="",default=None, help="database directory (fullpath)")
     classifier_opts.add_argument('--params', metavar="", default="",  help="Add extra params to create command (supports kraken*)")
@@ -123,23 +128,16 @@ def main():
         sys.exit(1)
 
     args = parser.parse_args()
-
+    
+    if args.version:
+            print("{name}: version {version}".format(name=__pkgname__,version=__version__))
+            print("Maintaner group: {maintaner} ({email})".format(maintaner=__maintainer__,email=", ".join(__email__)))
+            print("Github: {github}".format(github=__github__))
+            exit()
+    
     if not os.path.exists(args.database):
         raise FileNotFoundError("No database file could be found, please provide a FlexTaxD database to run FlexTaxD!")
 
-    if args.create_db and not args.genomes_path:
-        raise InputError("genomes_path parameter was not given")
-    if args.genomes_path != None and not os.path.exists(args.genomes_path):
-        ans = input("Warning: directory for downloaded genomes does not exist, do you want to create it? (y/n): ")
-        if ans not in ["y","Y","yes", "Yes"]:
-            exit('terminating...')
-        os.makedirs(args.genomes_path)
-
-    if args.version:
-        print("{name}: version {version}".format(name=__pkgname__,version=__version__))
-        print("Maintaner group: {maintaner} ({email})".format(maintaner=__maintainer__,email=", ".join(__email__)))
-        print("Github: {github}".format(github=__github__))
-        exit()
 
     '''Log file and verbose options'''
     logval = args.supress
@@ -170,6 +168,22 @@ def main():
     logger.info("FlexTaxD-create logging initiated!")
     logger.debug("Supported formats: {formats}".format(formats=programs))
 
+    if args.dump_map:
+        logger.info("Dump genome maps")
+        write_module = dynamic_import("modules", "WriteTaxonomy")
+        write_obj = write_module(args.outdir, database=args.database, dump_genome_map=True)
+        write_obj.dump_taxid_map()
+        exit()
+
+    if args.create_db and not (args.genomes_path or args.nt_source):
+        raise InputError("genomes_path parameter was not given")
+    if not args.nt_source:
+        if args.genomes_path != None and not os.path.exists(args.genomes_path):
+            ans = input("Warning: directory for downloaded genomes does not exist, do you want to create it? (y/n): ")
+            if ans not in ["y","Y","yes", "Yes"]:
+                exit('terminating...')
+            os.makedirs(args.genomes_path)
+
     '''Check if temp directory exists, otherwise create directory'''
     if not os.path.exists(args.tmpdir):
         os.makedirs(args.tmpdir)
@@ -179,42 +193,80 @@ def main():
     '''
     if True:  # Export names and nodes in expected format
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
+        lskip = False
         dump_prefix = "names,nodes"
         nameprefix,nodeprefix = dump_prefix.split(",")
         if (os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp")):
-            ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
-            if ans not in ["y","Y","yes", "Yes"]:
+            ans = input("Warning: {names} and/or {nodes} already exists, overwrite, yes/cancel/no? (y/c/n): ")
+            if ans in ["c","C","cancel", "Cancel"]:
                 exit("Dump already exists, abort!")
 
-        '''Create print out object'''
-        write_module = dynamic_import("modules", "WriteTaxonomy")
-        write_obj = write_module(args.tmpdir, database=args.database,prefix=dump_prefix,dbprogram=args.dbprogram)
+            if ans in ["n","N","no","No"]: 
+                lskip = True
+        if not lskip:  #print names and nodes in all cases except no to overwrite
+            '''Create print out object'''
+            write_module = dynamic_import("modules", "WriteTaxonomy")
+            write_obj = write_module(args.tmpdir, database=args.database,prefix=dump_prefix,dbprogram=args.dbprogram,dump_genome_map=True)
+            '''Print database to file'''
+            write_obj.nodes()
+            write_obj.names()
+            write_obj.dump_taxid_map()
 
-        '''Print database to file'''
-        write_obj.nodes()
-        write_obj.names()
-
-    #if args.outdir:
-    #    if not os.path.exists(args.outdir):
-    #        os.system("mkdir -p {outdir}".format(outdir = args.outdir))
+    if args.outdir:
+        if not os.path.exists(args.outdir):
+            os.system("mkdir -p {outdir}".format(outdir = args.outdir))
     skip=False
-    if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)) or os.path.exists("{db_path}/.tmp0.fasta"):
+    if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
         ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
         if ans in ["o", "O"]:
             logger.info("Overwrite current build progress")
             shutil.rmtree("{db_path}".format(db_path=args.db_name))
+        elif ans in ["m", "M"]:
+            logger.info("Merge input fasta with library.fna")
+            cmd = "cat"
+            if args.nt_source:
+                if args.nt_source.endswith(".gz"):
+                    cmd = "zcat"    
+                os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
+            else:
+                exit("No large input file given")
         elif ans.strip() in ["u", "U"]:
             logger.info("Resume database build")
             skip = True
         else:
             exit("Cancel execution!")
+    else:
+        if args.nt_source:
+            #ans = input("Im here: ")
+            cmd = "cp"
+            cmd2 = ""
+            if args.nt_source.endswith(".gz"):
+                cmd = "zcat"
+                cmd2 = " > "
+            #print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
+            #ans = input("Write c to continue")
+            #if ans != "c":
+            #    exit()
+            #os.makedirs("{db_path}/library".format(db_path=args.db_name))
+            #os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
+            genomes=[args.nt_source]
+            args.genomes_path=os.path.dirname(args.nt_source)
+            skip=True
+
+    print(skip)
     ''' 1. Process genome_path directory'''
     if not skip:
         process_directory = dynamic_import("modules", "ProcessDirectory")
         logger.info("Processing files; create kraken seq.map")
-        process_directory_obj = process_directory(args.database)
+        if args.multifile_prefix:
+            process_directory_obj = process_directory(args.database,args.multifile_prefix.split(","))
+        else:
+            process_directory_obj = process_directory(args.database)
         genomes, missing = process_directory_obj.process_folder(args.genomes_path)
-        
+        multifiles =False
+        if args.multifile_prefix:
+            ## Process files including multifiles
+            multifiles = process_directory_obj.get_multifiles() # rescan genomes directory
         while missing: # Experimental implementation: make user wary of missing genomes and force user to enter "no" in prompt to continue with missing genomes.
             ''' 2. Download missing files'''
             # If there are missing genome files, asks the user to attempt a download of these from gtdb
@@ -280,6 +332,7 @@ def main():
         #    write_missing(missing)
 
     ''' 3. Add genomes to database'''
+    print(skip)
     if args.db_name:
         if args.dbprogram.startswith("kraken"):
             logger.info("Loading module: CreateKrakenDatabase")
@@ -299,7 +352,7 @@ def main():
             if args.skip.endswith(".txt"):
                 args.skip = read_skip_file(args.skip)
                 logger.info("File passed to skip, {n} genomes and {x} taxids added to skiplist".format(n=len(args.skip["genome_id"]),x=len(args.skip["tax_id"])))
-        classifierDB = classifier(args.database, args.db_name, genomes,args.tmpdir,
+        classifierDB = classifier(args.database, args.db_name, genomes,args.outdir,
                                         create_db=args.create_db,
                                         limit=limit,
                                         dbprogram=args.dbprogram,
@@ -309,10 +362,13 @@ def main():
                                         build_processes=args.build_processes,
                                         debug=args.debug,
                                         verbose=args.verbose,
+                                        tmpdir=args.tmpdir,
+                                        create_lib=args.create_lib
         )
         report_time(current_time)
         if not skip:
-            classifierDB.create_library_from_files()
+            logger.info("Create library.fna")
+            classifierDB.create_library_from_files(multifiles)
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''

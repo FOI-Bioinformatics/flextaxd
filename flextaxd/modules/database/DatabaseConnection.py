@@ -347,7 +347,11 @@ class DatabaseFunctions(DatabaseConnection):
 			logger.info("AttributeError occured")
 			logger.info(QUERY)
 			logger.info(child_w_dp)
-		raise TreeError("Node: {node} has more than one parent!".format(node=name))
+		except TypeError:
+			logger.info("TypeError occured")
+			logger.info(QUERY)
+			logger.info(child_w_dp)
+		raise TreeError("Following Nodes: {node} has more than one parent!".format(node=child_w_dp))
 
 	'''Get functions of class'''
 	def get_all(self, database=False, table=False,sort=False):
@@ -407,7 +411,7 @@ class DatabaseFunctions(DatabaseConnection):
 			database = self.database
 		return [n[0] for n in self.query(QUERY).fetchall()]
 
-	def get_nodes(self, database=False,col=False):
+	def get_nodes(self, database=False,col=5):
 		'''Retrieve the whole node info table of the database to decrease the number of database calls!
 
 		------
@@ -420,10 +424,10 @@ class DatabaseFunctions(DatabaseConnection):
 		if not database:
 			database = self.database
 		for node in self.query(QUERY).fetchall():
-			nodeDict[node[0]] = node[1]
-			if col == 1:
-				continue
-			nodeDict[node[1]] = node[0]
+			if col == 1 or col == 5:
+				nodeDict[node[0]] = node[1]
+			if col == 2 or col == 5:
+				nodeDict[node[1]] = node[0]
 		return nodeDict
 
 	def get_links(self, nodes=False,database=False,swap=False,only_parents=False,order=False,simple=False):
@@ -617,7 +621,8 @@ class DatabaseFunctions(DatabaseConnection):
 		'''
 		logger.info("Entered ambigious_delete_links")
 		QUERY = "DELETE FROM {table} WHERE parent in ({parents}) AND child in ({children})"
-		logger.info("Attempting delete where parent&child in: "+str(nodes))
+		logger.info("Attempting delete where parent&child in: ")
+		logger.debug( str(nodes))
 		res = self.query(QUERY.format(table='tree', parents=",".join(list(map(str,nodes))), children=",".join(list(map(str,nodes)))))
 		## Commit changes
 		if not hold:
@@ -837,6 +842,21 @@ class ModifyFunctions(DatabaseFunctions):
 			int - node id from node name
 		'''
 		QUERY = '''SELECT id FROM nodes WHERE name = "{node}" COLLATE NOCASE'''.format(node=name)
+		try:
+			res = self.query(QUERY).fetchone()[0]
+		except TypeError:
+			logger.debug(QUERY)
+			raise NameError("Name not found in the database! {name}".format(name=name))
+		return res
+
+	def get_name(self,id):
+		'''get node name from id
+
+		Returns
+		------
+			char - node id from node name
+		'''
+		QUERY = '''SELECT name FROM nodes WHERE id = "{node}" COLLATE NOCASE'''.format(node=id)
 		try:
 			res = self.query(QUERY).fetchone()[0]
 		except TypeError:

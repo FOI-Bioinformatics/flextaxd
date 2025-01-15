@@ -13,7 +13,7 @@ class ProcessDirectory(object):
 		processing an option can allow full reprocess of a input directory
 	"""
 
-	def __init__(self, database,limit=False):
+	def __init__(self, database,multifile_prefix = [], limit=False):
 		super(ProcessDirectory, self).__init__()
 		self.database = DatabaseFunctions(database)
 		self.genome_id_dict = self.database.get_genomes(self.database , limit=limit)
@@ -23,6 +23,12 @@ class ProcessDirectory(object):
 		self.genome_names = []
 		self.genome_path_dict = {}
 		self.files = []
+		if multifile_prefix:
+			self.multifile_prefix = True
+			self.mfiles = set([x.lower() for x in multifile_prefix]) ## make sure to not struggle with capital letters
+		else:
+			self.multifile_prefix = False
+		self.located_mfiles = []
 		#logger.debug(self.genome_id_dict)
 
 	def get_genome_names(self):
@@ -38,6 +44,13 @@ class ProcessDirectory(object):
 			list - genome_path_dicts dictionary of genome_id to location on disk
 		'''
 		return self.genome_path_dict
+
+	def get_multifiles(self):
+		'''
+		Returns
+			list - list of files with multiple genomes
+		'''
+		return self.located_mfiles
 
 	def get_files(self):
 		'''
@@ -161,6 +174,20 @@ class ProcessDirectory(object):
 			logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=fname.strip()))
 		return taxid,fname
 
+	def process_multi_file(self,file,fname,root,taxid=False):
+		'''Parameters
+			str    - name of file
+			str    - path to file location
+		------
+		Returns
+			boolean - true if file was processed
+			'''
+		'''File containing mapped sequences instead of genomes, example nt file or plastid genomes, Observe, annotations must be on sequence not genome id'''
+		filepath = os.path.join(root, file)  ## Save the path to the file
+		self.located_mfiles.append(filepath)
+		return True
+
+
 	def process_file(self,file,fname,root,taxid=False):
 		'''Parameters
 			str    - name of file
@@ -212,9 +239,18 @@ class ProcessDirectory(object):
 				fname = file.rstrip(".gz") ## remove gz if present
 				if fname.endswith(tuple(self.ext)):
 					if count % 1000 == 0:
-						print("Processed {count} genomes".format(count=count), end="\r")
-					if self.process_file(file,fname,root):
-						count +=1
+						print("Processed {count} files/genomes".format(count=count), end="\r")
+					if self.multifile_prefix:
+						if fname.lower().startswith(self.multifile_prefix):
+							print("Processing multifile {mfile}".format(mfile=fname), end="\r")
+							count+=1
+							self.process_multi_file(file,fname,root)
+						else:
+							if self.process_file(file,fname,root):
+								count +=1
+					else:
+						if self.process_file(file,fname,root):
+							count +=1
 				elif file == "MD5SUMS" or file.endswith(".txt"):
 					pass
 				else:

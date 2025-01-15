@@ -21,6 +21,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.length = 0
 		self.ids = 0
 		self.accessionfile = False
+		self.force_multisource = kwargs["force_multisource"]
 
 	def write_missing(self,missing):
 		'''Write missing genomes to file'''
@@ -83,18 +84,45 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.refseqid_to_GCF[refseqid] = genebankid
 		return
 
+	def parse_nt_file(self,filepath,filename):
+		'''Parse large file with all nt entries'''
+		logger.info("Processing {file}".format(file=filename))
+		with zopen(filepath,"r") as f:
+			for row in f:
+				if row.startswith(b">"):
+					seqid = row.split(b" ")[0].lstrip(b">")
+					self.refseqid_to_GCF[seqid] = seqid.decode("utf-8")
+					#self.database.add_genome(genome=seqid,_id=taxid.decode("utf-8"),reference="nt")
+		return
+
 	def parse_genomeid2taxid(self, genomes_path,annotation_file,reference="refseq"):
 		'''To allow NCBI databases to be build from scratch the sequences names needs to be stored in the database,
 			this function parses the accession2taxid file from NCBI to speed up the function and reduce the amount
 			of stored datata only sequences in input genomes_path will be fetched
 		'''
+		file_endings = (".fna",".fa",".fasta")
 		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path))
 		self.refseqid_to_GCF = {}
 		for root, dirs, files in os.walk(genomes_path,followlinks=True):
 			for filename in files:
-				if filename.strip(".gz").endswith(".fna"):
+				if filename.strip(".gz").endswith(file_endings):
 					filepath = os.path.join(root, filename)
-					self.parse_genebank_file(filepath,filename)
+					if filename.startswith("GC") and filename.rstrip(".gz").endswith(".fna"):
+						self.parse_genebank_file(filepath,filename)
+					elif filename.startswith("nt") or self.force_multisource:
+						if self.force_multisource:
+							self.parse_nt_file(filepath,filename)
+						else:
+							reference="nt" 
+							if filename.endswith(".gz"): 
+								compressed=True 
+							else: 
+								compressed=False
+							stats = os.stat(filepath)
+							logger.info("Parsing nt archive, filesize: {filesize}Mb, compressed: {compressed}".format(compressed=compressed,filesize=(stats.st_size / (1024 * 1024))))
+							self.parse_nt_file(filepath,filename)
+					else:
+						self.parse_genebank_file(filepath,filename)
 		logger.info("genomes folder read, {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")

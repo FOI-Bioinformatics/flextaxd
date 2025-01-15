@@ -20,7 +20,7 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.4.4"
+__version__ = "0.4.4_dev"
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -121,6 +121,8 @@ def main():
     mod_opts.add_argument('-md', '--mod_database', '--mod_db', metavar="",default=False,            help="Database file containing modifications")
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
+    mod_opts.add_argument('--force_multisource',  action='store_true', default=False,   help='Inputfiles contains multiple sources')
+    
     #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
     mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
     mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
@@ -316,7 +318,7 @@ def main():
             '''Load taxonomy module'''
             logger.info("Loading module: ReadTaxonomy{type}".format(type=args.taxonomy_type))
             read_module = dynamic_import("modules", "ReadTaxonomy{type}".format(type=args.taxonomy_type))
-            read_obj = read_module(args.taxonomy_file, database=args.database,skip_annotation=args.skip_annotation)
+            read_obj = read_module(args.taxonomy_file, database=args.database,skip_annotation=args.skip_annotation,force_multisource=args.force_multisource)
             logger.info("Parse taxonomy")
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 
@@ -340,7 +342,7 @@ def main():
             logger.critical("No genomeid2taxid file given!")
         logger.info("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,taxid_base=args.taxid_base)
+        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
         modify_obj.update_database()
         if args.mod_file:
             current_time = report_time(current_time)

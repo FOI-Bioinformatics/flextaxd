@@ -38,20 +38,27 @@ def zopen(path,*args, **kwargs):
 
 class CreateKrakenDatabase(object):
 	"""docstring for CreateKrakenDatabase."""
-	def __init__(self, database, kraken_database, genome_names, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip="",create_db=False,debug=False,build_processes=None):
+	def __init__(self, database, kraken_database, genome_names, outdir,verbose=False,processes=1,limit=0,dbprogram="kraken2",params="",skip="",create_db=False,debug=False,build_processes=None,**kwargs):
 		super(CreateKrakenDatabase, self).__init__()
 		self.krakenversion = dbprogram
 		self.database = DatabaseFunctions(database)
 		if outdir == "":
 			outdir = "./"
+		if not os.path.exists(outdir):
+			os.makedirs(outdir)
 		self.outdir = outdir
+		try:
+			self.tmpdir = kwargs["tmpdir"]
+		except:
+			self.tmpdir = outdir
 		self.seqid2taxid = self.outdir+"/seqid2taxid.map"
-		if os.path.exists(self.outdir+"/seqid2taxid.map"): open(self.seqid2taxid,"w").close() ## clean existing map if file exists
+		logger.info("seqid2taxid file:{tfile}".format(tfile=self.seqid2taxid))
+		print(genome_names)
 		if genome_names:
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
 		else:
-			logger.error("Genome names are missing. Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
+			logger.warning("Genome names are missing.") # Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params
@@ -61,6 +68,7 @@ class CreateKrakenDatabase(object):
 		else:
 			self.build_processes = build_processes
 		self.krakendb= kraken_database
+		self.create_lib = kwargs["create_lib"]
 		self.verbose = verbose
 		self.create_db = create_db
 		self.limit = limit
@@ -71,7 +79,9 @@ class CreateKrakenDatabase(object):
 		self.seqhead_count = 0
 		self.skiptax = set()
 		self.skipfiles = set()
+		self.skip = False
 		if skip:
+			self.skip = True
 			if type(skip) == type(dict()):
 				self.skipfiles = skip["genome_id"]
 
@@ -122,9 +132,11 @@ class CreateKrakenDatabase(object):
 		'''Change fasta file to contain kraken fasta header'''
 		count = 0
 		batchint = random.randint(10**3,10**7)
-		tmpbatch = "{db_path}/library/batch_{rand}.fasta".format(db_path=self.krakendb,rand=batchint)
-		check_output("touch {tmpfile}".format(tmpfile=tmpbatch),shell=True)
-		tmplog = "{outdir}/{rand}.log".format(outdir=self.outdir.rstrip("/"),rand=batchint)
+		tmpbatch = False
+		if self.create_db or self.create_lib: 
+			tmpbatch = "{tmpdir}/library/batch_{rand}.fasta".format(tmpdir=self.tmpdir,rand=batchint)
+			check_output("touch {tmpfile}".format(tmpfile=tmpbatch),shell=True)
+			tmplog = "{tmpdir}/{rand}.log".format(tmpdir=self.tmpdir.rstrip("/"),rand=batchint)
 		for i in range(len(genomes)):
 			genome = genomes[i]
 			if len(set([genome]) & self.skipfiles) > 0: ## Skip file if in skipfiles
@@ -134,7 +146,7 @@ class CreateKrakenDatabase(object):
 			filepath = self.genome_path[genome]
 			kraken_header = "kraken:taxid"
 			tmpname = ".tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
-			tmppath = "{outdir}/{tmppath}".format(outdir=self.outdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")
+			tmppath = "{tmpdir}/{tmppath}".format(tmpdir=self.tmpdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")
 
 			'''Get taxid from database'''
 			try:
@@ -149,15 +161,20 @@ class CreateKrakenDatabase(object):
 					logger.debug("#Warning kraken header could not be added to {genome}! Total: {count}".format(genome=genome,count=count))
 
 					continue
-			if self.create_db:
+			if not self.skip:
 				if len(set([taxid]) & self.skiptax) == 0:
 					'''Open temp file for manipulated (unzipped) genome fasta files'''
-					tmpfile = zopen(tmppath,"w")
+					if not self.skip: ## Only required if kraken map is required (can be printed from db)
+						tmpfile = zopen(tmppath,"w")
 					taxidlines = []  ## Holder for sequences to be added to the seqid2taxid map from each file
+					seq2taxidlines = []
+					seq2taxmap = False
 					'''Open input genome fasta file'''
-					with zopen(filepath,"r") as f:
-						try:
-							for line in f:
+					
+				with zopen(filepath,"r") as f:
+					try:
+						for line in f:
+							if self.create_db or self.create_lib:
 								if line.startswith(">"):
 									taxidmap = []
 									row = line.strip().split(" ")
@@ -185,37 +202,49 @@ class CreateKrakenDatabase(object):
 									'''Format seqid2taxid map'''
 									if not self.krakenversion == "kraken2":
 										taxidmap = [row[0].lstrip(">"), str(taxid), endhead]
+									elif self.krakenversion and not self.create_db:
+										taxidmap= ["TAXID", row[0].lstrip(">"), str(taxid)]
+										seq2taxmap = [row[0].lstrip(">"), str(taxid)]
 									else:
 										taxidmap= ["TAXID", row[0].lstrip(">") + "|" + kraken_header + "|" + str(taxid), str(taxid)]
 									'''Add taxid to map'''
 									if taxidmap[0] != "" and taxid: ## print chromosome name to seqtoid map
 										taxidlines.append("\t".join(taxidmap)) ## print chromosome name to seqtoid map
+										if seq2taxmap: seq2taxidlines.append("\t".join(seq2taxmap))
 									'''Don´t include empty lines'''
+							if not self.skip: ## Only required if kraken map is required (can be printed from db)
 								print(line, end="", file=tmpfile)
-						except BadGzipFile as e:
-							logger.warning("Could not process {output}, not a valid gzip file".format(output=genome))
-						except EOFError as e:
-							logger.warning("Compressed file ended before the end-of-stream marker was reached {output}".format(output=genome))
-					tmpfile.close()  ## Close and save tmp file
-					with open(self.seqid2taxid, "a") as seqidtotaxid:
+					except BadGzipFile as e:
+						logger.warning("Could not process {output}, not a valid gzip file".format(output=genome))
+					except EOFError as e:
+						logger.warning("Compressed file ended before the end-of-stream marker was reached {output}".format(output=genome))
+					
+					with open("{outdir}/prelim_map.txt".format(outdir=self.tmpdir.rstrip("/")), "a") as seqidtotaxid:  ## Add annotation to taxid map
 						for taxidline in taxidlines:
 							print(taxidline.strip('\n'),end="\n",file=seqidtotaxid)
-
-					output = self.krakendb.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
-					os.rename(tmppath, output)
-					try:
-						#ans = check_output(self.krakenversion+"-build --add-to-library {file} --skip-maps --db {krakendb}  > /dev/null 2>&1 ".format(file=output,krakendb=self.krakendb),shell=True)
-						check_output("cat {output} >> {tmpbatch}".format(output=output,tmpbatch=tmpbatch),shell=True)
-						added.put(1)
-					except CalledProcessError as e:
-						logger.debug("Could not process {output}, the following error occured:\n{e}".format(output=output,e=e))
-					finally:
-						os.remove(output)
+					if seq2taxmap: 
+						with open(self.seqid2taxid, "a") as seqidtotaxid:  ## Add annotation to taxid map
+							for taxidline in seq2taxidlines:
+								print(taxidline.strip('\n'),end="\n",file=seqidtotaxid)
+					tmpfile.close()  ## Close and save tmp file
+					if self.create_db or self.create_lib:
+						output = self.tmpdir.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
+						os.rename(tmppath, output)
+						try:
+							#ans = check_output(self.krakenversion+"-build --add-to-library {file} --skip-maps --db {krakendb}  > /dev/null 2>&1 ".format(file=output,krakendb=self.krakendb),shell=True)
+							check_output("cat {output} >> {tmpbatch}".format(output=output,tmpbatch=tmpbatch),shell=True)
+							added.put(1)
+						except CalledProcessError as e:
+							logger.debug("Could not process {output}, the following error occured:\n{e}".format(output=output,e=e))
+						finally:
+							os.remove(output)
+					else:
+						os.remove(tmppath)
 		'''Validate file'''
 		if self.debug:
 			if len(self.seqhead_validator.keys()) != self.seqhead_count:
 				logger.warning("Sequence headers are not unique added: {added} unique: {nunique}".format(nunique=len(self.seqhead_validator.keys()), added=self.seqhead_count))
-				tmpdebug = "{db_path}/library/batch_{rand}.debug".format(db_path=self.krakendb,rand=batchint)
+				tmpdebug = "{tmpdir}/library/batch_{rand}.debug".format(db_path=self.krakendb, tmpdir=self.tmpdir,rand=batchint)
 				with open(tmpdebug, "w") as debugwrite:
 					for seq_header in self.seqhead_validator.keys():
 						print("\t".join(self.seqhead_validator[seq_header]),end="\n",file=debugwrite)
@@ -233,8 +262,10 @@ class CreateKrakenDatabase(object):
 			skiptax |= self.taxonomydb.get_children()
 		return skiptax
 
-	def create_library_from_files(self):
+	def create_library_from_files(self,multifiles=False):
 		'''Create library for kraken and create kraken genome2taxid map'''
+		logger.info("Process datafiles and create library.fna")
+		if os.path.exists(self.outdir+"/seqid2taxid.map"): open(self.seqid2taxid,"w").close() ## clean existing map if file exists
 		if self.limit:
 			logger.info("Test use only {n} genomes".format(n=self.limit))
 			self.genome_names = self.genome_names[0:self.limit]
@@ -242,11 +273,25 @@ class CreateKrakenDatabase(object):
 		if not os.path.exists("{db_path}/library/".format(db_path=self.krakendb)):
 			logger.info("Create library directory")
 			os.mkdir("{db_path}/library/".format(db_path=self.krakendb))
+		if not os.path.exists("{tmpdir}/library/".format(tmpdir=self.tmpdir)):
+			logger.info("Create library directory")
+			os.mkdir("{tmpdir}/library/".format(tmpdir=self.tmpdir))
 		self.kraken_fasta_header_multiproc(self.genome_names_split)
 		'''Merge library files into one library'''
-		check_output("cat {db_path}/library/batch*.fasta > {db_path}/library/library.fna".format(db_path=self.krakendb),shell=True)
-		check_output("rm {db_path}/library/batch*.fasta".format(db_path=self.krakendb),shell=True)
-		logger.info("Number of genomes succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
+		if self.create_db or self.create_lib: ## Only required if kraken map is required (can be printed from db)
+			check_output("cat {tmpdir}/library/batch*.fasta > {db_path}/library/library.fna".format(db_path=self.krakendb, tmpdir=self.tmpdir),shell=True)
+			check_output("rm {tmpdir}/library/batch*.fasta".format(db_path=self.krakendb, tmpdir=self.tmpdir),shell=True)
+		if multifiles:
+			logger.info("Adding sequences from multifiles to library")
+			cmd = "cat"
+			for mfile in multifiles:
+				logger.info("Processing {mfile}".format(mfile=mfile))
+				if mfile.endswith(".gz"):
+					cmd = "z"+cmd
+				logger.debug("{cmd} {file} >> {db_path}/library/library.fna".format(cmd=cmd,file=mfile,db_path=self.krakendb))
+				os.system("{cmd} {file} >> {db_path}/library/library.fna".format(cmd=cmd,file=mfile,db_path=self.krakendb))
+
+		logger.info("Number of genomes (multifiles not counted) succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
 		return
 
 	def create_database(self,outdir,keep=False):
@@ -262,8 +307,15 @@ class CreateKrakenDatabase(object):
 			os.system("cp {outdir}/*.map {krakendb}/library/prelim.map".format(outdir=outdir,krakendb=self.krakendb))
 			logger.info("cp {outdir}/*.map {krakendb}/library/prelim.map".format(outdir=outdir,krakendb=self.krakendb))
 		elif self.krakenversion == "kraken2":
-			os.system("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
-			logger.info("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+			if not os.path.exists("{krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb)):
+				if os.path.exists("{outdir}/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb)):
+					os.system("cp {outdir}/prelim_map.txt {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+					logger.info("cp {outdir}/prelim_map.txt {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+				else:
+					os.system("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+					logger.info("cp {outdir}/*.map {krakendb}/library/prelim_map.txt".format(outdir=outdir,krakendb=self.krakendb))
+			else:
+				logger.info("prelim_map.txt exists, continue.")
 		else:
 			os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 			logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))

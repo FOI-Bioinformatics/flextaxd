@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class WriteTaxonomy(object):
 	"""docstring for WriteTaxonomy."""
-	def __init__(self, path, database=".taxonomydb",separator="\t|\t",minimal=False,prefix="names,nodes",desc=False,dbprogram=None,dump_genomes=False):
+	def __init__(self, path, database=".taxonomydb",separator="\t|\t",minimal=False,prefix="names,nodes",desc=False,dbprogram=None,dump_genomes=False,**kwargs):
 		super(WriteTaxonomy, self).__init__()
 		self.database = DatabaseFunctions(database)
 		logging.debug("Write settings: ")
@@ -38,6 +38,16 @@ class WriteTaxonomy(object):
 		if self.dbprogram: logging.debug("Output format for program {program}".format(program=self.dbprogram))
 		self.link_order = False ## Default print is NCBI structure with child in the first column
 		logging.debug("NCBI structure (child first): {parent}".format(parent=self.link_order))
+
+	def dump_taxid_map(self):
+		logging.info("Dump taxid maps")
+		with open('{}{}.map'.format(self.path,"seqid2taxid"),"w") as outputfile,open('{}{}.txt'.format(self.path,"prelim_map"),"w") as prelim:
+			genomes = self.get_all('genomes', 'genome,id')
+			for genome in genomes:
+				print(*genome, sep="\t", end="\n", file=outputfile)
+				genome=tuple(["TAXID"]) + genome
+				print(*genome, sep="\t", end="\n", file=prelim)
+		return
 
 	def dump_genomes(self):
 		'''Write the list of annotated genomes to a file'''

@@ -62,7 +62,6 @@ class ModifyTree(object):
 		self.sep = separator
 		self.taxonomy = {}
 		self.names = {}
-
 		self.keep_rank = {} ## Place holder for parent rank
 
 		self.parent=parent
@@ -78,6 +77,13 @@ class ModifyTree(object):
 		## Save all nodes in the current database
 		self.nodeDict = self.taxonomydb.get_nodes()
 		self.clean = clean_database
+		self.taxonomy_type = False
+		self.do_not_delete_old = set()
+		try:
+			if kwargs["taxonomy_type"] != "NCBI":  ## If taxonomy type in merge database is set to NCBI, keep ranks also above 9, default no.
+				self.taxonomy_type = True
+		except:
+			pass
 		if not self.clean:
 			self.taxid_base = self.taxonomydb.get_taxid_base()
 
@@ -90,8 +96,10 @@ class ModifyTree(object):
 			if not os.path.exists(mod_database):
 				raise FileNotFoundError("The modification database was not found {path}".format(path=mod_database))
 			self.moddb = ModifyFunctions(mod_database,verbose=verbose)
+			self.identical_nodes = set(self.taxonomydb.get_nodes(col=2).keys()) & set(self.moddb.get_nodes(col=2).keys())
 			self.dbmod_annotation = self.moddb.get_nodes(col=1)
 			self.modsource = self.parse_modification(self.moddb,"database")
+			
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
 		elif update_genomes or clean_database or update_node_names or rename_node or purge_database:
@@ -145,37 +153,78 @@ class ModifyTree(object):
 		#print(rank,rank_i)
 		return rank_i
 
-	def get_id(self, desc):
+	def get_id(self, desc,ret=False,parent=False):
 		'''Check if node exists if so return id, if not create a new node and return id'''
 		try:
 			## Check if parent node exists
 			i = self.nodeDict[desc]
-			return i
+			if False: #desc == "Centipeda":
+				print("taxonomydb parent {p}, {desc}".format(p=self.taxonomydb.get_parent(self.taxonomydb.get_id(desc)),desc=desc))
+				print("moddb parent {p}, {i}".format(p=self.moddb.get_parent(self.moddb.get_id(desc)),i=i))
+				print(self.taxonomydb.get_name(self.taxonomydb.get_parent(self.taxonomydb.get_id(desc))[0]))
+				print(self.moddb.get_name(self.moddb.get_parent(self.moddb.get_id(desc))[0]))
+			'''Due to identical names in different groups the parent of node always have to be checked (if seeming nessesary)'''
+			'''This part of the code checks if the parent of the node ID is identical when existing, if not have to get unique ID'''
+			#logger.info("Parent node already exists, check if duplicated entry, if so add _ to incoming node to allow separation {desc}".format(desc))
+			#print(self.identical_nodes)
+			#print(set([desc]))
+			#print(set([desc]) & self.identical_nodes)
+			if len(set([desc]) & self.identical_nodes) > 0 and parent:
+				try:
+					if self.taxonomydb.get_name(self.taxonomydb.get_parent(self.taxonomydb.get_id(desc))[0]) != self.moddb.get_name(self.moddb.get_parent(self.moddb.get_id(desc))[0]):
+						#print("Old: ",desc, i)
+						_i = i
+						self.do_not_delete_old.add(i)
+						desc += "_"
+						try:
+							i = self.nodeDict[desc]
+						except KeyError:
+							i = self.add_node(desc)
+							logger.info("Identical nodes, add _ to make them unique: {Name}, new_taxid: {taxid}, dupid: {dupid}".format(Name=desc, taxid=i, dupid=_i))
+							self.nodeDict[desc] = i
+
+				except TypeError:
+					i = self.add_node(desc)
+					self.nodeDict[desc] = i
+
 		except KeyError:
-			'''Node does not exist, add node to the database'''
-			i = self.add_node(desc)
-			self.nodeDict[desc] = i
+			#check if duplicate
+			try:
+				i = self.nodeDict[desc+"_"]
+			except KeyError:
+				'''Node does not exist, add node to the database'''
+				i = self.add_node(desc)
+				self.nodeDict[desc] = i
+		if ret:
+			return i,desc
+		else:
 			return i
+			
 
 	def _parse_new_links(self, parent=None,child=None,rank="no rank"):
 		'''Help function for parse_mod_file, gets existing node id or adds new node'''
 		## add new nodes
 		if not child and parent:
 			raise InputError("links requires both child and parent!")
-		parent_i = self.get_id(parent)
+		parent_i,parent = self.get_id(parent,ret=True)
 		self.new_nodes.add(parent_i)
-		child_i = self.get_id(child)
+		child_i,child = self.get_id(child,ret=True,parent=True)
 		self.new_nodes.add(child_i)
 		'''If node has no level (no rank), check if parent database had a classified level. If so default add level'''
 		try:
 			level = self.parent_levels[int(child_i)]
-			logger.info("Rank kept for {node}, {rank}".format(node=child, rank=level))
+			if True: #not self.taxonomy_type and level > 0: ## Higher ranks suggest wrong group (only 8 levels in bacteria), then skip
+				level = False
+			else:
+				logger.info("Rank kept for {node}, {rank}".format(node=child, rank=level))
 		except:
 			level = False
 		if not level:
 			rank_i = self.add_rank(rank)
 		else:
 			rank_i = level
+		#if parent == "CANJSG01" or parent == "Centipeda" or parent == "Selenomonadaceae":
+		#	print("{parent}, {child}, {rank}, {parent_i}, {child_i},{rank_i}".format(parent=parent,child=child,rank=rank, parent_i=parent_i,child_i=child_i,rank_i=rank_i))
 		self.new_links.add((parent_i,child_i,rank_i))
 		return
 
@@ -200,10 +249,14 @@ class ModifyTree(object):
 			else:
 				try:
 					parent,child,rank = self.dbmod_annotation[link[0]].strip(),self.dbmod_annotation[link[1]].strip(),self.dbmod_rank[link[2]]
+					if parent == "Centipeda":
+						logger.debug("New link: [{p}, {c}, {r}], {link}".format(p=parent,c=child,r=rank,link=link))
+					if child == "Centipeda":
+						logger.debug("New link: [{p}, {c}, {r}], {link}".format(p=parent,c=child,r=rank,link=link))
 					logger.debug("New link: [{p}, {c}, {r}]".format(p=parent,c=child,r=rank))
 					self._parse_new_links(parent=parent,child=child,rank=rank)
 
-				except:
+				except FileNotFoundError:
 					logger.warning("Warning something is wrong! Check debug option")
 					logger.debug(self.dbmod_annotation)
 					logger.debug(self.dbmod_annotation[link[0]])
@@ -282,16 +335,19 @@ class ModifyTree(object):
 		else:
 			raise InputError("Wrong modification input database or file must be supplied")
 		### get links from current database
-		self.old_nodes = self.existing_nodes - self.new_nodes
+		logger.info("Old links keep from duplicated taxonomy nodes {nodes}".format(nodes=self.do_not_delete_old))
+		self.old_nodes = self.existing_nodes - (self.new_nodes)
 		logger.info("nodes:")
 		logger.info("old: {old}".format(old=len(self.old_nodes)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))
 		logger.info("ovl: {ovl}".format(ovl=len(self.existing_nodes & self.new_nodes)))
-		if self.replace and len(self.existing_nodes) > 0:  ## remove nodes connected to old nodes that is not replaced
+		if self.replace and len(self.existing_nodes) > 0:  ## remove nodes connected to old nodes that are not replaced
 			if len((self.existing_nodes & self.new_nodes)) > 0:
 				self.non_overlapping_old_links = set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes) - set([self.taxonomydb.get_id(self.parent)])))  ## Remove all links related to new nodes
-
-		self.overlapping_links = self.existing_links & self.new_links ## (links existing in both networks)
+				#logger.info("Existing nodes: {enodes}, New nodes: {nnodes}, Old nodes: {onodes}".format(enodes=len(self.existing_nodes),nnodes=len(self.new_nodes), onodes=len(self.old_nodes)))
+				#logger.info("Existing nodes: {enodes}, Old nodes: {onodes}".format(enodes=self.existing_nodes, onodes=self.old_nodes))
+				#logger.info("save links: {fill}".format(fill=self.non_overlapping_old_links))
+		self.overlapping_links = self.existing_links & self.new_links## (links existing in both networks)
 		self.old_links = self.existing_links - self.new_links
 		logger.info("links:")
 		logger.info("old: {old}".format(old=len(self.old_links)))
@@ -502,22 +558,44 @@ class ModifyTree(object):
 		if not type(genomes_list) == set:
 			genomes_list = set(genomes_list) # Convert input list to hashmap for lookup speed
 		if genomes_list:
-			print('Have '+str(len(genomes_list))+' missing genomes, looking them up in the database...')
+			logger.info('Have '+str(len(genomes_list))+' missing genomes, looking them up in the database...')
 			# Get nodes and genomes from database
 			logger.info('Fetching id,genome from database')
 			genomes_nodes = self.taxonomydb.get_genomes(table='genomes',cols='id,genome') # get_gnomes returns dict of "genome"->"id"
+			#print(next(iter(genomes_nodes)) )
 			#/
 			# Determine which nodes to keep (We have to do it this way. If using GTDB, one node ID may carry multiple genomes. Thus we must decide which nodes to keep as opposed which to delete.
 			nodes_keep = set()
-			for genome,node in genomes_nodes.items():
-				if not genome in genomes_list:
-					nodes_keep.add(node)
-			#/
-			# Determine which nodes to delete (leaf-nodes [e.g. those that can hold a genome] in database) minus those that we decided to keep
-			nodes_delete = set(genomes_nodes.values()).difference(nodes_keep)
+			#/ Speed implementation of match function, reverse dictionary, use union on keys vs genomes, fetch nodes that belong to genomes @Davod
+
+			#genomes_nodes = self.taxonomydb.get_genomes(table='genomes',cols='genome,id')
+			#print(next(iter(genomes_nodes)) )
+			if True:
+				remove_genome_keys = set(genomes_nodes) - genomes_list## Genomes missing and in database
+
+			num_rows_before = self.taxonomydb.num_rows('genomes')
+			self.taxonomydb.delete_genomes(nodes_keep,genomes=genomes_list,match_genome_only=True)
+
 			
+			self.clean_database(ncbi=True)
+			num_rows_after = self.taxonomydb.num_rows('genomes')
+			num_rows_deleted = num_rows_before - num_rows_after
+			logger.info('Removed '+str(num_rows_deleted)+' node genomes')
+			#print(list(nodes_keep)[1])
+			# Replaced function
+			#for genome,node in genomes_nodes.items():
+			#	if not genome in genomes_list:  ## if not in missing
+			#		nodes_keep.add(node)
+			#/
+
+			#/ End speed implementation
+
+			return
+			# Determine which nodes to delete (leaf-nodes [e.g. those that can hold a genome] in database) minus those that we decided to keep
+			nodes_delete = set(genomes_nodes.values()).difference(nodes_keep3)
+
 			logger.info('Number of genome-nodes from table "genomes": '+str(len(genomes_nodes)))
-			logger.info('Number of genome-nodes to keep: '+str(len(nodes_keep)))
+			logger.info('Number of genome-nodes to keep: '+str(len(nodes_keep3)))
 			logger.info('Number of genome-nodes to delete: '+str(len(nodes_delete)))
 			#/
 			# Get parents for leaf-nodes (to-keep and to-delete). Determine which parents are delete-only
@@ -539,17 +617,19 @@ class ModifyTree(object):
 			#@ delete nodes from table GENOMES
 			logger.info("Attempting delete of nodes in table 'genomes'")
 			num_rows_before = self.taxonomydb.num_rows('genomes')
-			self.taxonomydb.delete_genomes(parents_deleteOnly,genomes=list(genomes_nodes))
+			self.taxonomydb.delete_genomes(parents_deleteOnly,genomes=list(remove_genome_keys),match_genome_only=True)
 			num_rows_after = self.taxonomydb.num_rows('genomes')
 			num_rows_deleted = num_rows_before - num_rows_after
-			print('Removed '+str(num_rows_deleted)+' node genomes')
+			logger.info('Removed '+str(num_rows_deleted)+' node genomes')
+
+
 			if num_rows_deleted != len(genomes_list) and not force_genome_delete:
-				print('WARNING: Some nodes were not removed as they did not have exclusive nodes in the tree. This occurs for instance when building from GTDB taxonomy (that has taxonomy for their full database) but downloading only their representative set of genomes')
-				print('To force the removal of these genomes, apply the flag --purge_database_force')
+				logger.warning('WARNING: Some nodes were not removed as they did not have exclusive nodes in the tree. This occurs for instance when building from GTDB taxonomy (that has taxonomy for their full database) but downloading only their representative set of genomes')
+				logger.warning('To force the removal of these genomes, apply the flag --purge_database_force')
 			if force_genome_delete: # if force delete specified, then remove all missing genomes
-				logger.info("Force-deleting missing genomes from table 'genomes' N="+str(len(genomes_list)))
-				self.taxonomydb.delete_genomes('',genomes=genomes_list,match_genome_only=True)
-				print('Removed '+str(len(genomes_list)-num_rows_deleted)+' genomes by force')
+				logger.info("Force-deleting missing genomes from table 'genomes' N="+str(len(remove_genome_keys)))
+				self.taxonomydb.delete_genomes('',genomes=remove_genome_keys,match_genome_only=True)
+				logger.info('Removed '+str(len(genomes_list)-num_rows_deleted)+' genomes by force')
 			#/
 
 	def keep_levels(self, links):
