@@ -253,7 +253,6 @@ def main():
             args.genomes_path=os.path.dirname(args.nt_source)
             skip=True
 
-    print(skip)
     ''' 1. Process genome_path directory'''
     if not skip:
         process_directory = dynamic_import("modules", "ProcessDirectory")
@@ -332,7 +331,6 @@ def main():
         #    write_missing(missing)
 
     ''' 3. Add genomes to database'''
-    print(skip)
     if args.db_name:
         if args.dbprogram.startswith("kraken"):
             logger.info("Loading module: CreateKrakenDatabase")
