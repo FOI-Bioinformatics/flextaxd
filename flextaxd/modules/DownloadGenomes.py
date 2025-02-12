@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 from modules.functions import download_genomes
 from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,STDOUT
+import subprocess
+import sys
 import os,time,zipfile,re,shutil
 
 class DownloadGenomes(object):
@@ -191,39 +193,116 @@ class DownloadGenomes(object):
         logger.info('Writing missing genomes, N='+str(len(genomes_list)))
         self.write_missing(genomes_list)
         ##/
-        ## Compile CMD
-        ncbi_datasets_cmd = ['datasets','download','genome','accession',
-                            '--inputfile',self.outdir+'/'+'FlexTaxD.missing',
-                            '--filename',self.outdir+'/'+'ncbi_download.zip']
-        logger.info('Attempting download using NCBI datasets software')
-        try:
-            ncbi_datasets_process = Popen(ncbi_datasets_cmd,stdout=PIPE,stderr=STDOUT)
-            while ncbi_datasets_process.poll() is None:
-                line_raw = ncbi_datasets_process.stdout.readline() # bufsize?
-                line = line_raw.decode()
-                line = line.strip('\n')
-                if not line: continue
-            
-                # write status update lines with carriage return
-                if line.startswith('Downloading') or (line.find('Collecting') != -1 and line.find('records') != -1):
-                    print('[NCBI-DATASETS] ' + line)
-                else:
-                    print('[NCBI-DATASETS] ' + line)
-        except:
-            print('Failed to download from NCBI using "datasets"-software. You can try to run the command manually:')
-            print(' '.join(ncbi_datasets_cmd))
-            logger.info('NCBI datasets download failed!')
-            logger.info('CMD: '+' '.join(ncbi_datasets_cmd))
-            exit('Terminated.')
-        ##/
         
-        ## Unpack NCBI ZIP
-        logger.info('Attempting to unzip NCBI zip-file')
-        with zipfile.ZipFile(self.outdir+'/'+'ncbi_download.zip','r') as zip_fo:
-            zip_fo.extractall(self.outdir+'/'+'ncbi_download')
+        ### Download genome fastas
+        ## Download function
+        def ncbi_downloader(ncbi_datasets_cmd):
+            #
+            # This function passes an input command to NCBI datasets through Popen and parses its outout in a "clean" way
+            #
             
-        logger.info('Unpacking genomes')
-        for path,dirnames,filenames in os.walk(self.outdir+'/'+'ncbi_download'):
+            prev_write_timestamp = None
+            collection_lines_tracker = set() # store linewrites of "Collecting X records..." it overwrites the download progress update
+            rows_100_perc_written = set()
+            try:
+                # print execution start
+                print('[NCBI-DATASETS] started',flush=True)
+                #/
+                ncbi_datasets_process = subprocess.Popen(ncbi_datasets_cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+                while ncbi_datasets_process.poll() is None:
+                    line_raw = ncbi_datasets_process.stdout.readline() # bufsize?
+                    line = line_raw.decode()
+                    line = line.strip('\n')
+                    if not line: continue
+                    
+                    # write status update lines
+                    timenow = int(time.time())
+                    if ((prev_write_timestamp == None) or (timenow - prev_write_timestamp >= 5) or (line.find('100%') != -1)) and not timenow == prev_write_timestamp and not line in collection_lines_tracker: #only print once every X:th second (log gets clogged otherwise) but allow "finish/100%"-line
+                        # update print-timestamp and written line
+                        prev_write_timestamp = timenow
+                        
+                        if line.find('Collecting') != -1 and line.find('records') != -1:
+                            collection_lines_tracker.add(line)
+                        #/
+                        # check if "finish/100%"-line and if it was already printed
+                        if line.find('100%') != -1:
+                            # try to remove any ANSI-code that tells the cursor to move up "[2K"
+                            try:
+                                if line.find('[2K') != -1:
+                                    line=line.split('[2K')[1]
+                            except:
+                                pass
+                            #/
+                            if line in rows_100_perc_written: continue # skip if already printed
+                            rows_100_perc_written.add(line) # add to memory so it is not printed again
+                        #/
+                        if line.find('Downloading:') != -1 or (line.find('Collecting') != -1 and line.find('records') != -1):
+                            print('\r[NCBI-DATASETS] ' + line + '              ',flush=True,end='') # write a couple of whitespaces to clear out a previous print
+                            pass # I was going to do something else here. For now, all lines are printed
+                        else:
+                            print('[NCBI-DATASETS] ' + line,flush=True,end='\n\n')
+                    #/
+                    # Check if line contains error-information, then print the line
+                    if line.startswith('Error'):
+                        print('[NCBI-DATASETS] ' + line)
+                    #/
+                ## print final/flush
+                # wait for process signal and check if it terminated correctly
+                return_code = ncbi_datasets_process.wait()
+                if not return_code == 0:
+                    # If have errors, then print them
+                    print()
+                    print('FATAL: NCBI datasets terminated unexpectedly with the following code:')
+                    print(return_code)
+                    print('Please report to a maintainer or try again. Terminating!')
+                    sys.exit()
+                    #/
+                else:
+                    # If no errors, print final
+                    print()
+                    print('[NCBI-DATASETS]',flush=True)# add a dummy-print. otherwise then sometimes the first character from below print is removed. probably residues from ncbi-datasets-line-parser (which shifts cursor position)
+                    print('[NCBI-DATASETS] finished',flush=True)
+                    #/
+                #/
+                ###/
+            except:
+                print('Failed to download from NCBI using "datasets"-software. You can try to run the command manually:')
+                print(' '.join(ncbi_datasets_cmd))
+                sys.exit()
+        ##/
+        logger.info('Running NCBI-DATASETS software (download genomes)')
+        
+        # Download dehydrated zip
+        logger.info('Downloading dehydrated dataset from NCBI...')
+        ncbi_datasets_cmd = ['datasets','download','genome','accession',
+                             '--dehydrated',
+                             '--inputfile',self.outdir+'/'+'FlexTaxD.missing',
+                             '--filename',self.outdir+'/'+'ncbi_download.zip']
+        
+        ncbi_downloader(ncbi_datasets_cmd)
+        #/
+        # unpack zip (remove previous unpack if it exists so it does not conflict with the current ont)
+        logger.info('Unpacking dehydrated download...')
+        if os.path.exists(self.outdir+'/'+'ncbi_extract'):
+            logger.info('A previous directory of ncbi_extract was found, will remove it before proceeding')
+            shutil.rmtree(self.outdir+'/'+'ncbi_extract')
+        
+        unzip_cmd = ['unzip',
+                     self.outdir+'/'+'ncbi_download.zip',
+                     '-d',self.outdir+'/'+'ncbi_extract']
+        
+        subprocess.call(' '.join(map(str,unzip_cmd)),shell=True)
+        #/
+        # Rehydrate download
+        logger.info('Downloading dataset sequences (rehydrating download)...')
+        ncbi_datasets_rehydrate_cmd = ['datasets','rehydrate',
+                                       '--directory',self.outdir+'/'+'ncbi_extract']
+        
+        ncbi_downloader(ncbi_datasets_rehydrate_cmd)
+        #/
+        # Move-out sequence files from rehydrated download
+        logger.info('Unpacking sequences into genomes folder...')
+        for path,dirnames,filenames in os.walk(self.outdir+'/'+'ncbi_extract'):
             for dirname in dirnames:
                 # Get file from directory
                 genome_fa_path = None
@@ -241,7 +320,6 @@ class DownloadGenomes(object):
                         matched_string = match.group()
                         stripped_string = re.sub(f".*({regex_pattern}).*", r"\1", matched_string)
                         genome_fa_new_name = stripped_string+'.fna' # should be formatted as GCX_123456789.1
-                    
                     if genome_fa_new_name:
                         os.rename(genome_fa_path,self.download_path+'/'+genome_fa_new_name) # move the file
                         os.system('gzip '+self.download_path+'/'+genome_fa_new_name) # gzip the file
@@ -251,12 +329,14 @@ class DownloadGenomes(object):
                     if not dirname in ('data','ncbi_dataset',): # skip known "trigger"-folders in the ZIP-file
                         logger.debug('WARNING: was unable to move genome for '+str(dirname)+', attempted genome path:'+str(genome_fa_path))
                 #/
-        ##/
+            #/
+        #/
         ## Clean up download-files
         logger.info('Clearing download files')
         os.remove(self.outdir+'/'+'ncbi_download.zip')
-        shutil.rmtree(self.outdir+'/'+'ncbi_download')
+        shutil.rmtree(self.outdir+'/'+'ncbi_extract')
         ##/
+        ###/
 
     def run(self, files, representative=False,url="https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_genomes_reps.tar.gz"):
         '''Download list of GCF and or GCA files from NCBI or download represenative genomes
