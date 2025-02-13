@@ -79,6 +79,7 @@ class ModifyTree(object):
 		self.clean = clean_database
 		self.taxonomy_type = False
 		self.do_not_delete_old = set()
+		self.identical_nodes = set() #init needed. Needed in get_id in parse_modification in elif modfile
 		try:
 			if kwargs["taxonomy_type"] != "NCBI":  ## If taxonomy type in merge database is set to NCBI, keep ranks also above 9, default no.
 				self.taxonomy_type = True
