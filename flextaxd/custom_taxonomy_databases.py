@@ -123,11 +123,11 @@ def main():
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
     mod_opts.add_argument('--force_multisource',  action='store_true', default=False,   help='Inputfiles contains multiple sources')
     
-    #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
-    mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
-    mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
-    mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to add (replace see below) branch")
-    mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed!")
+    mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
+    #mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
+    #mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
+    mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to modify downstream structure (replace see below).")
+    mod_opts.add_argument('--clean_child_structure', action='store_true',                             help="Add if existing children of parents should be removed before merge!")
     mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from unannotated nodes")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
@@ -343,7 +343,7 @@ def main():
             logger.critical("No genomeid2taxid file given!")
         logger.info("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
+        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.clean_child_structure,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
         modify_obj.update_database()
         if args.mod_file:
             current_time = report_time(current_time)
@@ -356,16 +356,16 @@ def main():
         modify_obj = modify_module(database=args.database, update_genomes=True,taxid_base=args.taxid_base)
         modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
 
-    # if args.update_names:
-    #     modify_module = dynamic_import("modules", "ModifyTree")
-    #     modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
-    #     modify_obj.update_node_names(args.update_names)
+    if args.update_names:
+         modify_module = dynamic_import("modules", "ModifyTree")
+         modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
+         modify_obj.update_node_names(args.update_names)
     
-    if args.rename_from and args.rename_to:
-        modify_module = dynamic_import("modules", "ModifyTree")
-        data = {'set_column':'name','set_value':args.rename_to,'where_column':'name','where':args.rename_from}
-        modify_obj = modify_module(database=args.database,rename_node=True)#taxid_base=args.taxid_base)
-        modify_obj.rename_node(data,'nodes')
+    #if args.rename_from and args.rename_to:
+    #    modify_module = dynamic_import("modules", "ModifyTree")
+    #    data = {'set_column':'name','set_value':args.rename_to,'where_column':'name','where':args.rename_from}
+    #    modify_obj = modify_module(database=args.database,rename_node=True)#taxid_base=args.taxid_base)
+    #    modify_obj.rename_node(data,'nodes')
 
     if (args.mod_file or args.mod_database) and args.clean_database:
         modify_module = dynamic_import("modules", "ModifyTree")
