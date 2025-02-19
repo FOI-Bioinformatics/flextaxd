@@ -66,7 +66,6 @@ class ModifyTree(object):
 
 		self.parent=parent
 		self.replace = replace
-		self.replace_parent = kwargs["replace_parent"]
 		self.ncbi_order = True
 		self.mod_genomes =False
 
@@ -306,9 +305,6 @@ class ModifyTree(object):
 	def parse_modification(self, input,modtype="database"):
 		'''Retrieve all links to update from an existing database'''
 		## Retrieve all nodes annotated in the modified database
-		if self.replace_parent:
-			'''Change the name of the parent'''
-			logger.debug("Change name of parent node")	
 		logger.debug("Parent: {parent}".format(parent=self.parent))
 		self.new_links = set()
 		self.new_nodes = set()
@@ -319,6 +315,10 @@ class ModifyTree(object):
 		if not self.parent_link:
 			raise InputError("The selected parent node ({parent}) could not be found in the source database!".format(parent=self.parent))
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
+		if modtype == "file":
+				print(set([self.taxonomydb.get_id(self.parent)]))
+				print(self.parent)
+				self.existing_nodes	-= set([self.taxonomydb.get_id(self.parent)])
 		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
 		if len(self.existing_nodes) > 0:
 			self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
@@ -486,15 +486,15 @@ class ModifyTree(object):
 		logger.info("{updated} annotations were updated!".format(added=added, updated=updated))
 		return
 
-	def rename_node(self, data, table):
-		'''Function that renames a node in the database'''
-		try:
-			print('[WARNING] Naivly attempting rename. This function needs validation-checks and warnings.')
-			self.taxonomydb.update(data, table)
-			self.taxonomydb.commit()
-		except:
-			print('Could not rename node. Make sure that it exists in the database')
-		return
+	#def rename_node(self, data, table):
+	#	'''Function that renames a node in the database'''
+	#	try:
+	#		print('[WARNING] Naivly attempting rename. This function needs validation-checks and warnings.')
+	#		self.taxonomydb.update(data, table)
+	#		self.taxonomydb.commit()
+	#	except:
+	#		print('Could not rename node. Make sure that it exists in the database')
+	#	return
 
 	def clean_database(self, ncbi=False):
 		'''Function that removes all node and node paths without annotation'''
