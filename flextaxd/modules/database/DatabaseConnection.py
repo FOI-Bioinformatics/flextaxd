@@ -331,26 +331,34 @@ class DatabaseFunctions(DatabaseConnection):
 		Returns
 			True: if node has one and only one parent
 		'''
+		nrank = 0
 		try:
 			QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 			logger.debug(QUERY)
 			child_w_dp = self.query(QUERY).fetchall()
-			QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=",".join(map(str,list(*child_w_dp))))
-			p_ranks = self.query(QUERY).fetchall()
-			if len(p_ranks) != len(set(p_ranks)):
-				logger.error("Nodes with two parents have identical ranks, Fatal Error")
-			elif len(child_w_dp) > 0:
-				logger.info("Found: {n} nodes with multiple parents, however in different lineages, OK.".format(n=len(child_w_dp)))
+			logger.debug(child_w_dp)
+			## Bugfix  only allowed one parent to be different, now multiple is ok as long as ranks are different
+			for child in map(str,list(*list(zip(*child_w_dp)))):
+				QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=child)
+				p_ranks = self.query(QUERY).fetchall()
+				if len(p_ranks) != len(set(p_ranks)):
+					logger.error("Nodes with two parents have identical ranks, Fatal Error")
+				else:
+					nrank += 1
+			if nrank > 0:
+				logger.info("Found: {n} nodes with multiple parents, however in different lineages, OK.".format(n=nrank))
 				return []
 			return child_w_dp
-		except AttributeError:
+		except AttributeError as ae:
 			logger.info("AttributeError occured")
 			logger.info(QUERY)
 			logger.info(child_w_dp)
-		except TypeError:
+			logger.debug(te)
+		except TypeError as ae:
 			logger.info("TypeError occured")
 			logger.info(QUERY)
 			logger.info(child_w_dp)
+			logger.debug(te)
 		raise TreeError("Following Nodes: {node} has more than one parent!".format(node=child_w_dp))
 
 	'''Get functions of class'''

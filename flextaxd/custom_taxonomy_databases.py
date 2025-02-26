@@ -127,7 +127,8 @@ def main():
     #mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
     #mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
     mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to modify downstream structure (replace see below).")
-    mod_opts.add_argument('--clean_child_structure', action='store_true',                             help="Add if existing children of parents should be removed before merge!")
+    mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed before merge!")
+    mod_opts.add_argument('--replace_parent', action='store_true',                      help=argparse.SUPPRESS) ## Replace name of node in incoming tree hidden option
     mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from unannotated nodes")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
@@ -343,7 +344,7 @@ def main():
             logger.critical("No genomeid2taxid file given!")
         logger.info("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.clean_child_structure,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
+        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,replace_parent=args.replace_parent,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
         modify_obj.update_database()
         if args.mod_file:
             current_time = report_time(current_time)

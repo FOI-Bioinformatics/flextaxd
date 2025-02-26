@@ -7,7 +7,7 @@ Modify tree from database or source
 from .database.DatabaseConnection import ModifyFunctions
 import logging,os
 logger = logging.getLogger(__name__)
-import math
+import math,time
 #from .database.database import database
 
 def progressBar(iterable, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
@@ -70,7 +70,13 @@ class ModifyTree(object):
 		self.mod_genomes =False
 
 		self.fast_clean = True
-
+		
+		## Hidden option specific request, replace name of root node, with root of file.
+		try:
+			self.replace_parent = kwargs["replace_parent"]
+		except:
+			logger.debug("kwarg replace_parent not present")
+			self.replace_parent = False
 		### Connect to or create database
 		self.taxonomydb = ModifyFunctions(database,verbose=verbose)
 		self.rank= self.taxonomydb.get_rank(col=2)
@@ -93,6 +99,7 @@ class ModifyTree(object):
 			self.taxid_base = self._taxfix(self.taxid_base)
 			self.taxid_set = int(self.taxid_base)
 			logger.debug("Taxid base: {taxidbase}".format(taxidbase=self.taxid_base))
+		self.modfile = mod_file	
 		if mod_database:
 			if not os.path.exists(mod_database):
 				raise FileNotFoundError("The modification database was not found {path}".format(path=mod_database))
@@ -100,7 +107,6 @@ class ModifyTree(object):
 			self.identical_nodes = set(self.taxonomydb.get_nodes(col=2).keys()) & set(self.moddb.get_nodes(col=2).keys())
 			self.dbmod_annotation = self.moddb.get_nodes(col=1)
 			self.modsource = self.parse_modification(self.moddb,"database")
-			
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
 		elif update_genomes or clean_database or update_node_names or rename_node or purge_database:
@@ -259,12 +265,18 @@ class ModifyTree(object):
 					exit()
 		return database.get_genomes()
 
-	def file_mod(self,modfile):
+	def file_mod(self,modfile,replace_parent=False):
 		'''Handle file modification'''
 		logger.debug(modfile)
 		logger.info("Parse modification file...")
 		with open(modfile, "r") as f:
 			headers = f.readline().strip().split(self.sep)
+			if replace_parent:
+				new_root = f.readline().strip().split(self.sep)
+				change_root = new_root[0]
+				new_root[0] = self.parent
+				parent,child,rank = new_root
+				self._parse_new_links(parent=parent,child=child,rank=rank)
 			logger.debug(headers)
 			if len(headers) < 2 or len(headers)>3:
 				raise InputError("The modification file must contain two or three columns defined by headers parent, child (and level) separated by separator '{sep}' (default \\t)".format(sep=self.sep))
@@ -281,6 +293,9 @@ class ModifyTree(object):
 				if len(line) == 2:
 					line +=["no rank"] ## Add no specified rank to line
 				parent,child,rank = line
+				if replace_parent:
+					if parent == change_root:
+						parent = self.parent
 				try:
 					rank_i = self.rank[rank]
 				except:
@@ -310,15 +325,16 @@ class ModifyTree(object):
 		self.new_nodes = set()
 		self.non_overlapping_old_links = set()
 		self.existing_links = set()
+			
 		# ### Get the connecting link between the two databases
 		self.parent_link = self.taxonomydb.get_parent(self.taxonomydb.get_id(self.parent))
+		logger.info(self.parent_link)
 		if not self.parent_link:
 			raise InputError("The selected parent node ({parent}) could not be found in the source database!".format(parent=self.parent))
+		
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
 		if modtype == "file":
-				print(set([self.taxonomydb.get_id(self.parent)]))
-				print(self.parent)
-				self.existing_nodes	-= set([self.taxonomydb.get_id(self.parent)])
+			self.existing_nodes	-= set([self.taxonomydb.get_id(self.parent)])
 		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
 		if len(self.existing_nodes) > 0:
 			self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
@@ -330,7 +346,7 @@ class ModifyTree(object):
 		if modtype == "database":
 			self.mod_genomes = self.database_mod(input,self.parent)
 		elif modtype == "file":
-			self.file_mod(input)
+			self.file_mod(input,self.replace_parent)
 		else:
 			raise InputError("Wrong modification input database or file must be supplied")
 		### get links from current database
@@ -356,7 +372,23 @@ class ModifyTree(object):
 			logger.debug("rm: {rm}".format(rm=len(self.non_overlapping_old_links)))
 			logger.debug(self.non_overlapping_old_links)
 		'''Get all genomes annotated to new nodes in existing database'''
-
+		if modtype == "file":
+			logger.info("Modification type is file...")
+			if self.replace_parent:  ## Update the name of the parent to match with parent of "incoming" file
+				logger.info("Replace parent option initiated,  change the name of parent in the database to allow merge")
+				with open(self.modfile, "r") as f:
+					headers = f.readline().strip().split(self.sep)
+					branchroot = f.readline().strip().split(self.sep)
+					new_name = branchroot[0]
+					#logger.info("New root name: {nn}".format(nn=new_name))
+				logger.info("New name of parent, changing from {oldp}, to {newp}".format(oldp=self.parent, newp=new_name))
+				self._name_update(self.parent,new_name)
+				self.taxonomydb.commit()  # Make sure change is done to active database
+				time.sleep(1) ## Sleep one second to make change happening in the database
+				self.parent = new_name
+				logger.info("Update complete, new self.parent = {sp}".format(sp=self.parent))
+				logger.info("Check node id:")
+				logger.info(set([self.taxonomydb.get_id(self.parent)]))
 		return True
 
 	def update_annotations(self, genomeid2taxid, reference=False):
@@ -456,15 +488,26 @@ class ModifyTree(object):
 		self.taxonomydb.commit()
 		return
 
-	def update_node_names(self, refdict):
-		'''Function that adds annotation of genome ids to nodes'''
-		logger.info("Update node names in the database from {refdict}".format(refdict=refdict))
+	def _name_update(self, old_name,new_name,updated=0):
+		'''Funciton that updates the name'''
+		## If no exception occured add old_name
 		update = {
 			"set_column": "name",
 			"where_column": "name",
 			"set_value": "",
 			"where": ""
 		}
+		update["set_value"] = new_name
+		update["where"] = old_name.strip()
+		res = self.taxonomydb.update_table(update,table="nodes")
+		if self.taxonomydb.rowcount()!=0:
+			if res:
+				updated += 1
+		return updated
+
+	def update_node_names(self, refdict):
+		'''Function that adds annotation of genome ids to nodes'''
+		logger.info("Update node names in the database from {refdict}".format(refdict=refdict))
 		updated = 0
 		added = 0
 		with open(refdict) as f:
@@ -474,17 +517,13 @@ class ModifyTree(object):
 				except ValueError:
 					old_name,name = row.strip().split("    ")
 				logger.debug("old_name: {old_name}, name: {name}".format(old_name=old_name,name=name))
-				## If no exception occured add old_name
-				update["set_value"] = name
-				update["where"] = old_name.strip()
-				res = self.taxonomydb.update_table(update,table="nodes")
-				if self.taxonomydb.rowcount()!=0:
-					if res:
-						updated += 1
+				
+				updated = self._name_update(old_name,name,updated)
+				
 		self.taxonomydb.commit()
 		gid = self.taxonomydb.get_genomes()
 		logger.info("{updated} annotations were updated!".format(added=added, updated=updated))
-		return
+		return gid
 
 	#def rename_node(self, data, table):
 	#	'''Function that renames a node in the database'''
