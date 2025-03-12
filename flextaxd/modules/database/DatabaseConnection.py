@@ -732,13 +732,11 @@ class ModifyFunctions(DatabaseFunctions):
 		'''
 		if level >= maxdepth:
 			return children
-
 		QUERY = '''SELECT child FROM tree WHERE parent in({nodes})'''.format(nodes=",".join(map(str,list(parents))))
 
 		if selected:
 			QUERY = '''SELECT child FROM tree WHERE parent in({nodes}) and rank_i = {rank}'''.format(nodes=",".join(map(str,list(parents))), rank=selected)
-		#logger.debug(QUERY)
-		#print(QUERY)
+		logger.debug(QUERY)
 		res = self.query(QUERY).fetchall()
 		if (len(res) + len(children)) != 0:
 			children = set([child_i[0] for child_i in res])
@@ -748,7 +746,6 @@ class ModifyFunctions(DatabaseFunctions):
 				except RecursionError:
 					logger.debug('Maximum depth reached, halting tree traversal')
 					return children
-
 		return children
 
 	def get_parent(self,name,all=False):
