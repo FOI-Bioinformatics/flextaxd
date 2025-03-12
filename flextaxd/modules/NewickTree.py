@@ -373,18 +373,27 @@ class NewickTree(object):
 
 
 	def double_vis_path(self,duplicates,taxid,nodes):
-		'''The range in the tree has two identical nodes, ask user to resolve which path goes where'''
+		'''The range in the tree has two or more identical nodes, ask user to resolve which path goes where'''
 		import inquirer,random
 		tn = self.database.get_nodes()
 		tr = self.database.get_rank()
 		children = self.database.get_links(self.database.get_children([taxid],maxdepth=1))
 		parents = duplicates[taxid]
-		if len(children) > 2:
-			raise VisualisationError("Names occuring three times in the same tree are not taken care of at this time, export function does however!")
+		if len(children) == 0:
+			return [],nodes
+		if len(children) > len(self.taxonomy)/2: 
+			## Bug occurs if node does not have any children, all children are returned 
+			return [],nodes
+		if len(children) > len(self.taxonomy)/10:
+			raise VisualisationError("More than 10% of your nodes have identical names this will work improperly for visualisation, export function will however work!")
+		if len(children) > 10:
+			## Warning occurs if node does not have any children, all children are returned  
+			logger.warning("More than 10% of your nodes have identical names this will work improperly for visualisation, export function will however work!")
 		children_N = self.fix_names(children,tn,tr)
 		parents_N = self.fix_names(parents,tn,tr)
 		selto = parents_N[0]
 		default = children_N[0]
+		
 		if taxid != "name":
 			taxid = tn[taxid]
 		questions = [
@@ -432,8 +441,10 @@ class NewickTree(object):
 		changes = []
 		for child in duplicates.keys():
 			changes,nodes = self.double_vis_path(duplicates,child,nodes)
-			update_tree += changes
-		tree = sorted(update_tree,key=lambda x:x[2])
+			if len(changes) > 0:
+				update_tree += changes
+		if len(update_tree) > 0:
+			tree = sorted(update_tree,key=lambda x:x[2])
 		return tree,nodes
 
 	def build_tree(self,taxid=False,maxdepth=3,check_parent=False):
