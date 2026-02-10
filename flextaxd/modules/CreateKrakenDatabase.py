@@ -118,6 +118,10 @@ class CreateKrakenDatabase(object):
 		jobs = []
 		manager = Manager()
 		added = manager.Queue()
+		## Close database connection before multiprocessing to allow pickling
+		db_path = self.database.database
+		self.database.conn.close()
+		self.database = None
 		for i in range(self.processes):
 			p = Process(target=self.kraken_fasta_header, args=(genomes[i],added))
 			p.daemon=True
@@ -125,6 +129,8 @@ class CreateKrakenDatabase(object):
 			jobs.append(p)
 		for job in jobs:
 			job.join()
+		## Restore database connection after multiprocessing
+		self.database = DatabaseFunctions(db_path)
 		self.added = added.qsize()
 		return "Processes done"
 
