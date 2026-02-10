@@ -53,7 +53,8 @@ class CreateKrakenDatabase(object):
 			self.tmpdir = outdir
 		self.seqid2taxid = self.outdir+"/seqid2taxid.map"
 		logger.info("seqid2taxid file:{tfile}".format(tfile=self.seqid2taxid))
-		if genome_names:
+		self.skip_genomes = kwargs["skip_genomes"]
+		if genome_names and not self.skip_genomes:
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
 		else:

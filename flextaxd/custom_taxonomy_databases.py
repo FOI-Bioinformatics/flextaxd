@@ -142,6 +142,7 @@ def main():
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False,                help="Dump description names instead of database integers")
     out_opts.add_argument('--dump_genomes', action='store_true', default=False,                     help="Print list of genomes (and source) to file")
     out_opts.add_argument('--dump_genome_annotations', action='store_true', default=False,          help="Add genome taxid annotation to genomes dump")
+    out_opts.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
 
     vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
     vis_opts.add_argument('--vis_node','--visualise_node', metavar='', default=False,                            help="Visualise tree from selected node")
@@ -395,6 +396,13 @@ def main():
             write_obj.set_prefix("names,taxDB")
             write_obj.set_order(True)
             write_obj.nodes()
+
+    if args.dump_map:
+        logger.info("Dump genome maps")
+        write_module = dynamic_import("modules", "WriteTaxonomy")
+        write_obj = write_module(args.outdir, database=args.database, dump_genome_map=True)
+        write_obj.dump_taxid_map()
+        exit()
 
     if args.vis_node:
         modify_module = dynamic_import("modules", "NewickTree")

@@ -216,6 +216,7 @@ def main():
         if not os.path.exists(args.outdir):
             os.system("mkdir -p {outdir}".format(outdir = args.outdir))
     skip=False
+    skip_genomes=False
     if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
         ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
         if ans in ["o", "O"]:
@@ -225,30 +226,33 @@ def main():
             logger.info("Merge input fasta with library.fna")
             cmd = "cat"
             if args.nt_source:
+                logger.info("Nucleotide source transfered to library")
                 if args.nt_source.endswith(".gz"):
-                    cmd = "zcat"    
+                    cmd = "zcat"
                 os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
             else:
                 exit("No large input file given")
         elif ans.strip() in ["u", "U"]:
             logger.info("Resume database build")
+            skip_genomes =True
             skip = True
         else:
             exit("Cancel execution!")
     else:
         if args.nt_source:
+            logger.info("Nucleotide source transfered to library")
             #ans = input("Im here: ")
             cmd = "cp"
             cmd2 = ""
             if args.nt_source.endswith(".gz"):
                 cmd = "zcat"
                 cmd2 = " > "
-            #print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
-            #ans = input("Write c to continue")
-            #if ans != "c":
-            #    exit()
-            #os.makedirs("{db_path}/library".format(db_path=args.db_name))
-            #os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
+            print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
+            ans = input("Write c to continue")
+            if ans != "c":
+               exit()
+            if not os.path.exists("{db_path}/library".format(db_path=args.db_name)): os.makedirs("{db_path}/library".format(db_path=args.db_name))
+            os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
             genomes=[args.nt_source]
             args.genomes_path=os.path.dirname(args.nt_source)
             skip=True
@@ -361,7 +365,8 @@ def main():
                                         debug=args.debug,
                                         verbose=args.verbose,
                                         tmpdir=args.tmpdir,
-                                        create_lib=args.create_lib
+                                        create_lib=args.create_lib,
+                                        skip_genomes=skip_genomes
         )
         report_time(current_time)
         if not skip:
