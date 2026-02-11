@@ -302,7 +302,12 @@ def main():
             # If there are missing genome files, asks the user to attempt a download of these from gtdb
             download_prompted = False
             if missing and not (args.download or args.representative or args.download_file):
-                print('There is a discrepancy of genomes found in the database and the specified genome-folder, {numFound} genomes were found and {numMissing} genomes are missing.'.format(numFound=len(genomes),numMissing=len(missing)))
+                num_found = len(genomes) + (len(mf_found) if args.multi_fasta else 0)
+                print('{numFound} genomes found ({numFolder} in genome folder{mf_info}), {numMissing} genomes in database not found in any source.'.format(
+                    numFound=num_found,
+                    numFolder=len(genomes),
+                    mf_info=", {n} in multi_fasta".format(n=len(mf_found)) if args.multi_fasta else "",
+                    numMissing=len(missing)))
                 print('You may want to purge your database from missing genomes using "flextaxd --purge_database"')
                 if not args.download: # Dont ask to download if the user already specified via flag to download
                     ans = input('Do you want to download these genomes from NCBI? (y)es, (n)o, (c)ancel: ')
