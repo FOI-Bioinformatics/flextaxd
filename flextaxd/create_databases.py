@@ -87,7 +87,7 @@ def main():
     basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
     #basic.add_argument('--dump_map',metavar="", type=str, default=False , help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
     basic.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
-    basic.add_argument('-nt', '--nt_source', '--nt', metavar="",type=str, default=False, help="If part of your data is merged into one file, add path to file here, example nt")
+    basic.add_argument('-mf', '--multi_fasta', metavar="",type=str, default=False, help="Path to a multi-fasta file to include in the library (e.g. nt subset)")
     basic.add_argument('-mfp', '--multifile_prefix', metavar="",type=str,default=False, help="If multiple datafiles, list file prefix to handle as multi files")
 
     ### Download options, process local directory and potentially download files
@@ -175,9 +175,9 @@ def main():
         write_obj.dump_taxid_map()
         exit()
 
-    if args.create_db and not (args.genomes_path or args.nt_source):
+    if args.create_db and not (args.genomes_path or args.multi_fasta):
         raise InputError("genomes_path parameter was not given")
-    if not args.nt_source:
+    if not args.multi_fasta:
         if args.genomes_path != None and not os.path.exists(args.genomes_path):
             ans = input("Warning: directory for downloaded genomes does not exist, do you want to create it? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:
@@ -225,11 +225,11 @@ def main():
         elif ans in ["m", "M"]:
             logger.info("Merge input fasta with library.fna")
             cmd = "cat"
-            if args.nt_source:
-                logger.info("Nucleotide source transfered to library")
-                if args.nt_source.endswith(".gz"):
+            if args.multi_fasta:
+                logger.info("Multi-fasta source transfered to library")
+                if args.multi_fasta.endswith(".gz"):
                     cmd = "zcat"
-                os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
+                os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.multi_fasta))
             else:
                 exit("No large input file given")
         elif ans.strip() in ["u", "U"]:
@@ -239,23 +239,24 @@ def main():
         else:
             exit("Cancel execution!")
     else:
-        if args.nt_source:
-            logger.info("Nucleotide source transfered to library")
-            #ans = input("Im here: ")
-            cmd = "cp"
-            cmd2 = ""
-            if args.nt_source.endswith(".gz"):
-                cmd = "zcat"
-                cmd2 = " > "
-            print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
-            ans = input("Write c to continue")
-            if ans != "c":
-               exit()
-            if not os.path.exists("{db_path}/library".format(db_path=args.db_name)): os.makedirs("{db_path}/library".format(db_path=args.db_name))
-            os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
-            genomes=[args.nt_source]
-            args.genomes_path=os.path.dirname(args.nt_source)
-            skip=True
+        if args.multi_fasta:
+            logger.info("Multi-fasta source transfered to library")
+            if not os.path.exists("{db_path}/library".format(db_path=args.db_name)):
+                os.makedirs("{db_path}/library".format(db_path=args.db_name))
+            if args.genomes_path:
+                # Both multi_fasta and genomes_path: process genomes first, append multi_fasta later
+                logger.info("Both --genomes_path and -mf provided; genomes will be processed first, then multi_fasta appended")
+            else:
+                # Only multi_fasta: copy to library and skip genome processing
+                cmd = "cp"
+                cmd2 = ""
+                if args.multi_fasta.endswith(".gz"):
+                    cmd = "zcat"
+                    cmd2 = " > "
+                os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd, cmd2=cmd2, large_source=args.multi_fasta))
+                genomes=[args.multi_fasta]
+                args.genomes_path=os.path.dirname(args.multi_fasta)
+                skip=True
 
     ''' 1. Process genome_path directory'''
     if not skip:
@@ -372,6 +373,25 @@ def main():
         if not skip:
             logger.info("Create library.fna")
             classifierDB.create_library_from_files(multifiles)
+            logger.info("Genomes processed: {n}".format(n=len(genomes)))
+            # Append multi_fasta to library.fna if both -mf and --genomes_path were provided
+            if args.multi_fasta and args.genomes_path:
+                logger.info("Appending multi_fasta to library.fna")
+                if args.multi_fasta.endswith(".gz"):
+                    import gzip
+                    open_func = gzip.open
+                    append_cmd = "zcat {src} >> {db_path}/library/library.fna"
+                else:
+                    open_func = open
+                    append_cmd = "cat {src} >> {db_path}/library/library.fna"
+                # Count sequences in multi_fasta
+                mf_count = 0
+                with open_func(args.multi_fasta, "rt") as fh:
+                    for line in fh:
+                        if line.startswith(">"):
+                            mf_count += 1
+                os.system(append_cmd.format(src=args.multi_fasta, db_path=args.db_name))
+                logger.info("Sequences in multi_fasta: {n}".format(n=mf_count))
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''

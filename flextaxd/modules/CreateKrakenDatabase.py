@@ -57,8 +57,10 @@ class CreateKrakenDatabase(object):
 		if genome_names and not self.skip_genomes:
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
+		elif self.skip_genomes:
+			logger.info("Skipping individual genome processing, using pre-built library.")
 		else:
-			logger.warning("Genome names are missing.") # Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
+			logger.warning("Genome names are missing. Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params
