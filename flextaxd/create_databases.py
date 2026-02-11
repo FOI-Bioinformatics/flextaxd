@@ -272,7 +272,10 @@ def main():
         if args.multifile_prefix:
             ## Process files including multifiles
             multifiles = process_directory_obj.get_multifiles() # rescan genomes directory
-        if args.multi_fasta and missing:
+        # Summary of genome sources
+        logger.warning("Genomes in database: {db}".format(db=len(process_directory_obj.genome_id_dict)))
+        logger.warning("Genomes found in genome folder: {n}".format(n=len(genomes)))
+        if args.multi_fasta:
             # Cross-check multi_fasta headers against database to find truly missing genomes
             if args.multi_fasta.endswith(".gz"):
                 import gzip
@@ -287,15 +290,13 @@ def main():
                         mf_accessions.add(accession)
             mf_found = set(m["genome_id"] for m in missing) & mf_accessions
             still_missing = [m for m in missing if m["genome_id"] not in mf_accessions]
-            logger.info("Genomes in database: {db}".format(db=len(process_directory_obj.genome_id_dict)))
-            logger.info("Genomes found in genome folder: {n}".format(n=len(genomes)))
-            logger.info("Sequences in multi_fasta: {n}".format(n=len(mf_accessions)))
-            logger.info("Sequences in multi_fasta matching database: {n}".format(n=len(mf_found)))
-            if still_missing:
-                logger.warning("Genomes not found in folder or multi_fasta: {n}".format(n=len(still_missing)))
-            else:
-                logger.info("All database genomes accounted for between folder and multi_fasta")
+            logger.warning("Sequences in multi_fasta: {n}".format(n=len(mf_accessions)))
+            logger.warning("Sequences in multi_fasta matching database: {n}".format(n=len(mf_found)))
             missing = still_missing
+        if missing:
+            logger.warning("Genomes not found in any source: {n}".format(n=len(missing)))
+        else:
+            logger.warning("All database genomes accounted for")
         while missing: # Experimental implementation: make user wary of missing genomes and force user to enter "no" in prompt to continue with missing genomes.
             ''' 2. Download missing files'''
             # If there are missing genome files, asks the user to attempt a download of these from gtdb
