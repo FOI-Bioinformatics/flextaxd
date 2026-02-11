@@ -329,17 +329,23 @@ class CreateKrakenDatabase(object):
 			logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 		
 		if self.krakenversion == 'krakenuniq':
-			logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-			os.system(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			build_cmd = self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params)
 		else:
-			logger.info(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-			os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			build_cmd = self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params)
+		logger.info(build_cmd)
+		build_ret = os.system(build_cmd)
+		if build_ret != 0:
+			logger.error("Database build failed with exit code {code}".format(code=build_ret))
+			return
 
 		if self.krakenversion in ["kraken2"]:
 			logger.info("Create inspect file!")
-			os.system(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes ))
+			inspect_ret = os.system(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes ))
+			if inspect_ret != 0:
+				logger.error("kraken2-inspect failed with exit code {code}".format(code=inspect_ret))
+			else:
+				os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
 			os.system("gzip {krakendb}/*.map".format(krakendb=self.krakendb))
-			os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
 		if not keep:
 			os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
 			## re-add taxonomy
