@@ -271,6 +271,30 @@ def main():
         if args.multifile_prefix:
             ## Process files including multifiles
             multifiles = process_directory_obj.get_multifiles() # rescan genomes directory
+        if args.multi_fasta and missing:
+            # Cross-check multi_fasta headers against database to find truly missing genomes
+            if args.multi_fasta.endswith(".gz"):
+                import gzip
+                mf_open = gzip.open
+            else:
+                mf_open = open
+            mf_accessions = set()
+            with mf_open(args.multi_fasta, "rt") as fh:
+                for line in fh:
+                    if line.startswith(">"):
+                        accession = line[1:].split()[0]
+                        mf_accessions.add(accession)
+            mf_found = set(m["genome_id"] for m in missing) & mf_accessions
+            still_missing = [m for m in missing if m["genome_id"] not in mf_accessions]
+            logger.info("Genomes in database: {db}".format(db=len(process_directory_obj.genome_id_dict)))
+            logger.info("Genomes found in genome folder: {n}".format(n=len(genomes)))
+            logger.info("Sequences in multi_fasta: {n}".format(n=len(mf_accessions)))
+            logger.info("Sequences in multi_fasta matching database: {n}".format(n=len(mf_found)))
+            if still_missing:
+                logger.warning("Genomes not found in folder or multi_fasta: {n}".format(n=len(still_missing)))
+            else:
+                logger.info("All database genomes accounted for between folder and multi_fasta")
+            missing = still_missing
         while missing: # Experimental implementation: make user wary of missing genomes and force user to enter "no" in prompt to continue with missing genomes.
             ''' 2. Download missing files'''
             # If there are missing genome files, asks the user to attempt a download of these from gtdb
@@ -373,25 +397,15 @@ def main():
         if not skip:
             logger.info("Create library.fna")
             classifierDB.create_library_from_files(multifiles)
-            logger.info("Genomes processed: {n}".format(n=len(genomes)))
+            logger.info("Genomes processed from folder: {n}".format(n=len(genomes)))
             # Append multi_fasta to library.fna if both -mf and --genomes_path were provided
             if args.multi_fasta and args.genomes_path:
                 logger.info("Appending multi_fasta to library.fna")
                 if args.multi_fasta.endswith(".gz"):
-                    import gzip
-                    open_func = gzip.open
                     append_cmd = "zcat {src} >> {db_path}/library/library.fna"
                 else:
-                    open_func = open
                     append_cmd = "cat {src} >> {db_path}/library/library.fna"
-                # Count sequences in multi_fasta
-                mf_count = 0
-                with open_func(args.multi_fasta, "rt") as fh:
-                    for line in fh:
-                        if line.startswith(">"):
-                            mf_count += 1
                 os.system(append_cmd.format(src=args.multi_fasta, db_path=args.db_name))
-                logger.info("Sequences in multi_fasta: {n}".format(n=mf_count))
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''
