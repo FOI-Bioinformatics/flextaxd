@@ -238,25 +238,26 @@ def main():
             skip = True
         else:
             exit("Cancel execution!")
-    else:
-        if args.multi_fasta:
-            logger.info("Multi-fasta source transfered to library")
-            if not os.path.exists("{db_path}/library".format(db_path=args.db_name)):
-                os.makedirs("{db_path}/library".format(db_path=args.db_name))
-            if args.genomes_path:
-                # Both multi_fasta and genomes_path: process genomes first, append multi_fasta later
-                logger.info("Both --genomes_path and -mf provided; genomes will be processed first, then multi_fasta appended")
-            else:
-                # Only multi_fasta: copy to library and skip genome processing
-                cmd = "cp"
-                cmd2 = ""
-                if args.multi_fasta.endswith(".gz"):
-                    cmd = "zcat"
-                    cmd2 = " > "
-                os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd, cmd2=cmd2, large_source=args.multi_fasta))
-                genomes=[args.multi_fasta]
-                args.genomes_path=os.path.dirname(args.multi_fasta)
-                skip=True
+
+    # Set up multi_fasta + genomes_path handling (runs for both new and overwritten libraries)
+    if not skip and args.multi_fasta:
+        logger.info("Multi-fasta source transfered to library")
+        if not os.path.exists("{db_path}/library".format(db_path=args.db_name)):
+            os.makedirs("{db_path}/library".format(db_path=args.db_name))
+        if args.genomes_path:
+            # Both multi_fasta and genomes_path: process genomes first, append multi_fasta later
+            logger.info("Both --genomes_path and -mf provided; genomes will be processed first, then multi_fasta appended")
+        else:
+            # Only multi_fasta: copy to library and skip genome processing
+            cmd = "cp"
+            cmd2 = ""
+            if args.multi_fasta.endswith(".gz"):
+                cmd = "zcat"
+                cmd2 = " > "
+            os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd, cmd2=cmd2, large_source=args.multi_fasta))
+            genomes=[args.multi_fasta]
+            args.genomes_path=os.path.dirname(args.multi_fasta)
+            skip=True
 
     ''' 1. Process genome_path directory'''
     if not skip:
