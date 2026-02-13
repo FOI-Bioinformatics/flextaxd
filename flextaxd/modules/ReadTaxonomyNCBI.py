@@ -21,7 +21,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.length = 0
 		self.ids = 0
 		self.accessionfile = False
-		self.force_multisource = kwargs["force_multisource"]
+		self.multi_fasta = kwargs.get("multi_fasta", [])
 
 	def write_missing(self,missing):
 		'''Write missing genomes to file'''
@@ -103,26 +103,23 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		file_endings = (".fna",".fa",".fasta")
 		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path))
 		self.refseqid_to_GCF = {}
+		# Phase 1: Process explicitly specified multi-fasta files
+		multi_fasta_abs = set()
+		for mf_path in self.multi_fasta:
+			mf_abs = os.path.abspath(mf_path)
+			multi_fasta_abs.add(mf_abs)
+			if os.path.exists(mf_path):
+				self.parse_nt_file(mf_path, os.path.basename(mf_path))
+			else:
+				logger.warning("Multi-fasta file not found: {f}".format(f=mf_path))
+		# Phase 2: Walk genomes_path, treat all files as single-genome (skip multi_fasta files)
 		for root, dirs, files in os.walk(genomes_path,followlinks=True):
 			for filename in files:
 				if filename.strip(".gz").endswith(file_endings):
 					filepath = os.path.join(root, filename)
-					if filename.startswith("GC") and filename.rstrip(".gz").endswith(".fna"):
-						self.parse_genebank_file(filepath,filename)
-					elif filename.startswith("nt") or self.force_multisource:
-						if self.force_multisource:
-							self.parse_nt_file(filepath,filename)
-						else:
-							reference="nt" 
-							if filename.endswith(".gz"): 
-								compressed=True 
-							else: 
-								compressed=False
-							stats = os.stat(filepath)
-							logger.info("Parsing nt archive, filesize: {filesize}Mb, compressed: {compressed}".format(compressed=compressed,filesize=(stats.st_size / (1024 * 1024))))
-							self.parse_nt_file(filepath,filename)
-					else:
-						self.parse_genebank_file(filepath,filename)
+					if os.path.abspath(filepath) in multi_fasta_abs:
+						continue
+					self.parse_genebank_file(filepath,filename)
 		logger.info("genomes folder read, {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")

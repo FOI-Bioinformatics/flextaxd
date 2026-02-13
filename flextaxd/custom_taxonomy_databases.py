@@ -121,7 +121,7 @@ def main():
     mod_opts.add_argument('-md', '--mod_database', '--mod_db', metavar="",default=False,            help="Database file containing modifications")
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
-    mod_opts.add_argument('--force_multisource',  action='store_true', default=False,   help='Inputfiles contains multiple sources')
+    mod_opts.add_argument('-mf', '--multi_fasta', metavar="", nargs='+', default=[],     help='Path(s) to multi-fasta file(s) to include (e.g. nt subsets)')
     
     #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
     mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
@@ -296,6 +296,27 @@ def main():
         for entry in missing:
             missing_genomes.add(entry['genome_id'])
         #/
+        # Cross-check multi_fasta headers against missing list
+        if args.multi_fasta and missing_genomes:
+            import gzip
+            mf_accessions = set()
+            for mf_path in args.multi_fasta:
+                if not os.path.exists(mf_path):
+                    logger.warning("Multi-fasta file not found: {f}".format(f=mf_path))
+                    continue
+                mf_open = gzip.open if mf_path.endswith(".gz") else open
+                with mf_open(mf_path, "rt") as fh:
+                    for line in fh:
+                        if line.startswith(">"):
+                            accession = line[1:].split()[0]
+                            mf_accessions.add(accession)
+            mf_found = missing_genomes & mf_accessions
+            if mf_found:
+                logger.info("Sequences in multi_fasta matching missing genomes: {n}".format(n=len(mf_found)))
+                missing_genomes -= mf_found
+                missing = [m for m in missing if m['genome_id'] not in mf_found]
+            logger.info("Sequences in multi_fasta total: {n}".format(n=len(mf_accessions)))
+        #/
         # Send genomes to have their nodes (and parents, when loosing all their childs) removes
         if missing:
             modify_module = dynamic_import("modules", "ModifyTree")
@@ -319,7 +340,7 @@ def main():
             '''Load taxonomy module'''
             logger.info("Loading module: ReadTaxonomy{type}".format(type=args.taxonomy_type))
             read_module = dynamic_import("modules", "ReadTaxonomy{type}".format(type=args.taxonomy_type))
-            read_obj = read_module(args.taxonomy_file, database=args.database,skip_annotation=args.skip_annotation,force_multisource=args.force_multisource)
+            read_obj = read_module(args.taxonomy_file, database=args.database,skip_annotation=args.skip_annotation,multi_fasta=args.multi_fasta)
             logger.info("Parse taxonomy")
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 

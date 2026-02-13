@@ -87,7 +87,7 @@ def main():
     basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
     #basic.add_argument('--dump_map',metavar="", type=str, default=False , help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
     basic.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
-    basic.add_argument('-mf', '--multi_fasta', metavar="",type=str, default=False, help="Path to a multi-fasta file to include in the library (e.g. nt subset)")
+    basic.add_argument('-mf', '--multi_fasta', metavar="", nargs='+', default=[], help="Path(s) to multi-fasta file(s) to include in the library (e.g. nt subsets)")
     basic.add_argument('-mfp', '--multifile_prefix', metavar="",type=str,default=False, help="If multiple datafiles, list file prefix to handle as multi files")
 
     ### Download options, process local directory and potentially download files
@@ -177,7 +177,7 @@ def main():
 
     if args.create_db and not (args.genomes_path or args.multi_fasta):
         raise InputError("genomes_path parameter was not given")
-    if not args.multi_fasta:
+    if not args.multi_fasta:  # empty list is falsy
         if args.genomes_path != None and not os.path.exists(args.genomes_path):
             ans = input("Warning: directory for downloaded genomes does not exist, do you want to create it? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:
@@ -227,9 +227,12 @@ def main():
             cmd = "cat"
             if args.multi_fasta:
                 logger.info("Multi-fasta source transfered to library")
-                if args.multi_fasta.endswith(".gz"):
-                    cmd = "zcat"
-                os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.multi_fasta))
+                for mf_file in args.multi_fasta:
+                    if mf_file.endswith(".gz"):
+                        mf_cmd = "zcat"
+                    else:
+                        mf_cmd = "cat"
+                    os.system("{cmd} {large_source} >> {db_path}/library/library.fna".format(cmd=mf_cmd, db_path=args.db_name, large_source=mf_file))
             else:
                 exit("No large input file given")
         elif ans.strip() in ["u", "U"]:
@@ -248,15 +251,17 @@ def main():
             # Both multi_fasta and genomes_path: process genomes first, append multi_fasta later
             logger.info("Both --genomes_path and -mf provided; genomes will be processed first, then multi_fasta appended")
         else:
-            # Only multi_fasta: copy to library and skip genome processing
-            cmd = "cp"
-            cmd2 = ""
-            if args.multi_fasta.endswith(".gz"):
-                cmd = "zcat"
-                cmd2 = " > "
-            os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd, cmd2=cmd2, large_source=args.multi_fasta))
-            genomes=[args.multi_fasta]
-            args.genomes_path=os.path.dirname(args.multi_fasta)
+            # Only multi_fasta: copy/append to library and skip genome processing
+            for i, mf_file in enumerate(args.multi_fasta):
+                redirect = ">" if i == 0 else ">>"
+                if mf_file.endswith(".gz"):
+                    os.system("zcat {src} {rd} {db_path}/library/library.fna".format(src=mf_file, rd=redirect, db_path=args.db_name))
+                elif i == 0:
+                    os.system("cp {src} {db_path}/library/library.fna".format(src=mf_file, db_path=args.db_name))
+                else:
+                    os.system("cat {src} >> {db_path}/library/library.fna".format(src=mf_file, db_path=args.db_name))
+            genomes=list(args.multi_fasta)
+            args.genomes_path=os.path.dirname(args.multi_fasta[0])
             skip=True
 
     ''' 1. Process genome_path directory'''
@@ -277,17 +282,15 @@ def main():
         logger.warning("Genomes found in genome folder: {n}".format(n=len(genomes)))
         if args.multi_fasta:
             # Cross-check multi_fasta headers against database to find truly missing genomes
-            if args.multi_fasta.endswith(".gz"):
-                import gzip
-                mf_open = gzip.open
-            else:
-                mf_open = open
+            import gzip
             mf_accessions = set()
-            with mf_open(args.multi_fasta, "rt") as fh:
-                for line in fh:
-                    if line.startswith(">"):
-                        accession = line[1:].split()[0]
-                        mf_accessions.add(accession)
+            for mf_file in args.multi_fasta:
+                mf_open = gzip.open if mf_file.endswith(".gz") else open
+                with mf_open(mf_file, "rt") as fh:
+                    for line in fh:
+                        if line.startswith(">"):
+                            accession = line[1:].split()[0]
+                            mf_accessions.add(accession)
             mf_found = set(m["genome_id"] for m in missing) & mf_accessions
             still_missing = [m for m in missing if m["genome_id"] not in mf_accessions]
             logger.warning("Sequences in multi_fasta: {n}".format(n=len(mf_accessions)))
@@ -408,11 +411,12 @@ def main():
             # Append multi_fasta to library.fna if both -mf and --genomes_path were provided
             if args.multi_fasta and args.genomes_path:
                 logger.info("Appending multi_fasta to library.fna")
-                if args.multi_fasta.endswith(".gz"):
-                    append_cmd = "zcat {src} >> {db_path}/library/library.fna"
-                else:
-                    append_cmd = "cat {src} >> {db_path}/library/library.fna"
-                os.system(append_cmd.format(src=args.multi_fasta, db_path=args.db_name))
+                for mf_file in args.multi_fasta:
+                    if mf_file.endswith(".gz"):
+                        append_cmd = "zcat {src} >> {db_path}/library/library.fna"
+                    else:
+                        append_cmd = "cat {src} >> {db_path}/library/library.fna"
+                    os.system(append_cmd.format(src=mf_file, db_path=args.db_name))
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''
