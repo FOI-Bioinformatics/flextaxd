@@ -130,27 +130,42 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
 		annotated_genome = set()
+		remaining = set(self.refseqid_to_GCF.keys())
+		total_to_find = len(remaining)
 		try:
 			with gzip.open(annotation_file, "rb") as f:
 				headers = f.readline().split(b"\t")
+				line_count = 0
 				for row in f:
-					if row.strip() != "": ## If there are trailing empty lines in the file
-						if len(row.split(b"\t")) > 2:
-							try:
-								refseqid,taxid = row.split(b"\t")[1:3]
-							except:
-								logger.info(row)
-								logger.info(row.split(b"\t"))
-								if len(annotated_genome) > 0:
-									logger.info("Potential error in last row?")
-								else:
-									logger.info("Error on first line in annotation file, check format!")
-							try:
-								genebankid = self.refseqid_to_GCF[refseqid]
-								self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"),reference=reference)
-								annotated_genome.add(refseqid)
-							except KeyError:
-								pass
+					line_count += 1
+					if line_count % 5000000 == 0:
+						logger.info("Scanned {n}M lines, matched {m}/{t} sequences".format(
+							n=line_count // 1000000, m=total_to_find - len(remaining), t=total_to_find))
+					if not row.strip():
+						continue
+					cols = row.split(b"\t")
+					if len(cols) < 3:
+						continue
+					try:
+						refseqid = cols[1]
+						taxid = cols[2]
+					except:
+						logger.info(row)
+						logger.info(cols)
+						if len(annotated_genome) > 0:
+							logger.info("Potential error in last row?")
+						else:
+							logger.info("Error on first line in annotation file, check format!")
+						continue
+					if refseqid in remaining:
+						genebankid = self.refseqid_to_GCF[refseqid]
+						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"),reference=reference)
+						annotated_genome.add(refseqid)
+						remaining.discard(refseqid)
+						if not remaining:
+							logger.info("All {t} sequences matched, stopping early at line {n}".format(
+								t=total_to_find, n=line_count))
+							break
 				self.database.commit()
 		except zlib.error as e:
 			logger.info("Error in annotation file {e}".format(e=e))
