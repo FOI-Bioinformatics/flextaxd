@@ -5,7 +5,8 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .ReadTaxonomy import ReadTaxonomy
-from gzip import open as zopen
+from .genome_utils import extract_genome_id, FASTA_EXT
+import gzip
 import zlib
 import os
 import logging
@@ -76,9 +77,14 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 
 	def parse_genebank_file(self,filepath,filename):
 		logger.debug("Parse file {filename}".format(filename=filename))
-		genebankid = filename.split("_",2)
-		genebankid = genebankid[0]+"_"+genebankid[1]
-		f = zopen(filepath,"r")
+		genebankid = extract_genome_id(filename)
+		if genebankid is None:
+			logger.warning("Could not extract genome ID from filename: {f}".format(f=filename))
+			return
+		if filepath.endswith(".gz"):
+			f = gzip.open(filepath, "rb")
+		else:
+			f = open(filepath, "rb")
 		refseqid = f.readline().split(b" ")[0].lstrip(b">")
 		f.close()
 		self.refseqid_to_GCF[refseqid] = genebankid
@@ -87,12 +93,12 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 	def parse_nt_file(self,filepath,filename):
 		'''Parse large file with all nt entries'''
 		logger.info("Processing {file}".format(file=filename))
-		with zopen(filepath,"r") as f:
+		opener = gzip.open if filepath.endswith(".gz") else open
+		with opener(filepath, "rb") as f:
 			for row in f:
 				if row.startswith(b">"):
 					seqid = row.split(b" ")[0].lstrip(b">")
 					self.refseqid_to_GCF[seqid] = seqid.decode("utf-8")
-					#self.database.add_genome(genome=seqid,_id=taxid.decode("utf-8"),reference="nt")
 		return
 
 	def parse_genomeid2taxid(self, genomes_path,annotation_file,reference="refseq"):
@@ -100,7 +106,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			this function parses the accession2taxid file from NCBI to speed up the function and reduce the amount
 			of stored datata only sequences in input genomes_path will be fetched
 		'''
-		file_endings = (".fna",".fa",".fasta")
+		file_endings = FASTA_EXT
 		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path))
 		self.refseqid_to_GCF = {}
 		# Phase 1: Process explicitly specified multi-fasta files
@@ -115,7 +121,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		# Phase 2: Walk genomes_path, treat all files as single-genome (skip multi_fasta files)
 		for root, dirs, files in os.walk(genomes_path,followlinks=True):
 			for filename in files:
-				if filename.strip(".gz").endswith(file_endings):
+				if (filename[:-3] if filename.endswith(".gz") else filename).endswith(file_endings):
 					filepath = os.path.join(root, filename)
 					if os.path.abspath(filepath) in multi_fasta_abs:
 						continue
@@ -125,7 +131,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
 		annotated_genome = set()
 		try:
-			with zopen(annotation_file,"r") as f:
+			with gzip.open(annotation_file, "rb") as f:
 				headers = f.readline().split(b"\t")
 				for row in f:
 					if row.strip() != "": ## If there are trailing empty lines in the file

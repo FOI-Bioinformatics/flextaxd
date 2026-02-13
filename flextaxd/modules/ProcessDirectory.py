@@ -3,8 +3,9 @@
 Process directory
 '''
 
-import logging,os,re
+import logging,os
 from .database.DatabaseConnection import DatabaseFunctions
+from .genome_utils import extract_genome_id, FASTA_EXT
 logger = logging.getLogger(__name__)
 
 class ProcessDirectory(object):
@@ -76,56 +77,6 @@ class ProcessDirectory(object):
 		except KeyError:
 			return False
 
-	def is_gcf_gca(self,fname,debug=False):
-		'''Paramterers
-			str     - File name
-
-		------
-		Returns
-			str     - GCF name
-			boolean - false if not GCF/GCA
-		'''
-		try:
-			GCX,END,REST = fname.split("_",2)  ## If a name contains anything after the GCF number remove this if split by _
-			if debug:
-				logger.debug("[{} {} {}]".format(GCX,END,REST))
-			NUM,version = END.split(".",1)
-			if debug:
-				logger.debug("[{} {}]".format(NUM,version))
-			if GCX.startswith(("GCF","GCA")):                        ## Must start with GCF/GCA
-				if len(NUM) == 9 and NUM.isdigit():                    ## All true GCF/GCA names have 9 digits
-					if len(version) <= 2 and version.isdigit():      ## version number after . is 1-99 OBS -> Will have to be updated if a genome reach version number higher than 99
-						if fname.endswith(tuple(self.ref_ext)):         ## A genome downloaded from refseq or genbank will end with .fna
-							genome_name = "{GCX}_{NUM}.{version}".format(GCX=GCX,NUM=NUM,version=version)
-							return genome_name
-		except:        ## If the above is not true it is not a GCF file name return False
-			pass
-		return False
-
-	def is_gcf_gca_regex(self,fname,debug=False):
-		'''Paramterers
-			str     - File name
-
-		------
-		Returns
-			str     - GCF name
-			boolean - false if not GCF/GCA
-		'''
-		try:
-			# Check if input matches format GCx_ddddddddd.v , where x can be A or F and d is any digit and v is any digit (GCA/GCF accessions always have 9 digits)
-			#regex_pattern = r".*GC[A|F]_\d{9}\.\d*"
-			regex_pattern = r"GC[A|F]_\d{9}\.\d\.(fasta|fa|fna)"
-			match = re.search(regex_pattern,fname)
-			if match:
-				matched_string = match.group()
-				stripped_string = re.sub(f".*({regex_pattern}).*", r"\1", matched_string)
-				genome_name = stripped_string # should be formatted as GCX_123456789.1
-				return genome_name
-			#/
-		except:        ## If the above is not true it is not a GCF file name return False
-			pass
-		return False
-
 	def find_local(self,fname):
 		'''Check if file is a custom genome defined without extension
 		Parameters
@@ -149,7 +100,6 @@ class ProcessDirectory(object):
 		taxid = self.get_taxid(fname)
 		if not taxid:
 			'''This file had no match in the reference folder, perhaps it is not annotated in the database'''
-			self.is_gcf_gca(fname,True)
 			self.notused.add(fname)
 			logger.debug("#Warning {gcf} could not be matched to a database entry!".format(gcf=fname.strip()))
 		return taxid,fname
@@ -176,29 +126,17 @@ class ProcessDirectory(object):
 		Returns
 			boolean - true if file was processed
 			'''
-		'''The bulk of genomes is expected to come from official sources'''
-		genome_name = self.is_gcf_gca(fname)
+		'''Try extracting a genome ID (GCF/GCA or accession) from the filename'''
+		genome_name = extract_genome_id(fname)
 		if genome_name:
-			#print('[IDE] is_gcf_gca',fname)
 			taxid = self.get_taxid(genome_name)
-		'''If the file is not a GCF or GCA file check if the file starts with GCF/GCA but is a still a custom filename'''
+		'''If no match, fall back to custom filename lookups'''
 		if not taxid:
-			#print('[IDE] find_local',fname)
 			taxid,genome_name = self.find_local(fname)
-		'''If the file is still not matching a database entry use the complete name (including .fasta/.fna/.fa)'''
-		## Parse accession with regex, get node ID as taxid (this is done in the other cases too)
 		if not taxid:
-			accn = self.is_gcf_gca_regex(fname)
-			accn_noExt = os.path.splitext(accn)[0]
-			genome_name = accn_noExt # required to move on
-			taxid = self.get_taxid(accn_noExt) # required to move on
-		##/
-		if not taxid:
-			#print('[IDE] find_local_fasta',fname)
 			taxid,genome_name = self.find_local_fasta(fname)
-			
 		'''In official sources there is sometimes a file called from_genomic.fna; make sure this file does not get included in the file list'''
-		if not file.strip(".gz").endswith("from_genomic.fna") and taxid:
+		if not file.endswith("from_genomic.fna") and not file.endswith("from_genomic.fna.gz") and taxid:
 			filepath = os.path.join(root, file)  ## Save the path to the file
 			self.files.append(filepath)
 			self.genome_names.append(genome_name.strip())
@@ -224,7 +162,7 @@ class ProcessDirectory(object):
 		logger.debug("Extensions valid: ({f})".format(f=self.ext))
 		for root, dirs, files in os.walk(folder_path,followlinks=True):
 			for file in files:
-				fname = file.rstrip(".gz") ## remove gz if present
+				fname = file[:-3] if file.endswith(".gz") else file  ## remove .gz if present
 				if fname.endswith(tuple(self.ext)):
 					if count % 1000 == 0:
 						print("Processed {count} files/genomes".format(count=count), end="\r")
