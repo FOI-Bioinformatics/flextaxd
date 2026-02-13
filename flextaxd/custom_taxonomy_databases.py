@@ -121,7 +121,7 @@ def main():
     mod_opts.add_argument('-md', '--mod_database', '--mod_db', metavar="",default=False,            help="Database file containing modifications")
     mod_opts.add_argument('-gt', '--genomeid2taxid', metavar="", default=False,         help="File that lists which node a genome should be assigned to")
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
-    mod_opts.add_argument('-mf', '--multi_fasta', metavar="", nargs='+', default=[],     help='Path(s) to multi-fasta file(s) to include (e.g. nt subsets)')
+    mod_opts.add_argument('--multi_fasta', metavar="", nargs='+', default=[],             help='Path(s) to multi-fasta file(s) to include (e.g. nt subsets)')
     
     #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
     mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
