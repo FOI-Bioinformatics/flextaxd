@@ -214,7 +214,10 @@ class ModifyTree(object):
 		'''If node has no level (no rank), check if parent database had a classified level. If so default add level'''
 		try:
 			level = self.parent_levels[int(child_i)]
-			logger.info("Rank kept for {node}, {rank}".format(node=child, rank=level))
+			if True: #not self.taxonomy_type and level > 0: ## Higher ranks suggest wrong group (only 8 levels in bacteria), then skip
+				level = False
+			else:
+				logger.info("Rank kept for {node}, {rank}".format(node=child, rank=level))
 		except:
 			level = False
 		if not level:
