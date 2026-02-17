@@ -27,8 +27,8 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 	def write_missing(self,missing):
 		'''Write missing genomes to file'''
 		with open("FlexTaxD.not_added", "w") as of:
-			for gen in missing:
-				print(gen, end="\n", file=of)
+			for gen, source in missing:
+				print("{gen}\t{source}".format(gen=gen, source=source), end="\n", file=of)
 		return
 
 	def set_accession_file(self,file):
@@ -87,7 +87,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			f = open(filepath, "rb")
 		refseqid = f.readline().split(b" ")[0].lstrip(b">")
 		f.close()
-		self.refseqid_to_GCF[refseqid] = genebankid
+		self.refseqid_to_GCF[refseqid] = (genebankid, filepath)
 		return
 
 	def parse_nt_file(self,filepath,filename):
@@ -98,7 +98,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			for row in f:
 				if row.startswith(b">"):
 					seqid = row.split(b" ")[0].lstrip(b">")
-					self.refseqid_to_GCF[seqid] = seqid.decode("utf-8")
+					self.refseqid_to_GCF[seqid] = (seqid.decode("utf-8"), filepath)
 		return
 
 	def parse_genomeid2taxid(self, genomes_path,annotation_file,reference="refseq"):
@@ -135,12 +135,18 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		try:
 			with gzip.open(annotation_file, "rb") as f:
 				headers = f.readline().split(b"\t")
+				import sys
 				line_count = 0
+				last_pct = -1
 				for row in f:
 					line_count += 1
-					if line_count % 5000000 == 0:
-						logger.info("Scanned {n}M lines, matched {m}/{t} sequences".format(
-							n=line_count // 1000000, m=total_to_find - len(remaining), t=total_to_find))
+					if total_to_find > 0 and line_count % 500000 == 0:
+						matched = total_to_find - len(remaining)
+						pct = matched * 100 // total_to_find
+						if pct != last_pct:
+							sys.stderr.write("\rMatching sequences: {m}/{t} ({p}%)".format(m=matched, t=total_to_find, p=pct))
+							sys.stderr.flush()
+							last_pct = pct
 					if not row.strip():
 						continue
 					cols = row.split(b"\t")
@@ -158,7 +164,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 							logger.info("Error on first line in annotation file, check format!")
 						continue
 					if refseqid in remaining:
-						genebankid = self.refseqid_to_GCF[refseqid]
+						genebankid = self.refseqid_to_GCF[refseqid][0]
 						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"),reference=reference)
 						annotated_genome.add(refseqid)
 						remaining.discard(refseqid)
@@ -166,6 +172,8 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 							logger.info("All {t} sequences matched, stopping early at line {n}".format(
 								t=total_to_find, n=line_count))
 							break
+				if last_pct >= 0:
+					sys.stderr.write("\n")
 				self.database.commit()
 		except zlib.error as e:
 			logger.info("Error in annotation file {e}".format(e=e))
