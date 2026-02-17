@@ -100,7 +100,7 @@ class ModifyTree(object):
 			self.identical_nodes = set(self.taxonomydb.get_nodes(col=2).keys()) & set(self.moddb.get_nodes(col=2).keys())
 			self.dbmod_annotation = self.moddb.get_nodes(col=1)
 			self.modsource = self.parse_modification(self.moddb,"database")
-			
+
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
 		elif update_genomes or clean_database or update_node_names or rename_node or purge_database:
@@ -200,7 +200,7 @@ class ModifyTree(object):
 			return i,desc
 		else:
 			return i
-			
+
 
 	def _parse_new_links(self, parent=None,child=None,rank="no rank"):
 		'''Help function for parse_mod_file, gets existing node id or adds new node'''
@@ -329,6 +329,56 @@ class ModifyTree(object):
 			modparent = self.moddb.get_parent(self.moddb.get_id(self.parent))
 			logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
 		self.parent_levels = self.keep_levels(self.existing_links | parentlinks | set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes))))
+		if self.replace and len(self.existing_nodes) > 0:
+			existing_names = {name for name, nid in self.nodeDict.items() if nid in self.existing_nodes}
+			names_to_keep_in_identical = set()
+			duplicate_names = self.identical_nodes & existing_names
+			for name in duplicate_names:
+				try:
+					mod_parent_name = self.moddb.get_name(self.moddb.get_parent(self.moddb.get_id(name))[0])
+				except (TypeError, NameError):
+					continue
+				all_ids = [row[0] for row in self.taxonomydb.query(
+					'SELECT id FROM nodes WHERE name = "{name}"'.format(name=name)).fetchall()]
+				matching_ids = [nid for nid in all_ids if nid in self.existing_nodes]
+				if not matching_ids:
+					continue
+				has_mismatch = False
+				for nid in matching_ids:
+					parent_link = self.taxonomydb.get_parent(nid)
+					if parent_link and self.taxonomydb.get_name(parent_link[0]) != mod_parent_name:
+						has_mismatch = True
+						break
+				if not has_mismatch:
+					continue
+				if len(matching_ids) == 1:
+					# Single match — auto-resolve: keep existing taxid, use incoming parent
+					logger.info("Node '{name}' (id: {nid}): keeping taxid, updating parent to '{p}' (incoming)".format(
+						name=name, nid=matching_ids[0], p=mod_parent_name))
+				else:
+					# Multiple matches — prompt user to pick which branch
+					choices = []
+					for nid in matching_ids:
+						parent_link = self.taxonomydb.get_parent(nid)
+						parent_name = self.taxonomydb.get_name(parent_link[0]) if parent_link else "unknown"
+						choices.append("{parent} (id: {nid})".format(parent=parent_name, nid=nid))
+					print("\nNode '{name}' exists in multiple branches. Which is correct?".format(name=name))
+					for idx, choice in enumerate(choices, 1):
+						print("  {idx}) {choice}".format(idx=idx, choice=choice))
+					while True:
+						try:
+							import builtins
+							selection = int(builtins.input("Enter choice [1-{n}]: ".format(n=len(choices))))
+							if 1 <= selection <= len(choices):
+								break
+						except (ValueError, EOFError):
+							pass
+						print("Invalid choice, try again.")
+					selected = matching_ids[selection - 1]
+					self.nodeDict[name] = selected
+					logger.info("Node '{name}': using taxid {nid} (branch: {branch}), incoming parent '{p}'".format(
+						name=name, nid=selected, branch=choices[selection - 1], p=mod_parent_name))
+			self.identical_nodes -= (existing_names - names_to_keep_in_identical)
 		if modtype == "database":
 			self.mod_genomes = self.database_mod(input,self.parent)
 		elif modtype == "file":
@@ -577,7 +627,7 @@ class ModifyTree(object):
 			num_rows_before = self.taxonomydb.num_rows('genomes')
 			self.taxonomydb.delete_genomes(nodes_keep,genomes=genomes_list,match_genome_only=True)
 
-			
+
 			self.clean_database(ncbi=True)
 			num_rows_after = self.taxonomydb.num_rows('genomes')
 			num_rows_deleted = num_rows_before - num_rows_after
