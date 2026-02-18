@@ -249,8 +249,8 @@ def main():
             raise InputError("Argument --mod_file with a genomeid to nodeid map is required when adding new nodes to the database!")
 
     if args.genomeid2taxid and args.taxonomy_type == "NCBI":
-        if not args.genomes_path:
-            raise InputError("To annotate genomes to the NCBI database a path to genbank or refseq genomes folder needs to be given --genomes_path")
+        if not args.genomes_path and not args.multi_fasta:
+            raise InputError("To annotate genomes to the NCBI database either --genomes_path or --multi_fasta must be given")
 
     if force and args.taxonomy_file:
         '''Remove database if force is turned on and new source file is given'''

@@ -107,7 +107,7 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			of stored datata only sequences in input genomes_path will be fetched
 		'''
 		file_endings = FASTA_EXT
-		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path))
+		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path or "(none, multi_fasta only)"))
 		self.refseqid_to_GCF = {}
 		# Phase 1: Process explicitly specified multi-fasta files
 		multi_fasta_abs = set()
@@ -119,13 +119,14 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			else:
 				logger.warning("Multi-fasta file not found: {f}".format(f=mf_path))
 		# Phase 2: Walk genomes_path, treat all files as single-genome (skip multi_fasta files)
-		for root, dirs, files in os.walk(genomes_path,followlinks=True):
-			for filename in files:
-				if (filename[:-3] if filename.endswith(".gz") else filename).endswith(file_endings):
-					filepath = os.path.join(root, filename)
-					if os.path.abspath(filepath) in multi_fasta_abs:
-						continue
-					self.parse_genebank_file(filepath,filename)
+		if genomes_path:
+			for root, dirs, files in os.walk(genomes_path,followlinks=True):
+				for filename in files:
+					if (filename[:-3] if filename.endswith(".gz") else filename).endswith(file_endings):
+						filepath = os.path.join(root, filename)
+						if os.path.abspath(filepath) in multi_fasta_abs:
+							continue
+						self.parse_genebank_file(filepath,filename)
 		logger.info("genomes folder read, {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
