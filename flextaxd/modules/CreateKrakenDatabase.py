@@ -59,6 +59,8 @@ class CreateKrakenDatabase(object):
 			self.genome_path = genome_names					## genome_id to path dictionary
 		elif self.skip_genomes:
 			logger.info("Skipping individual genome processing, using pre-built library.")
+		elif kwargs.get("multi_fasta"):
+			logger.info("Multi-fasta source provided; genome directory processing skipped.")
 		else:
 			logger.warning("Genome names are missing. Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
@@ -301,6 +303,34 @@ class CreateKrakenDatabase(object):
 
 		logger.info("Number of genomes (multifiles not counted) succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
 		return
+
+	def process_multi_fasta_library(self, multi_fasta_files):
+		'''Process multi-fasta files: look up taxid per sequence and rewrite headers to kraken format.
+		Used when --multi_fasta is provided without --genomes_path.'''
+		library_path = "{db_path}/library".format(db_path=self.krakendb)
+		if not os.path.exists(library_path):
+			os.makedirs(library_path)
+		lib_fna = library_path + "/library.fna"
+		kraken_header = "kraken:taxid"
+		processed = 0
+		not_found = 0
+		with open(lib_fna, "w") as lib_out:
+			for mf_file in multi_fasta_files:
+				with zopen(mf_file, "r") as fh:
+					for line in fh:
+						if line.startswith(">"):
+							accession = line[1:].split()[0]
+							taxid = self.accession_to_taxid.get(accession)
+							if taxid and not self.krakenversion == "krakenuniq":
+								line = ">{acc}|{kh}|{taxid}  \n".format(acc=accession, kh=kraken_header, taxid=taxid)
+								processed += 1
+							elif taxid:
+								processed += 1
+							else:
+								logger.warning("No taxid found for {acc}".format(acc=accession))
+								not_found += 1
+						lib_out.write(line)
+		logger.info("Multi-fasta library created: {n} sequences annotated, {m} without taxid".format(n=processed, m=not_found))
 
 	def create_database(self,outdir,keep=False):
 		'''For test create a small database and run tests'''

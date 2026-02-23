@@ -251,17 +251,7 @@ def main():
             # Both multi_fasta and genomes_path: process genomes first, append multi_fasta later
             logger.info("Both --genomes_path and -mf provided; genomes will be processed first, then multi_fasta appended")
         else:
-            # Only multi_fasta: copy/append to library and skip genome processing
-            for i, mf_file in enumerate(args.multi_fasta):
-                redirect = ">" if i == 0 else ">>"
-                if mf_file.endswith(".gz"):
-                    os.system("zcat {src} {rd} {db_path}/library/library.fna".format(src=mf_file, rd=redirect, db_path=args.db_name))
-                elif i == 0:
-                    os.system("cp {src} {db_path}/library/library.fna".format(src=mf_file, db_path=args.db_name))
-                else:
-                    os.system("cat {src} >> {db_path}/library/library.fna".format(src=mf_file, db_path=args.db_name))
-            genomes=list(args.multi_fasta)
-            args.genomes_path=os.path.dirname(args.multi_fasta[0])
+            # Only multi_fasta: skip genome directory processing; library built by classifier
             skip=True
 
     ''' 1. Process genome_path directory'''
@@ -401,7 +391,8 @@ def main():
                                         verbose=args.verbose,
                                         tmpdir=args.tmpdir,
                                         create_lib=args.create_lib,
-                                        skip_genomes=skip_genomes
+                                        skip_genomes=skip_genomes,
+                                        multi_fasta=bool(args.multi_fasta)
         )
         report_time(current_time)
         if not skip:
@@ -417,6 +408,9 @@ def main():
                     else:
                         append_cmd = "cat {src} >> {db_path}/library/library.fna"
                     os.system(append_cmd.format(src=mf_file, db_path=args.db_name))
+        elif args.multi_fasta and not args.genomes_path:
+            logger.info("Processing multi_fasta: rewriting headers with taxid")
+            classifierDB.process_multi_fasta_library(args.multi_fasta)
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''

@@ -133,6 +133,9 @@ def main():
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
     mod_opts.add_argument('--purge_database','--purge_db',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)")
     mod_opts.add_argument('--purge_database_force','--purge_db_force', action='store_true',default=False,   help="If specified, will remove all genomes that are missing from the FlexTaxD-database, regardless if they are distinct nodes or not in the tree (default = FALSE)")
+    mod_opts.add_argument('--deduplicate', action='store_true',
+        help="Find and resolve duplicate node names in the database. "
+             "For each duplicate, choose which to rename with a _ suffix.")
 
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
@@ -279,6 +282,13 @@ def main():
         modify_obj = modify_module(database=args.database,clean_database=args.clean_database,taxid_base=args.taxid_base)
         modify_obj.clean_database(ncbi=ncbi)
     
+    '''Deduplicate database node names'''
+    if args.deduplicate:
+        modify_module = dynamic_import("modules", "ModifyTree")
+        modify_obj = modify_module(database=args.database,
+                                   deduplicate=True, taxid_base=args.taxid_base)
+        modify_obj.deduplicate()
+
     '''Purge database from entries that do not exist in --genomes_path [as known in flextaxd-create] directory'''
     if args.purge_database:
         # Check if genomes-folder provided by user exists

@@ -55,7 +55,7 @@ class TreeError(Exception):
 
 class ModifyTree(object):
 	"""docstring for ModifyTree."""
-	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False, purge_database=False,update_genomes=False, update_node_names=False,rename_node=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
+	def __init__(self, database=".taxonomydb", mod_database=False, mod_file=False, clean_database=False, purge_database=False,update_genomes=False, update_node_names=False,rename_node=False,deduplicate=False,separator="\t",verbose=False,parent=False,replace=False,**kwargs):
 		super(ModifyTree, self).__init__()
 		self.verbose = verbose
 		logger.info("Modify Tree")
@@ -103,7 +103,7 @@ class ModifyTree(object):
 
 		elif mod_file:
 			self.modsource = self.parse_modification(mod_file,"file")
-		elif update_genomes or clean_database or update_node_names or rename_node or purge_database:
+		elif update_genomes or clean_database or update_node_names or rename_node or purge_database or deduplicate:
 			pass
 		else:
 			raise InputError("No modification source could be found both mod_database and mod_file file are empty!")
@@ -159,43 +159,10 @@ class ModifyTree(object):
 		try:
 			## Check if parent node exists
 			i = self.nodeDict[desc]
-			if False: #desc == "Centipeda":
-				print("taxonomydb parent {p}, {desc}".format(p=self.taxonomydb.get_parent(self.taxonomydb.get_id(desc)),desc=desc))
-				print("moddb parent {p}, {i}".format(p=self.moddb.get_parent(self.moddb.get_id(desc)),i=i))
-				print(self.taxonomydb.get_name(self.taxonomydb.get_parent(self.taxonomydb.get_id(desc))[0]))
-				print(self.moddb.get_name(self.moddb.get_parent(self.moddb.get_id(desc))[0]))
-			'''Due to identical names in different groups the parent of node always have to be checked (if seeming nessesary)'''
-			'''This part of the code checks if the parent of the node ID is identical when existing, if not have to get unique ID'''
-			#logger.info("Parent node already exists, check if duplicated entry, if so add _ to incoming node to allow separation {desc}".format(desc))
-			#print(self.identical_nodes)
-			#print(set([desc]))
-			#print(set([desc]) & self.identical_nodes)
-			if len(set([desc]) & self.identical_nodes) > 0 and parent:
-				try:
-					if self.taxonomydb.get_name(self.taxonomydb.get_parent(self.taxonomydb.get_id(desc))[0]) != self.moddb.get_name(self.moddb.get_parent(self.moddb.get_id(desc))[0]):
-						#print("Old: ",desc, i)
-						_i = i
-						self.do_not_delete_old.add(i)
-						desc += "_"
-						try:
-							i = self.nodeDict[desc]
-						except KeyError:
-							i = self.add_node(desc)
-							logger.info("Identical nodes, add _ to make them unique: {Name}, new_taxid: {taxid}, dupid: {dupid}".format(Name=desc, taxid=i, dupid=_i))
-							self.nodeDict[desc] = i
-
-				except TypeError:
-					i = self.add_node(desc)
-					self.nodeDict[desc] = i
-
 		except KeyError:
-			#check if duplicate
-			try:
-				i = self.nodeDict[desc+"_"]
-			except KeyError:
-				'''Node does not exist, add node to the database'''
-				i = self.add_node(desc)
-				self.nodeDict[desc] = i
+			'''Node does not exist, add node to the database'''
+			i = self.add_node(desc)
+			self.nodeDict[desc] = i
 		if ret:
 			return i,desc
 		else:
@@ -330,7 +297,7 @@ class ModifyTree(object):
 			logger.info("{n} existing links to {parent} ({parentlinks}) ({modparent})".format(n=len(self.existing_links),parent=self.parent,parentlinks=parentlinks,modparent=modparent))
 		self.parent_levels = self.keep_levels(self.existing_links | parentlinks | set(self.taxonomydb.get_links((self.existing_nodes & self.new_nodes))))
 		if self.replace and len(self.existing_nodes) > 0:
-			existing_names = {name for name, nid in self.nodeDict.items() if nid in self.existing_nodes}
+			existing_names = {self.nodeDict[nid] for nid in self.existing_nodes if nid in self.nodeDict}
 			names_to_keep_in_identical = set()
 			duplicate_names = self.identical_nodes & existing_names
 			for name in duplicate_names:
@@ -353,6 +320,7 @@ class ModifyTree(object):
 					continue
 				if len(matching_ids) == 1:
 					# Single match — auto-resolve: keep existing taxid, use incoming parent
+					self.nodeDict[name] = matching_ids[0]
 					logger.info("Node '{name}' (id: {nid}): keeping taxid, updating parent to '{p}' (incoming)".format(
 						name=name, nid=matching_ids[0], p=mod_parent_name))
 				else:
@@ -546,6 +514,67 @@ class ModifyTree(object):
 		except:
 			print('Could not rename node. Make sure that it exists in the database')
 		return
+
+	def deduplicate(self):
+		'''Find all duplicate node names and prompt user to rename with _ suffix'''
+		import builtins
+		logger.info("Scanning for duplicate node names...")
+		dupes = self.taxonomydb.query(
+			"SELECT name, COUNT(*) as cnt FROM nodes GROUP BY name HAVING cnt > 1"
+		).fetchall()
+		if not dupes:
+			logger.info("No duplicate names found.")
+			return
+		logger.info("Found {n} names with duplicates.".format(n=len(dupes)))
+		renamed = 0
+		for name, count in dupes:
+			rows = self.taxonomydb.query(
+				'SELECT id FROM nodes WHERE name = "{name}"'.format(name=name)
+			).fetchall()
+			ids = [r[0] for r in rows]
+			print("\nDuplicate name: '{name}' ({n} nodes)".format(name=name, n=count))
+			choices = []
+			for nid in ids:
+				path = []
+				current = nid
+				try:
+					while True:
+						pl = self.taxonomydb.get_parent(current)
+						if not pl or pl[0] == current:
+							break
+						path.append(self.taxonomydb.get_name(pl[0]))
+						current = pl[0]
+				except (TypeError, NameError):
+					pass
+				lineage = " > ".join(reversed(path))
+				choices.append((nid, lineage))
+				print("  {idx}) id: {nid}  lineage: {lineage} > {name}".format(
+					idx=len(choices), nid=nid, lineage=lineage, name=name))
+			print("  0) Skip (do not rename any)")
+			while True:
+				try:
+					sel = int(builtins.input(
+						"Which node should be renamed to '{name}_'? [0-{n}]: ".format(
+							name=name, n=len(choices))))
+					if 0 <= sel <= len(choices):
+						break
+				except (ValueError, EOFError):
+					pass
+				print("Invalid choice, try again.")
+			if sel == 0:
+				continue
+			rename_id = choices[sel - 1][0]
+			new_name = name + "_"
+			self.taxonomydb.query(
+				'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
+					new=new_name, nid=rename_id))
+			logger.info("Renamed '{name}' (id: {nid}) to '{new}'".format(
+				name=name, nid=rename_id, new=new_name))
+			renamed += 1
+		self.taxonomydb.commit()
+		logger.info("Deduplication complete. Renamed {n} nodes.".format(n=renamed))
+		logger.info("Validating tree...")
+		self.taxonomydb.validate_tree()
 
 	def clean_database(self, ncbi=False):
 		'''Function that removes all node and node paths without annotation'''
