@@ -515,8 +515,11 @@ class ModifyTree(object):
 			print('Could not rename node. Make sure that it exists in the database')
 		return
 
-	def deduplicate(self):
-		'''Find all duplicate node names and prompt user to rename with _ suffix'''
+	def deduplicate(self, auto_eukaryota=True):
+		'''Find all duplicate node names and prompt user to rename with _ suffix.
+		When auto_eukaryota=True (default), duplicates where all copies are within
+		Eukaryota are renamed automatically (keep lowest taxid). All other duplicates
+		prompt the user. Pass --no_auto_eukaryota to always prompt.'''
 		import builtins
 		logger.info("Scanning for duplicate node names...")
 		dupes = self.taxonomydb.query(
@@ -527,12 +530,12 @@ class ModifyTree(object):
 			return
 		logger.info("Found {n} names with duplicates.".format(n=len(dupes)))
 		renamed = 0
+		auto_renamed = 0
 		for name, count in dupes:
 			rows = self.taxonomydb.query(
 				'SELECT id FROM nodes WHERE name = "{name}"'.format(name=name)
 			).fetchall()
 			ids = [r[0] for r in rows]
-			print("\nDuplicate name: '{name}' ({n} nodes)".format(name=name, n=count))
 			choices = []
 			for nid in ids:
 				path = []
@@ -547,9 +550,23 @@ class ModifyTree(object):
 				except (TypeError, NameError):
 					pass
 				lineage = " > ".join(reversed(path))
-				choices.append((nid, lineage))
+				choices.append((nid, lineage, path))
+			# Auto-rename if all copies are within Eukaryota: keep lowest taxid
+			if auto_eukaryota and all("Eukaryota" in path for _, _, path in choices):
+				for nid, lineage, _ in sorted(choices, key=lambda x: x[0])[1:]:
+					new_name = name + "_"
+					self.taxonomydb.query(
+						'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
+							new=new_name, nid=nid))
+					logger.info("Auto-renamed '{name}' (id: {nid}) to '{new}' (all within Eukaryota)".format(
+						name=name, nid=nid, new=new_name))
+					auto_renamed += 1
+				continue
+			# Prompt for duplicates spanning different branches
+			print("\nDuplicate name: '{name}' ({n} nodes)".format(name=name, n=count))
+			for idx, (nid, lineage, _) in enumerate(choices, 1):
 				print("  {idx}) id: {nid}  lineage: {lineage} > {name}".format(
-					idx=len(choices), nid=nid, lineage=lineage, name=name))
+					idx=idx, nid=nid, lineage=lineage, name=name))
 			print("  0) Skip (do not rename any)")
 			while True:
 				try:
@@ -572,7 +589,8 @@ class ModifyTree(object):
 				name=name, nid=rename_id, new=new_name))
 			renamed += 1
 		self.taxonomydb.commit()
-		logger.info("Deduplication complete. Renamed {n} nodes.".format(n=renamed))
+		logger.info("Deduplication complete. Auto-renamed {a} (Eukaryota), manually renamed {n} nodes.".format(
+			a=auto_renamed, n=renamed))
 		logger.info("Validating tree...")
 		self.taxonomydb.validate_tree()
 

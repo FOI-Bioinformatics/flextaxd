@@ -136,7 +136,11 @@ def main():
     mod_opts.add_argument('--deduplicate', action='store_true',
         help="Find and resolve duplicate node names in the database. "
              "For each duplicate, choose which to rename with a _ suffix.")
+    mod_opts.add_argument('--no_auto_eukaryota', dest='auto_eukaryota', action='store_false',
+        help="Disable automatic renaming of Eukaryota-internal duplicates (default: auto-rename, prompt only for cross-branch duplicates)")
 
+
+    parser.set_defaults(auto_eukaryota=True)
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
     out_opts.add_argument('--dbprogram','--db_program', metavar="", default=False,choices=__programs_supported__,  help="Adjust output file to certain output specifications ["+", ".join(__programs_supported__)+"]")
@@ -287,7 +291,7 @@ def main():
         modify_module = dynamic_import("modules", "ModifyTree")
         modify_obj = modify_module(database=args.database,
                                    deduplicate=True, taxid_base=args.taxid_base)
-        modify_obj.deduplicate()
+        modify_obj.deduplicate(auto_eukaryota=args.auto_eukaryota)
 
     '''Purge database from entries that do not exist in --genomes_path [as known in flextaxd-create] directory'''
     if args.purge_database:
