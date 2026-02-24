@@ -556,9 +556,10 @@ class ModifyTree(object):
 			in_eukaryota = ["Eukaryota" in path for _, _, path in choices]
 			in_bacteria  = ["Bacteria"  in path for _, _, path in choices]
 			# Auto-rename if all copies are within Eukaryota: keep lowest taxid, rename others
+			# Use incremental underscores (name_, name__, ...) to avoid creating new duplicates
 			if auto_eukaryota and all(in_eukaryota):
-				for nid, lineage, _ in sorted(choices, key=lambda x: x[0])[1:]:
-					new_name = name + "_"
+				for i, (nid, lineage, _) in enumerate(sorted(choices, key=lambda x: x[0])[1:], 1):
+					new_name = name + "_" * i
 					self.taxonomydb.query(
 						'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
 							new=new_name, nid=nid))
@@ -567,16 +568,17 @@ class ModifyTree(object):
 					auto_renamed += 1
 				continue
 			# Auto-rename if split between Eukaryota and Bacteria: rename the Eukaryota copy/copies
+			# Use incremental underscores if there are multiple Eukaryota copies
 			if auto_eukaryota and any(in_eukaryota) and any(in_bacteria) and all(e or b for e, b in zip(in_eukaryota, in_bacteria)):
-				for (nid, lineage, _), is_euk in zip(choices, in_eukaryota):
-					if is_euk:
-						new_name = name + "_"
-						self.taxonomydb.query(
-							'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
-								new=new_name, nid=nid))
-						logger.info("Auto-renamed '{name}' (id: {nid}) to '{new}' (Eukaryota vs Bacteria)".format(
-							name=name, nid=nid, new=new_name))
-						auto_renamed += 1
+				euk_nodes = sorted([(nid, lineage) for (nid, lineage, _), is_euk in zip(choices, in_eukaryota) if is_euk], key=lambda x: x[0])
+				for i, (nid, lineage) in enumerate(euk_nodes, 1):
+					new_name = name + "_" * i
+					self.taxonomydb.query(
+						'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
+							new=new_name, nid=nid))
+					logger.info("Auto-renamed '{name}' (id: {nid}) to '{new}' (Eukaryota vs Bacteria)".format(
+						name=name, nid=nid, new=new_name))
+					auto_renamed += 1
 				continue
 			# Prompt for duplicates spanning other branches
 			print("\nDuplicate name: '{name}' ({n} nodes)".format(name=name, n=count))
