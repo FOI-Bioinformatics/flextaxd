@@ -517,9 +517,11 @@ class ModifyTree(object):
 
 	def deduplicate(self, auto_eukaryota=True):
 		'''Find all duplicate node names and prompt user to rename with _ suffix.
-		When auto_eukaryota=True (default), duplicates where all copies are within
-		Eukaryota are renamed automatically (keep lowest taxid). All other duplicates
-		prompt the user. Pass --no_auto_eukaryota to always prompt.'''
+		When auto_eukaryota=True (default):
+		  - All copies within Eukaryota: keep lowest taxid, rename others automatically.
+		  - Split between Eukaryota and Bacteria: rename the Eukaryota copy automatically.
+		  - Any other cross-branch conflict: prompt the user.
+		Pass --no_auto_eukaryota to always prompt.'''
 		import builtins
 		logger.info("Scanning for duplicate node names...")
 		dupes = self.taxonomydb.query(
@@ -551,8 +553,10 @@ class ModifyTree(object):
 					pass
 				lineage = " > ".join(reversed(path))
 				choices.append((nid, lineage, path))
-			# Auto-rename if all copies are within Eukaryota: keep lowest taxid
-			if auto_eukaryota and all("Eukaryota" in path for _, _, path in choices):
+			in_eukaryota = ["Eukaryota" in path for _, _, path in choices]
+			in_bacteria  = ["Bacteria"  in path for _, _, path in choices]
+			# Auto-rename if all copies are within Eukaryota: keep lowest taxid, rename others
+			if auto_eukaryota and all(in_eukaryota):
 				for nid, lineage, _ in sorted(choices, key=lambda x: x[0])[1:]:
 					new_name = name + "_"
 					self.taxonomydb.query(
@@ -562,7 +566,19 @@ class ModifyTree(object):
 						name=name, nid=nid, new=new_name))
 					auto_renamed += 1
 				continue
-			# Prompt for duplicates spanning different branches
+			# Auto-rename if split between Eukaryota and Bacteria: rename the Eukaryota copy/copies
+			if auto_eukaryota and any(in_eukaryota) and any(in_bacteria) and all(e or b for e, b in zip(in_eukaryota, in_bacteria)):
+				for (nid, lineage, _), is_euk in zip(choices, in_eukaryota):
+					if is_euk:
+						new_name = name + "_"
+						self.taxonomydb.query(
+							'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
+								new=new_name, nid=nid))
+						logger.info("Auto-renamed '{name}' (id: {nid}) to '{new}' (Eukaryota vs Bacteria)".format(
+							name=name, nid=nid, new=new_name))
+						auto_renamed += 1
+				continue
+			# Prompt for duplicates spanning other branches
 			print("\nDuplicate name: '{name}' ({n} nodes)".format(name=name, n=count))
 			for idx, (nid, lineage, _) in enumerate(choices, 1):
 				print("  {idx}) id: {nid}  lineage: {lineage} > {name}".format(
