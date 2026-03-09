@@ -8,6 +8,26 @@ from .database.DatabaseConnection import ModifyFunctions
 import logging,os
 logger = logging.getLogger(__name__)
 import math
+
+# NCBI taxonomy names that intentionally appear many times across the tree.
+# These are descriptive/catch-all names, not real taxonomic entities — skip during dedup.
+DEDUP_SKIP_PATTERNS = frozenset({
+	"environmental samples",
+	"clinical samples",
+	"metagenomes",
+	"other sequences",
+	"artificial sequences",
+	"unclassified sequences",
+	"mixed culture",
+	"mixed EST libraries",
+	"mixed libraries",
+})
+DEDUP_SKIP_PREFIXES = (
+	"unclassified",
+	"uncultured",
+	"candidate division",
+	"incertae sedis",
+)
 #from .database.database import database
 
 def progressBar(iterable, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
@@ -525,7 +545,7 @@ class ModifyTree(object):
 		import builtins
 		logger.info("Scanning for duplicate node names...")
 		dupes = self.taxonomydb.query(
-			"SELECT name, COUNT(*) as cnt FROM nodes GROUP BY name HAVING cnt > 1"
+			"SELECT name, COUNT(*) as cnt FROM nodes GROUP BY name HAVING cnt > 1 ORDER BY name"
 		).fetchall()
 		if not dupes:
 			logger.info("No duplicate names found.")
@@ -533,9 +553,15 @@ class ModifyTree(object):
 		logger.info("Found {n} names with duplicates.".format(n=len(dupes)))
 		renamed = 0
 		auto_renamed = 0
+		skipped = 0
 		for name, count in dupes:
+			name_lower = name.lower()
+			if name_lower in DEDUP_SKIP_PATTERNS or name_lower.startswith(DEDUP_SKIP_PREFIXES):
+				logger.debug("Skipping catch-all name '{name}' ({n} copies)".format(name=name, n=count))
+				skipped += 1
+				continue
 			rows = self.taxonomydb.query(
-				'SELECT id FROM nodes WHERE name = "{name}"'.format(name=name)
+				'SELECT id FROM nodes WHERE name = "{name}" ORDER BY id'.format(name=name)
 			).fetchall()
 			ids = [r[0] for r in rows]
 			choices = []
@@ -589,7 +615,7 @@ class ModifyTree(object):
 			while True:
 				try:
 					sel = int(builtins.input(
-						"Which node should be renamed to '{name}_'? [0-{n}]: ".format(
+						"Which node should be KEPT as '{name}'? [0-{n}]: ".format(
 							name=name, n=len(choices))))
 					if 0 <= sel <= len(choices):
 						break
@@ -598,17 +624,19 @@ class ModifyTree(object):
 				print("Invalid choice, try again.")
 			if sel == 0:
 				continue
-			rename_id = choices[sel - 1][0]
-			new_name = name + "_"
-			self.taxonomydb.query(
-				'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
-					new=new_name, nid=rename_id))
-			logger.info("Renamed '{name}' (id: {nid}) to '{new}'".format(
-				name=name, nid=rename_id, new=new_name))
-			renamed += 1
+			keep_id = choices[sel - 1][0]
+			others = [(nid, lin) for (nid, lin, _) in choices if nid != keep_id]
+			for i, (nid, _) in enumerate(others, 1):
+				new_name = name + "_" * i
+				self.taxonomydb.query(
+					'UPDATE nodes SET name = "{new}" WHERE id = {nid}'.format(
+						new=new_name, nid=nid))
+				logger.info("Renamed '{name}' (id: {nid}) to '{new}'".format(
+					name=name, nid=nid, new=new_name))
+			renamed += len(others)
 		self.taxonomydb.commit()
-		logger.info("Deduplication complete. Auto-renamed {a} (Eukaryota), manually renamed {n} nodes.".format(
-			a=auto_renamed, n=renamed))
+		logger.info("Deduplication complete. Auto-renamed {a} (Eukaryota), manually renamed {n} nodes, skipped {s} catch-all names.".format(
+			a=auto_renamed, n=renamed, s=skipped))
 		logger.info("Validating tree...")
 		self.taxonomydb.validate_tree()
 
