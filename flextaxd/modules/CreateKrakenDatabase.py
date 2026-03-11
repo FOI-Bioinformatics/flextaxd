@@ -304,19 +304,38 @@ class CreateKrakenDatabase(object):
 		logger.info("Number of genomes (multifiles not counted) succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
 		return
 
-	def process_multi_fasta_library(self, multi_fasta_files):
+	def process_multi_fasta_library(self, multi_fasta_files, append=False):
 		'''Process multi-fasta files: look up taxid per sequence and rewrite headers to kraken format.
-		Used when --multi_fasta is provided without --genomes_path.
-		Sequences without a taxid are skipped — Kraken2 cannot use them anyway.'''
+		Sequences without a taxid are skipped — Kraken2 cannot use them anyway.
+		Also writes the prelim_map so kraken2-build --build can map sequences to taxids.
+
+		append=False (default): fresh library.fna + prelim_map written directly in krakendb/library/
+		append=True: appends to existing library.fna; prelim_map entries added to tmpdir so
+		             create_database() picks them up when copying to krakendb/library/.
+		'''
 		library_path = "{db_path}/library".format(db_path=self.krakendb)
 		if not os.path.exists(library_path):
 			os.makedirs(library_path)
 		lib_fna = library_path + "/library.fna"
+		file_mode = "a" if append else "w"
+		## When appending alongside genomes_path output, write prelim_map into tmpdir so
+		## create_database() picks it up together with the genome-path prelim_map entries.
+		## When multi_fasta is the only source, write directly into krakendb/library/.
+		if append:
+			if self.krakenversion == "krakenuniq":
+				prelim_map_path = "{tmpdir}/prelim.map".format(tmpdir=self.tmpdir.rstrip("/"))
+			else:
+				prelim_map_path = "{tmpdir}/prelim_map.txt".format(tmpdir=self.tmpdir.rstrip("/"))
+		else:
+			if self.krakenversion == "krakenuniq":
+				prelim_map_path = library_path + "/prelim.map"
+			else:
+				prelim_map_path = library_path + "/prelim_map.txt"
 		kraken_header = "kraken:taxid"
 		processed = 0
 		not_found = 0
 		include = False
-		with open(lib_fna, "w") as lib_out:
+		with open(lib_fna, file_mode) as lib_out, open(prelim_map_path, file_mode) as map_out:
 			for mf_file in multi_fasta_files:
 				with zopen(mf_file, "r") as fh:
 					for line in fh:
@@ -327,6 +346,10 @@ class CreateKrakenDatabase(object):
 								include = True
 								if not self.krakenversion == "krakenuniq":
 									line = ">{acc}|{kh}|{taxid}  \n".format(acc=accession, kh=kraken_header, taxid=taxid)
+									map_out.write("TAXID\t{acc}|{kh}|{taxid}\t{taxid}\n".format(
+										acc=accession, kh=kraken_header, taxid=taxid))
+								else:
+									map_out.write("{acc}\t{taxid}\n".format(acc=accession, taxid=taxid))
 								processed += 1
 							else:
 								include = False
@@ -334,7 +357,7 @@ class CreateKrakenDatabase(object):
 								not_found += 1
 						if include:
 							lib_out.write(line)
-		logger.info("Multi-fasta library created: {n} sequences annotated, {m} skipped (no taxid)".format(n=processed, m=not_found))
+		logger.info("Multi-fasta library: {n} sequences annotated, {m} skipped (no taxid)".format(n=processed, m=not_found))
 
 	def create_database(self,outdir,keep=False):
 		'''For test create a small database and run tests'''

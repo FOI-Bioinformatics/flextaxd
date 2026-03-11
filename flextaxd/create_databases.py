@@ -399,15 +399,12 @@ def main():
             logger.info("Create library.fna")
             classifierDB.create_library_from_files(multifiles)
             logger.info("Genomes processed from folder: {n}".format(n=len(genomes)))
-            # Append multi_fasta to library.fna if both -mf and --genomes_path were provided
+            # Append multi_fasta to library when both -mf and --genomes_path were provided.
+            # Must rewrite headers and append prelim_map entries — raw cat would produce
+            # sequences with no taxid mapping that kraken2-build silently ignores.
             if args.multi_fasta and args.genomes_path:
-                logger.info("Appending multi_fasta to library.fna")
-                for mf_file in args.multi_fasta:
-                    if mf_file.endswith(".gz"):
-                        append_cmd = "zcat {src} >> {db_path}/library/library.fna"
-                    else:
-                        append_cmd = "cat {src} >> {db_path}/library/library.fna"
-                    os.system(append_cmd.format(src=mf_file, db_path=args.db_name))
+                logger.info("Appending multi_fasta to library.fna (with taxid annotation)")
+                classifierDB.process_multi_fasta_library(args.multi_fasta, append=True)
         elif args.multi_fasta and not args.genomes_path:
             logger.info("Processing multi_fasta: rewriting headers with taxid")
             classifierDB.process_multi_fasta_library(args.multi_fasta)
