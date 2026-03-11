@@ -335,7 +335,7 @@ class DatabaseFunctions(DatabaseConnection):
 			QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 			logger.debug(QUERY)
 			child_w_dp = self.query(QUERY).fetchall()
-			QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=",".join(map(str,list(*child_w_dp))))
+			QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=",".join(map(str,[row[0] for row in child_w_dp])))
 			p_ranks = self.query(QUERY).fetchall()
 			if len(p_ranks) != len(set(p_ranks)):
 				logger.error("Nodes with two parents have identical ranks, Fatal Error")

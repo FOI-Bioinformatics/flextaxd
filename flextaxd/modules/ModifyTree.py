@@ -195,8 +195,16 @@ class ModifyTree(object):
 		if not child and parent:
 			raise InputError("links requires both child and parent!")
 		parent_i,parent = self.get_id(parent,ret=True)
+		if self.replace and parent_i not in self._replace_scope and parent_i not in self.new_nodes:
+			parent_i = self.add_node(parent)
+			self.nodeDict[parent] = parent_i
+			logger.debug("Replace: parent '{p}' (id: {id}) outside replace scope, created new node".format(p=parent,id=parent_i))
 		self.new_nodes.add(parent_i)
 		child_i,child = self.get_id(child,ret=True,parent=True)
+		if self.replace and child_i not in self._replace_scope and child_i not in self.new_nodes:
+			child_i = self.add_node(child)
+			self.nodeDict[child] = child_i
+			logger.debug("Replace: child '{c}' (id: {id}) outside replace scope, created new node".format(c=child,id=child_i))
 		self.new_nodes.add(child_i)
 		'''If node has no level (no rank), check if parent database had a classified level. If so default add level'''
 		try:
@@ -309,6 +317,8 @@ class ModifyTree(object):
 			raise InputError("The selected parent node ({parent}) could not be found in the source database!".format(parent=self.parent))
 		self.existing_nodes = self.taxonomydb.get_children(set([self.taxonomydb.get_id(self.parent)])) ## - set([self.taxonomydb.get_id(self.parent)] )
 		logger.info("{n} children to {parent}".format(n=len(self.existing_nodes),parent=self.parent))
+		if self.replace:
+			self._replace_scope = self.existing_nodes | {self.taxonomydb.get_id(self.parent)}
 		if len(self.existing_nodes) > 0:
 			self.existing_links = set(self.taxonomydb.get_links(self.existing_nodes))
 		parentlinks = set(self.taxonomydb.get_links([self.taxonomydb.get_id(self.parent)]))
