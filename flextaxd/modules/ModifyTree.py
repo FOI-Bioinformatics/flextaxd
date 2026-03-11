@@ -194,14 +194,16 @@ class ModifyTree(object):
 		## add new nodes
 		if not child and parent:
 			raise InputError("links requires both child and parent!")
+		parent_exists = parent in self.nodeDict
 		parent_i,parent = self.get_id(parent,ret=True)
-		if self.replace and parent_i not in self._replace_scope and parent_i not in self.new_nodes:
+		if self.replace and parent_exists and parent_i not in self._replace_scope and parent_i not in self.new_nodes:
 			parent_i = self.add_node(parent)
 			self.nodeDict[parent] = parent_i
 			logger.debug("Replace: parent '{p}' (id: {id}) outside replace scope, created new node".format(p=parent,id=parent_i))
 		self.new_nodes.add(parent_i)
+		child_exists = child in self.nodeDict
 		child_i,child = self.get_id(child,ret=True,parent=True)
-		if self.replace and child_i not in self._replace_scope and child_i not in self.new_nodes:
+		if self.replace and child_exists and child_i not in self._replace_scope and child_i not in self.new_nodes:
 			child_i = self.add_node(child)
 			self.nodeDict[child] = child_i
 			logger.debug("Replace: child '{c}' (id: {id}) outside replace scope, created new node".format(c=child,id=child_i))
