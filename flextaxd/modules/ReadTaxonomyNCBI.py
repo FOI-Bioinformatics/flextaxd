@@ -24,9 +24,9 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.accessionfile = False
 		self.multi_fasta = kwargs.get("multi_fasta", [])
 
-	def write_missing(self,missing):
+	def write_missing(self,missing,outfile="FlexTaxD.not_added"):
 		'''Write missing genomes to file'''
-		with open("FlexTaxD.not_added", "w") as of:
+		with open(outfile, "w") as of:
 			for gen, source in missing:
 				print("{gen}\t{source}".format(gen=gen, source=source), end="\n", file=of)
 		return
@@ -181,8 +181,10 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		missing = set(self.refseqid_to_GCF.keys()) - annotated_genome
 		missing = [self.refseqid_to_GCF[m] for m in missing] ## Translate to GCF ids
 		if logging.root.level <=20: ## Equal to --verbose
-			logger.info("Printing non added genome id´s (GCF) to ./FlexTaxD.not_added")
-			self.write_missing(missing)
+			db_stem = os.path.splitext(os.path.basename(self.database.database))[0]
+			not_added_file = "{db}.not_added".format(db=db_stem)
+			logger.info("Printing non added genome id´s (GCF) to ./{f}".format(f=not_added_file))
+			self.write_missing(missing, outfile=not_added_file)
 		logger.debug(missing)  ## If debug also print genomes to terminal
 		logger.info("Genomes not matching any annotation {len}".format(len=len(missing)))
 		return missing
