@@ -138,6 +138,21 @@ def main():
     if not os.path.exists(args.database):
         raise FileNotFoundError("No database file could be found, please provide a FlexTaxD database to run FlexTaxD!")
 
+    ## Expand any directory paths in --multi_fasta to the FASTA files they contain
+    if args.multi_fasta:
+        from flextaxd.modules.genome_utils import FASTA_EXT
+        expanded = []
+        for path in args.multi_fasta:
+            if os.path.isdir(path):
+                for root, dirs, files in os.walk(path, followlinks=True):
+                    for fname in sorted(files):
+                        bare = fname[:-3] if fname.endswith(".gz") else fname
+                        if bare.endswith(FASTA_EXT):
+                            expanded.append(os.path.join(root, fname))
+            else:
+                expanded.append(path)
+        args.multi_fasta = expanded
+
 
     '''Log file and verbose options'''
     logval = args.supress

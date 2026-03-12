@@ -219,6 +219,21 @@ def main():
 
     ### Run pipeline
 
+    ## Expand any directory paths in --multi_fasta to the FASTA files they contain
+    if args.multi_fasta:
+        from flextaxd.modules.genome_utils import FASTA_EXT
+        expanded = []
+        for path in args.multi_fasta:
+            if os.path.isdir(path):
+                for root, dirs, files in os.walk(path, followlinks=True):
+                    for fname in sorted(files):
+                        bare = fname[:-3] if fname.endswith(".gz") else fname
+                        if bare.endswith(FASTA_EXT):
+                            expanded.append(os.path.join(root, fname))
+            else:
+                expanded.append(path)
+        args.multi_fasta = expanded
+
     '''If database is not given, and input data is not given raise error'''
     if not os.path.exists(args.database) and not args.taxonomy_file:
         raise InputError("Database {db} does not exist and no source file was provided!".format(db=args.database))
