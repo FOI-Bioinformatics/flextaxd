@@ -300,6 +300,9 @@ class CreateKrakenDatabase(object):
 		if not os.path.exists("{krakendb}/taxonomy".format(outdir=outdir, krakendb=self.krakendb)):
 			logger.info("mkdir -p {krakendb}/taxonomy".format(outdir=outdir, krakendb=self.krakendb))
 			os.system("mkdir -p {krakendb}/taxonomy".format(outdir=outdir, krakendb=self.krakendb))
+		if not os.path.exists("{krakendb}/library".format(krakendb=self.krakendb)):
+			logger.info("mkdir -p {krakendb}/library".format(krakendb=self.krakendb))
+			os.system("mkdir -p {krakendb}/library".format(krakendb=self.krakendb))
 		logger.info("cp {outdir}/*.dmp {krakendb}/taxonomy".format(outdir=outdir,krakendb=self.krakendb))
 		os.system("cp {outdir}/*names.dmp {krakendb}/taxonomy/names.dmp".format(outdir=outdir,krakendb=self.krakendb))
 		os.system("cp {outdir}/*nodes.dmp {krakendb}/taxonomy/nodes.dmp".format(outdir=outdir,krakendb=self.krakendb))

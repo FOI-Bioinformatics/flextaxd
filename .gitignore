@@ -9,3 +9,5 @@ test*
 dist*
 logs*
 wiki/
+summary/
+*.md
