@@ -116,11 +116,13 @@ class CreateKrakenDatabase(object):
 	def kraken_fasta_header_multiproc(self,genomes):
 		'''function to run addition of genomes in paralell'''
 		logger.info("Processing files; create kraken seq.map")
+		import multiprocessing
+		fork_ctx = multiprocessing.get_context('fork')
 		jobs = []
 		manager = Manager()
 		added = manager.Queue()
 		for i in range(self.processes):
-			p = Process(target=self.kraken_fasta_header, args=(genomes[i],added))
+			p = fork_ctx.Process(target=self.kraken_fasta_header, args=(genomes[i],added))
 			p.daemon=True
 			p.start()
 			jobs.append(p)
