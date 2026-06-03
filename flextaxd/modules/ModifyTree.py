@@ -231,7 +231,6 @@ class ModifyTree(object):
 		else:
 			rank_i = level
 		self.new_links.add((parent_i,child_i,rank_i))
-		## If child was renamed due to duplicate detection, also add parent link for original node
 		if child.endswith("_"):
 			original_name = child[:-1]
 			if original_name in self.nodeDict:

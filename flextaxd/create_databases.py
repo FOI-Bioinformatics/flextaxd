@@ -21,6 +21,17 @@ import shutil
 
 latest_genome_reps = "https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_genomes_reps.tar.gz"
 
+def _get_multifasta_files(path):
+    import os
+    if os.path.isdir(path):
+        return [os.path.join(path, f) for f in os.listdir(path)]
+    return [path]
+
+def _append_fasta_to_library(mf, db_path):
+    import os
+    cmd = "zcat" if mf.endswith(".gz") else "cat"
+    os.system("{cmd} {source} >> {db_path}/library/library.fna".format(cmd=cmd, source=mf, db_path=db_path))
+
 ## If script is executed run pipeline of selected options
 def main():
     ###################################--system imports--####################################
@@ -87,7 +98,7 @@ def main():
     basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
     #basic.add_argument('--dump_map',metavar="", type=str, default=False , help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
     basic.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
-    basic.add_argument('--multifasta', '-mf', '--mf', metavar="", type=str, default=False, help="Path to a multifasta file or folder of multifasta files to add to the database library")
+    basic.add_argument('--multifasta', '-mf', '--mf', metavar="", type=str, default=None, help="Path to a multifasta file or folder of multifasta files to add to the database library")
     basic.add_argument('-mfp', '--multifile_prefix', metavar="",type=str,default=False, help="If multiple datafiles, list file prefix to handle as multi files")
 
     ### Download options, process local directory and potentially download files
@@ -226,10 +237,8 @@ def main():
             logger.info("Merge input fasta with library.fna")
             if args.multifasta:
                 logger.info("Nucleotide source transferred to library")
-                mf_files = [os.path.join(args.multifasta, f) for f in os.listdir(args.multifasta)] if os.path.isdir(args.multifasta) else [args.multifasta]
-                for mf in mf_files:
-                    cmd = "zcat" if mf.endswith(".gz") else "cat"
-                    os.system("{cmd} {source} >> {db_path}/library/library.fna".format(cmd=cmd, source=mf, db_path=args.db_name))
+                for mf in _get_multifasta_files(args.multifasta):
+                    _append_fasta_to_library(mf, args.db_name)
             else:
                 exit("No large input file given")
         elif ans.strip() in ["u", "U"]:
@@ -240,14 +249,12 @@ def main():
             exit("Cancel execution!")
     else:
         if args.multifasta and not args.genomes_path:
-            # Only multifasta provided, no genomes_path: copy/concat to library.fna and skip genome processing
             logger.info("Nucleotide source transferred to library")
-            mf_files = [os.path.join(args.multifasta, f) for f in os.listdir(args.multifasta)] if os.path.isdir(args.multifasta) else [args.multifasta]
+            mf_files = _get_multifasta_files(args.multifasta)
             if not os.path.exists("{db_path}/library".format(db_path=args.db_name)):
                 os.makedirs("{db_path}/library".format(db_path=args.db_name))
             for mf in mf_files:
-                cmd = "zcat" if mf.endswith(".gz") else "cat"
-                os.system("{cmd} {source} >> {db_path}/library/library.fna".format(cmd=cmd, source=mf, db_path=args.db_name))
+                _append_fasta_to_library(mf, args.db_name)
             genomes = mf_files
             args.genomes_path = args.multifasta if os.path.isdir(args.multifasta) else os.path.dirname(args.multifasta)
             skip = True
@@ -369,10 +376,8 @@ def main():
             classifierDB.create_library_from_files(multifiles)
             if args.multifasta:
                 logger.info("Appending multifasta files to library")
-                mf_files = [os.path.join(args.multifasta, f) for f in os.listdir(args.multifasta)] if os.path.isdir(args.multifasta) else [args.multifasta]
-                for mf in mf_files:
-                    cmd = "zcat" if mf.endswith(".gz") else "cat"
-                    os.system("{cmd} {source} >> {db_path}/library/library.fna".format(cmd=cmd, source=mf, db_path=args.db_name))
+                for mf in _get_multifasta_files(args.multifasta):
+                    _append_fasta_to_library(mf, args.db_name)
         logger.info("Genome folder preprocessing completed!")
 
     ''' 4. Create database'''

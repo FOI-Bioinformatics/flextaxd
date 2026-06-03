@@ -10,6 +10,7 @@ import gzip
 import random
 import os
 import glob
+import multiprocessing
 from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
@@ -116,7 +117,6 @@ class CreateKrakenDatabase(object):
 	def kraken_fasta_header_multiproc(self,genomes):
 		'''function to run addition of genomes in paralell'''
 		logger.info("Processing files; create kraken seq.map")
-		import multiprocessing
 		fork_ctx = multiprocessing.get_context('fork')
 		jobs = []
 		manager = Manager()
