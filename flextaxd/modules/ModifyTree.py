@@ -231,13 +231,6 @@ class ModifyTree(object):
 		else:
 			rank_i = level
 		self.new_links.add((parent_i,child_i,rank_i))
-		if child.endswith("_"):
-			original_name = child[:-1]
-			if original_name in self.nodeDict:
-				original_i = self.nodeDict[original_name]
-				if original_i in self.do_not_delete_old:
-					self.new_links.add((parent_i, original_i, rank_i))
-					self.new_nodes.add(original_i)
 		return
 
 	def database_mod(self,database,parent="root"):
@@ -358,7 +351,7 @@ class ModifyTree(object):
 			raise InputError("Wrong modification input database or file must be supplied")
 		### get links from current database
 		logger.info("Old links keep from duplicated taxonomy nodes {nodes}".format(nodes=self.do_not_delete_old))
-		self.old_nodes = self.existing_nodes - (self.new_nodes | self.do_not_delete_old)
+		self.old_nodes = self.existing_nodes - (self.new_nodes)
 		logger.info("nodes:")
 		logger.info("old: {old}".format(old=len(self.old_nodes)))
 		logger.info("new: {new}".format(new=len(self.new_nodes)))

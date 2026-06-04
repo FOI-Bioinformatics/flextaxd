@@ -189,10 +189,9 @@ class ProcessDirectory(object):
 		## Parse accession with regex, get node ID as taxid (this is done in the other cases too)
 		if not taxid:
 			accn = self.is_gcf_gca_regex(fname)
-			if accn:
-				accn_noExt = os.path.splitext(accn)[0]
-				genome_name = accn_noExt # required to move on
-				taxid = self.get_taxid(accn_noExt) # required to move on
+			accn_noExt = os.path.splitext(accn)[0]
+			genome_name = accn_noExt # required to move on
+			taxid = self.get_taxid(accn_noExt) # required to move on
 		##/
 		if not taxid:
 			#print('[IDE] find_local_fasta',fname)

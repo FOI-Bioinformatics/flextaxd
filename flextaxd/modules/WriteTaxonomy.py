@@ -109,7 +109,7 @@ class WriteTaxonomy(object):
 		'''Check duplicated indexes and give them unique IDs before print'''
 		QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 		child_w_dpi = self.database.query(QUERY).fetchall()  ## Fetch all conflicting links and give them unique index before printing
-		child_w_dpi = [row[0] for row in child_w_dpi]
+		child_w_dpi = list(*child_w_dpi)
 		lmax = 10000000
 		if len(child_w_dpi) > 0:
 			self.nodeDict = self.database.get_nodes(col=1)
