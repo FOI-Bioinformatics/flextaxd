@@ -357,7 +357,7 @@ class NewickTree(object):
 		'''Check duplicated indexes and give them unique IDs before print'''
 		QUERY = "SELECT child FROM tree WHERE child in ({nodes}) GROUP BY child HAVING count(parent) > 1 ".format(nodes=",".join(map(str,nodes)))  ## Thanks to andrewjmc@github for this suggestion
 		child_w_dpi = self.database.query(QUERY).fetchall()  ## Fetch all conflicting links and give them unique index before printing
-		child_w_dpi = list(*child_w_dpi)
+		child_w_dpi = [x[0] for x in child_w_dpi]
 		return child_w_dpi
 
 	def fix_names(self,nodes,tn,tr):
