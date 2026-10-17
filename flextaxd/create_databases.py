@@ -14,8 +14,15 @@ __date__ = "2020-10-30"
 __status__ = "Beta"
 __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
-from flextaxd.custom_taxonomy_databases import __version__
-from flextaxd.modules.functions import read_skip_file
+try:
+    from .custom_taxonomy_databases import __version__
+    from .modules.functions import read_skip_file
+except ImportError:
+    ### Script executed directly, add the package parent to path and import absolutely
+    import os, sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from flextaxd.custom_taxonomy_databases import __version__
+    from flextaxd.modules.functions import read_skip_file
 from importlib import import_module
 import shutil
 
