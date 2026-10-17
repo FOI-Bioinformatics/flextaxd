@@ -143,23 +143,17 @@ class DownloadGenomes(object):
                 print("{n} downloaded".format(added.qsize()),end="\r")
 
             count = 0
-            while True:
-                if self.added == 0: ## Check if no genome was succesfully downlaoded if no break
-                    logger.info("None of listed genomes could be downloaded! Files not downloaded will be printed to {outdir}/FlexTaxD.missing".format(outdir=self.outdir.rstrip("/")))
-                    self.write_missing(files)
-                    break
-                l = len(self.genome_names)
-                gen = added.get()
-                if gen:
+            if self.added == 0: ## Check if no genome was succesfully downlaoded if no break
+                logger.info("None of listed genomes could be downloaded! Files not downloaded will be printed to {outdir}/FlexTaxD.missing".format(outdir=self.outdir.rstrip("/")))
+                self.write_missing(files)
+            else:
+                for _ in range(self.added):
+                    gen = added.get()
                     self.genome_names += gen
                     self.genome_path[gen] = fpath.get()
-                    if l == len(self.genome_names):
-                        break
-                else:
+                while missing.qsize():
                     self.not_downloaded += missing.get()
                     count+=1
-                if added.qsize():
-                    break
             if len(self.not_downloaded) > 0:
                 self.write_missing(self.not_downloaded)
         except KeyboardInterrupt:
