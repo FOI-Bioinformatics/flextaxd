@@ -82,9 +82,7 @@ class WriteTaxonomy(object):
 	def set_minimal(self):
 		logging.debug("Set minimal output to True!")
 		self.dbprogram = None
-		if self.separator != "\t|\t":
-			self.separator = separator
-		else:
+		if self.separator == "\t|\t":
 			self.separator = "\t"
 		self.minimal=True
 

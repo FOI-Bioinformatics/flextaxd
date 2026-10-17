@@ -47,7 +47,7 @@ def get_section(accession):
 	Returns
 		str refseq or genbank
 	'''
-	if accession.strip()[2] == "F":
+	if accession.strip().startswith("GCF"):
 		return "refseq"
 	return "genbank"
 

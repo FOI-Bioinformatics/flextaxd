@@ -30,9 +30,11 @@ class DatabaseConnection(object):
 		self.database = database
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
+			cmd = '"{python}" "{script}" "{database}"'.format(python=sys.executable,script=os.path.join(BASE_DIR,"CreateDatabase.py"),database=self.database)
 			if self.verbose:
-				logger.debug("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
-			os.system("python {path}/CreateDatabase.py {database}".format(path=BASE_DIR,database=self.database))
+				logger.debug(cmd)
+			if os.system(cmd) != 0:
+				raise ConnectionError("Could not create the database {database}, see message above for details!".format(database=self.database))
 		try: ## If database connection already exists
 			self.conn
 		except AttributeError:
