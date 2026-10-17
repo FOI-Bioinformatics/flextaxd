@@ -34,6 +34,7 @@ class ReadTaxonomy(object):
 		self.length = 0
 		self.ids = 0
 		self.qiime = 0
+		self.skipped = []
 
 		## Add base node
 		self.root = self.add_node("root")
@@ -43,6 +44,21 @@ class ReadTaxonomy(object):
 
 	def set_qiime(self,opt):
 		self.qiime = opt
+
+	def write_skipped(self):
+		'''Write and print rows/genomes skipped during parsing, so the user knows what was not added to the database'''
+		if not self.skipped:
+			return False
+		if self.taxonomy_file:
+			skipped_file = "{file}.skipped".format(file=self.taxonomy_file)
+		else:
+			skipped_file = "FlexTaxD.skipped"
+		with open(skipped_file,"w") as of:
+			for entry,reason in self.skipped:
+				logger.warning("Skipped {entry}: {reason}".format(entry=entry,reason=reason))
+				print("{entry}\t{reason}".format(entry=entry,reason=reason), end="\n", file=of)
+		logger.warning("{n} rows/genomes skipped, listed in {file}".format(n=len(self.skipped),file=skipped_file))
+		return skipped_file
 
 	def zopen(self, path,*args, **kwargs):
 		'''Redefine open to handle zipped files automatically'''
@@ -160,5 +176,7 @@ class ReadTaxonomy(object):
 						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()],reference=reference)
 					except KeyError:
 						logger.warning("# WARNING: {taxid} not found in the database".format(taxid=taxid))
+						self.skipped.append((genomeid.strip(),"taxid {taxid} not found in the database".format(taxid=taxid)))
 			self.database.commit()
+		self.write_skipped()
 		return

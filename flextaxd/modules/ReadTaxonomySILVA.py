@@ -45,13 +45,19 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 					tree,info = row.strip().rsplit(";",1) ## separate tree from info columns
 				except ValueError:
 					logger.debug("Row {row} could not be parsed".format(row=row))
+					self.skipped.append((row.strip(),"row could not be parsed"))
 					continue
 				nodes = tree.strip().split(";")  ## get node and all its parents in a list.
 				info = info.lstrip("\t")
 				try:
 					taxid,rank,_ = info.split("\t",2)
 				except ValueError:
-					taxid,rank = info.split("\t")
+					try:
+						taxid,rank = info.split("\t")
+					except ValueError:
+						logger.debug("Row {row} could not be parsed".format(row=row))
+						self.skipped.append((row.strip(),"row could not be parsed"))
+						continue
 				child = nodes[-1]  ## get name of child node
 				self.add_rank(rank)
 				'''If the tree was not properly formatted an a parent is missing make sure that function works anyway by adding any parent node above child'''
@@ -66,6 +72,7 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 				child_i = self.add_node(child,id=taxid)
 				self.add_link(child_i,parent_i,rank=rank)
 		self.database.commit()
+		self.write_skipped()
 		self.length = len(self.taxonomy)                ## Check number of new nodes added
 		self.taxid_num = len(self.taxonomy)
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))

@@ -404,6 +404,7 @@ class ModifyTree(object):
 		#	update[""]
 		updated = 0
 		added = 0
+		skipped = []
 		with open(genomeid2taxid) as f:
 			for row in f:
 				try:
@@ -424,6 +425,7 @@ class ModifyTree(object):
 
 				except KeyError:
 					logger.debug("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
+					skipped.append((genome.strip(),"no database entry for node {name}".format(name=name)))
 				else:
 					## If no exception occured add genome
 					update["set_value"] = id
@@ -435,6 +437,13 @@ class ModifyTree(object):
 						else:
 							added += 1
 		self.taxonomydb.commit()
+		if skipped:
+			skipped_file = "{file}.skipped".format(file=genomeid2taxid)
+			with open(skipped_file,"w") as of:
+				for entry,reason in skipped:
+					logger.warning("Skipped genome {entry}: {reason}".format(entry=entry,reason=reason))
+					print("{entry}\t{reason}".format(entry=entry,reason=reason), end="\n", file=of)
+			logger.warning("{n} genome annotations skipped, listed in {file}".format(n=len(skipped),file=skipped_file))
 		gid = self.taxonomydb.get_genomes()
 		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
