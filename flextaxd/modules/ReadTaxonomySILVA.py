@@ -41,7 +41,11 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 		logger.info("Parse SILVA tree file")
 		with self.zopen(self.taxonomy_file,"r") as f:
 			for row in f:
-				tree,info = row.strip().rsplit(";",1) ## separate tree from info columns
+				try:
+					tree,info = row.strip().rsplit(";",1) ## separate tree from info columns
+				except ValueError:
+					logger.debug("Row {row} could not be parsed".format(row=row))
+					continue
 				nodes = tree.strip().split(";")  ## get node and all its parents in a list.
 				info = info.lstrip("\t")
 				try:

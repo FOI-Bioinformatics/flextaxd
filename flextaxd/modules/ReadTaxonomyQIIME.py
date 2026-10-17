@@ -125,9 +125,10 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 							'''Greengenes adaption, empty levels'''
 
 						#print(genome_id)
-					except IndexError:
+					except (IndexError, ValueError):
 						logger.debug("Row {row} could not be parsed".format(row=data))
 						self.errors +=1
+						continue
 					### Walk through tree and make sure all nodes back to root are annotated!
 					taxonomy = list(reversed(data[-1].split(";")))
 					taxonomy_i = self.parse_tree(taxonomy)
