@@ -85,7 +85,7 @@ class DatabaseConnection(object):
 			return self.cursor
 		except Exception as e:
 			sys.stderr.write(str(e))
-		raise ConnectionError("Count not create db cursor to {database}".format(database=database))
+		raise ConnectionError("Count not create db cursor to {database}".format(database=self.database))
 
 	def commit(self):
 		self.conn.commit()
@@ -355,12 +355,12 @@ class DatabaseFunctions(DatabaseConnection):
 			logger.info("AttributeError occured")
 			logger.info(QUERY)
 			logger.info(child_w_dp)
-			logger.debug(te)
+			logger.debug(ae)
 		except TypeError as ae:
 			logger.info("TypeError occured")
 			logger.info(QUERY)
 			logger.info(child_w_dp)
-			logger.debug(te)
+			logger.debug(ae)
 		raise TreeError("Following Nodes: {node} has more than one parent!".format(node=child_w_dp))
 
 	'''Get functions of class'''
