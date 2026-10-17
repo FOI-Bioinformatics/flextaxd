@@ -198,7 +198,7 @@ class DatabaseConnection(object):
 		'''.format(table=table,
 					values=','.join(["?" for x in nodes])
 		)
-		return self.query(DELETE_QUERY,insert_val=values)
+		return self.query(DELETE_QUERY,insert_val=tuple(nodes))
 
 	def rowcount(self):
 		'''Get the number row number the cursor is currently at
@@ -338,7 +338,7 @@ class DatabaseFunctions(DatabaseConnection):
 			child_w_dp = self.query(QUERY).fetchall()
 			logger.debug(child_w_dp)
 			## Bugfix  only allowed one parent to be different, now multiple is ok as long as ranks are different
-			for child in map(str,list(*list(zip(*child_w_dp)))):
+			for child in map(str,[x[0] for x in child_w_dp]):
 				QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=child)
 				p_ranks = self.query(QUERY).fetchall()
 				if len(p_ranks) != len(set(p_ranks)):
