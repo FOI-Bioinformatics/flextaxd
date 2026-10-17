@@ -376,14 +376,12 @@ def main():
 
     ''' 4. Create database'''
     if args.create_db:
+        if not args.db_name:
+            logger.error("#Error: No database name was given!")
+            exit()
         report_time(current_time)
         logger.info("Create database")
-        try:
-            classifierDB.create_database(args.tmpdir,args.keep)
-        except UnboundLocalError as e:
-            logger.error("#Error: No database name was given!")
-            logger.error("#UnboundLocalError "+e)
-            exit()
+        classifierDB.create_database(args.tmpdir,args.keep)
 
     '''Clean up temp files'''
     if os.path.exists(args.tmpdir) and not args.keep:

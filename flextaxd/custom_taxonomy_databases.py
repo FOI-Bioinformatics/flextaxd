@@ -80,7 +80,9 @@ def main():
         read_modules = ['GTDB'] # GTDB will be remapped to QIIME when argparse'd
         for script in os.listdir(BASE_DIR+"/modules"):
             if script.startswith("ReadTaxonomy"):
-                modname = script.lstrip("ReadTaxonomy").rstrip(".py")
+                modname = script[len("ReadTaxonomy"):]
+                if modname.endswith(".py"):
+                    modname = modname[:-3]
                 if modname != "":
                     read_modules.append(modname)
         return sorted(read_modules)
@@ -377,7 +379,7 @@ def main():
     if args.dump or args.dump_mini:
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
         nameprefix,nodeprefix = args.dump_prefix.split(",")
-        if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp")) and not force:
+        if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nodeprefix+".dmp")) and not force:
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:
                 exit("Dump already exists, abort!")
