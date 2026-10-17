@@ -734,6 +734,8 @@ class ModifyFunctions(DatabaseFunctions):
 		'''
 		if level >= maxdepth:
 			return children
+		if not parents:
+			return children
 		QUERY = '''SELECT child FROM tree WHERE parent in({nodes})'''.format(nodes=",".join(map(str,list(parents))))
 
 		if selected:
