@@ -797,6 +797,8 @@ class ModifyFunctions(DatabaseFunctions):
 			name = set(list(map(int,[x[0] for x in name]))) ## Make sure all names are int
 		if isinstance(name, int):
 			name = [name]
+		if not name:
+			return parents
 		if len(name & set([1])) > 0 and not ncbi:
 			#print(name)
 			return parents
@@ -870,7 +872,7 @@ class ModifyFunctions(DatabaseFunctions):
 			res = self.query(QUERY,insert_val=(id,),error=True).fetchone()[0]
 		except TypeError:
 			logger.debug(QUERY)
-			raise NameError("Name not found in the database! {name}".format(name=name))
+			raise NameError("Name not found in the database! {id}".format(id=id))
 		return res
 
 	def update_table(self,data,table):
