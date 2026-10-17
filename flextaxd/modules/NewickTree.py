@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 try:
 	import inquirer
 except:
-	Raise(ImportError("The package inquirer is required for flextaxd visualisation"))
+	raise(ImportError("The package inquirer is required for flextaxd visualisation"))
 
 
 __version__ = "0.0.1"

@@ -177,6 +177,7 @@ def read_skip_file(fin):
 	tset = set()
 	gset = set()
 	result = {"tax_id":tset,"genome_id":gset}
+	ldict = gset ## default for header-less files (genome ids one per row)
 	with open(fin) as f:
 		for row in f:
 			data = row.strip().split("\t")[0]

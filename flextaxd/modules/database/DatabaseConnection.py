@@ -848,9 +848,9 @@ class ModifyFunctions(DatabaseFunctions):
 		------
 			int - node id from node name
 		'''
-		QUERY = '''SELECT id FROM nodes WHERE name = "{node}" COLLATE NOCASE'''.format(node=name)
+		QUERY = '''SELECT id FROM nodes WHERE name = ? COLLATE NOCASE'''
 		try:
-			res = self.query(QUERY).fetchone()[0]
+			res = self.query(QUERY,insert_val=(name,),error=True).fetchone()[0]
 		except TypeError:
 			logger.debug(QUERY)
 			raise NameError("Name not found in the database! {name}".format(name=name))
@@ -863,9 +863,9 @@ class ModifyFunctions(DatabaseFunctions):
 		------
 			char - node id from node name
 		'''
-		QUERY = '''SELECT name FROM nodes WHERE id = "{node}" COLLATE NOCASE'''.format(node=id)
+		QUERY = '''SELECT name FROM nodes WHERE id = ?'''
 		try:
-			res = self.query(QUERY).fetchone()[0]
+			res = self.query(QUERY,insert_val=(id,),error=True).fetchone()[0]
 		except TypeError:
 			logger.debug(QUERY)
 			raise NameError("Name not found in the database! {name}".format(name=name))

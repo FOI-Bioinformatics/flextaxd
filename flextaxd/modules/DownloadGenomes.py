@@ -55,7 +55,9 @@ class DownloadGenomes(object):
         '''Write missing genomes to file'''
         with open("{outdir}/FlexTaxD.missing".format(outdir=self.outdir), "w") as of:
             for gen in missing:
-                print(gen["genome_id"], end="\n", file=of)
+                if type(gen) == type(dict()):
+                    gen = gen["genome_id"]
+                print(gen, end="\n", file=of)
         return
 
     def download_represenatives(self,genome_path,url="https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/genomic_files_reps/gtdb_genomes_reps.tar.gz"):
@@ -152,7 +154,7 @@ class DownloadGenomes(object):
                     self.genome_names += gen
                     self.genome_path[gen] = fpath.get()
                 while missing.qsize():
-                    self.not_downloaded += missing.get()
+                    self.not_downloaded.append(missing.get())
                     count+=1
             if len(self.not_downloaded) > 0:
                 self.write_missing(self.not_downloaded)
