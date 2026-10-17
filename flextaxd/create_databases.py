@@ -196,7 +196,7 @@ def main():
         lskip = False
         dump_prefix = "names,nodes"
         nameprefix,nodeprefix = dump_prefix.split(",")
-        if (os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp")):
+        if (os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.tmpdir.rstrip("/")+"/"+nodeprefix+".dmp")):
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite, yes/cancel/no? (y/c/n): ")
             if ans in ["c","C","cancel", "Cancel"]:
                 exit("Dump already exists, abort!")
@@ -229,7 +229,7 @@ def main():
                 logger.info("Nucleotide source transfered to library")
                 if args.nt_source.endswith(".gz"):
                     cmd = "zcat"    
-                os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
+                os.system("{cmd} {large_source} >> {db_path}/library/library.fna".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
             else:
                 exit("No large input file given")
         elif ans.strip() in ["u", "U"]:

@@ -131,9 +131,8 @@ class ModifyTree(object):
 		if not child and parent:
 			raise TreeError("A link requires both a child and a parent!")
 		self.taxonomydb.add_link(child=child,parent=parent,rank=self.rank[rank])
-		if not self.database.check_parent(child):
+		if self.taxonomydb.check_parent():
 			raise TreeError("Node {child} has more than one parent!".format(child=child))
-		self.ids+=1
 		return
 
 	def add_node(self, description):

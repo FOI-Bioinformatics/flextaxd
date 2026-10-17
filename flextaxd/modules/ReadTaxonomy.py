@@ -51,7 +51,7 @@ class ReadTaxonomy(object):
 				## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
 				args = (str(*args)+"t",)
 			else:
-				args = ("rt")
+				args = ("rt",)
 			return gzip.open(path,*args,**kwargs)
 		return open(path,*args,**kwargs)
 
