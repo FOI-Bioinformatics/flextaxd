@@ -76,13 +76,11 @@ def check_taxonomic_group(accession,section=False,force=False):
 			pass #logger.debug(e)
 	'''group could not be found in section, if X on try other section'''
 	'''This should not be done as genomes removed from RefSeq usually are better to skip'''
-	if force:
-		accession=list(accession)
-		if accession[2] == "A":
-			accession[2] = "F"
+	if force and (accession.startswith("GCF") or accession.startswith("GCA")):
+		if accession.startswith("GCF"):
+			accession = "GCA" + accession[3:]
 		else:
-			accession[2] = "A"
-		accession = ''.join(accession)
+			accession = "GCF" + accession[3:]
 		group,section,accession = check_taxonomic_group(accession,section=swap_section[section])
 		if group:
 			return group,section,accession
