@@ -7,11 +7,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 from modules.functions import download_genomes
-from multiprocessing import Process,Manager,Pool
+from multiprocessing import Process,Manager
 from subprocess import Popen,PIPE,STDOUT
 import subprocess
 import sys
-import os,time,zipfile,re,shutil
+import os,time,zipfile,re,shutil,shlex
 
 class DownloadGenomes(object):
     """DownloadGenomes takes a list of genome names (GCF or GCA) and download (if possible) files from NCBI refseq and or genbank"""
@@ -118,6 +118,9 @@ class DownloadGenomes(object):
         Returns
             list - list of files not downloaded
         '''
+        if not files:
+            logger.info("No genomes to download")
+            return self.not_downloaded
         try:
             logger.info("Downloading {files} files".format(files=len(files)))
             if len(files) < self.processes:
@@ -141,8 +144,6 @@ class DownloadGenomes(object):
             self.added = added.qsize()
             if not any(proc.is_alive() for proc in jobs):
                 logger.info('All download processes completed')
-            elif len(added.qsize()) % 100 == 0:
-                print("{n} downloaded".format(added.qsize()),end="\r")
 
             count = 0
             if self.added == 0: ## Check if no genome was succesfully downlaoded if no break
@@ -151,7 +152,7 @@ class DownloadGenomes(object):
             else:
                 for _ in range(self.added):
                     gen = added.get()
-                    self.genome_names += gen
+                    self.genome_names.append(gen)
                     self.genome_path[gen] = fpath.get()
                 while missing.qsize():
                     self.not_downloaded.append(missing.get())
@@ -171,13 +172,24 @@ class DownloadGenomes(object):
         return self.not_downloaded
 
     def download_from_file(self,inputfile,exclude="",all=False):
-        '''Download files with ncbis download script using an accession input file'''
+        '''Download files with the NCBI datasets program using an accession input file'''
         if not all:
             exclude = " ".join([exclude,"--exclude-gff3 --exclude-protein --exclude-rna --exclude-genomic-cds"])
-        args = ["genome", "accession" ,"--inputfile", inputfile, exclude]
-        p = Popen(args, stdout=PIPE,cwd=self.location)
+        '''self.location is only set by download_represenatives, this entry point needs its own download folder'''
+        self.location = self.download_path.rstrip("/") + "/downloads"
+        if not os.path.isdir(self.location):
+            os.makedirs(self.location)
+        args = ["datasets","download","genome","accession","--inputfile",inputfile] + exclude.split()
+        logger.debug(" ".join(args))
+        try:
+            p = Popen(args, stdout=PIPE,cwd=self.location)
+        except OSError:
+            logger.error("The NCBI 'datasets' program could not be found, install it or use --download to fetch genomes through FlexTaxD")
+            return False
         (output, err) = p.communicate()
         p_status = p.wait()
+        if p_status != 0:
+            logger.error("NCBI datasets download failed with exit code {code}".format(code=p_status))
         return self.location
 
     def download_genomes(self,genomes_list):
@@ -318,7 +330,7 @@ class DownloadGenomes(object):
                         genome_fa_new_name = stripped_string+'.fna' # should be formatted as GCX_123456789.1
                     if genome_fa_new_name:
                         os.rename(genome_fa_path,self.download_path+'/'+genome_fa_new_name) # move the file
-                        os.system('gzip '+self.download_path+'/'+genome_fa_new_name) # gzip the file
+                        os.system('gzip ' + shlex.quote(self.download_path+'/'+genome_fa_new_name)) # gzip the file
                     else:
                         logger.debug('WARNING: was unable to move genome for '+str(dirname)+', attempted new path:'+str(genome_fa_new_name))
                 else:

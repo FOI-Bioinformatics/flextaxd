@@ -29,7 +29,15 @@ class ProcessDirectory(object):
 		else:
 			self.multifile_prefix = False
 		self.located_mfiles = []
+		self.notused = set()
 		#logger.debug(self.genome_id_dict)
+
+	def strip_gz(self, name):
+		'''Remove a real .gz suffix. str.strip/rstrip take a set of characters, so
+				a name starting or ending with g, z or . would lose those characters too'''
+		if name.endswith(".gz"):
+			return name[:-3]
+		return name
 
 	def get_genome_names(self):
 		'''
@@ -199,7 +207,7 @@ class ProcessDirectory(object):
 			taxid,genome_name = self.find_local_fasta(fname)
 			
 		'''In official sources there is sometimes a file called from_genomic.fna; make sure this file does not get included in the file list'''
-		if not file.strip(".gz").endswith("from_genomic.fna") and taxid:
+		if not self.strip_gz(file).endswith("from_genomic.fna") and taxid:
 			filepath = os.path.join(root, file)  ## Save the path to the file
 			self.files.append(filepath)
 			self.genome_names.append(genome_name.strip())
@@ -220,17 +228,17 @@ class ProcessDirectory(object):
 		self.notused = set()
 		download_files = []
 		if not folder_path:
-			raise IOError("Parameter --genomes_path was not set".format(folder_path))
+			raise IOError("Parameter --genomes_path was not set")
 		logger.info("Process genome path ({path})".format(path=folder_path))
 		logger.debug("Extensions valid: ({f})".format(f=self.ext))
 		for root, dirs, files in os.walk(folder_path,followlinks=True):
 			for file in files:
-				fname = file.rstrip(".gz") ## remove gz if present
+				fname = self.strip_gz(file) ## remove gz if present
 				if fname.endswith(tuple(self.ext)):
 					if count % 1000 == 0:
 						print("Processed {count} files/genomes".format(count=count), end="\r")
 					if self.multifile_prefix:
-						if fname.lower().startswith(self.multifile_prefix):
+						if fname.lower().startswith(tuple(self.mfiles)):
 							print("Processing multifile {mfile}".format(mfile=fname), end="\r")
 							count+=1
 							self.process_multi_file(file,fname,root)

@@ -94,6 +94,9 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		level, description = current_level.split("__")
 		'''Fix greengenes bug with empty end nodes'''
 		if description == "":
+			if current_i + 1 >= len(tree):
+				'''All levels were empty, no description could be found'''
+				return level, description
 			level, description = self.parse_description(tree,current_i+1)
 		return level,description
 
@@ -109,11 +112,12 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		_ref = reference
 		refDict = {"RS":"refseq","GB":"genbank"}  ## Refdict for GTDB formatted sources
 		taxid_start = self.taxid_base
-		with open(self.input) as f:
+		with self.zopen(self.input,"rt") as f:
 			'''Each row defines a genome annotation file connected to a tree level'''
 			for row in f:
 				if row.strip() != "":  ## If there are trailing empty lines in the file
 					data = row.strip().split("\t")
+					reference = _ref  ## reset per row, otherwise rows without the GTDB RS_/GB_ prefix keep the previous reference or stay unbound
 					try:
 						if data[0].startswith(("RS","GB")):
 							'''GTDB genome annotations contain one additional annotation to their genome names eg. RS_, this function removes this'''

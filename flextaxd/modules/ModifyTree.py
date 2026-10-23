@@ -66,7 +66,6 @@ class ModifyTree(object):
 
 		self.parent=parent
 		self.replace = replace
-		self.ncbi_order = True
 		self.mod_genomes =False
 
 		self.fast_clean = True
@@ -482,7 +481,7 @@ class ModifyTree(object):
 					else:
 						added += 1
 			else:
-				allupdates.append("({id},'{genomeid}')".format(id=id,genomeid=genomeid))
+				allupdates.append("({id},'{genomeid}')".format(id=id,genomeid=str(genomeid).replace("'","''")))
 		if len(self.mod_genomes) >= 100:
 			update["set_value"] = "id"
 			update["where_value"] = "genome"

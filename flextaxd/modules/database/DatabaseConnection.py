@@ -1,6 +1,7 @@
 import sys
 import os
 import sqlite3
+import subprocess
 import logging
 logger = logging.getLogger(__name__)
 
@@ -30,10 +31,10 @@ class DatabaseConnection(object):
 		self.database = database
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
 		if not os.path.exists(self.database):
-			cmd = '"{python}" "{script}" "{database}"'.format(python=sys.executable,script=os.path.join(BASE_DIR,"CreateDatabase.py"),database=self.database)
+			cmd = [sys.executable, os.path.join(BASE_DIR,"CreateDatabase.py"), self.database]
 			if self.verbose:
-				logger.debug(cmd)
-			if os.system(cmd) != 0:
+				logger.debug(" ".join(cmd))
+			if subprocess.call(cmd) != 0:
 				raise ConnectionError("Could not create the database {database}, see message above for details!".format(database=self.database))
 		try: ## If database connection already exists
 			self.conn
@@ -118,6 +119,21 @@ class DatabaseConnection(object):
 					logger.debug("Insert val: {vals}".format(vals=insert_val))
 				sys.stderr.write(str(e)+"\n")
 			return(e)
+
+	def select(self,query,params=False):
+		'''Run a SELECT through query and return the rows, an empty list if the query failed
+				(query returns the exception object instead of a cursor on failure)
+
+		Returns
+			list - rows returned by the query
+		'''
+		if params:
+			res = self.query(query,insert_val=tuple(params),error=True)
+		else:
+			res = self.query(query)
+		if isinstance(res,Exception):
+			return []
+		return res.fetchall()
 
 	def insert(self,data,table):
 		'''Insert function
@@ -334,15 +350,19 @@ class DatabaseFunctions(DatabaseConnection):
 			True: if node has one and only one parent
 		'''
 		nrank = 0
+		child_w_dp = []
 		try:
 			QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 			logger.debug(QUERY)
-			child_w_dp = self.query(QUERY).fetchall()
+			res = self.query(QUERY)
+			if isinstance(res,Exception):
+				raise TreeError("The tree structure could not be checked: {err}".format(err=res))
+			child_w_dp = res.fetchall()
 			logger.debug(child_w_dp)
 			## Bugfix  only allowed one parent to be different, now multiple is ok as long as ranks are different
 			for child in map(str,[x[0] for x in child_w_dp]):
-				QUERY = "SELECT parent,rank_i FROM tree WHERE child in ({children})".format(children=child)
-				p_ranks = self.query(QUERY).fetchall()
+				QUERY = "SELECT parent,rank_i FROM tree WHERE child = ?"
+				p_ranks = self.select(QUERY,params=(child,))
 				if len(p_ranks) != len(set(p_ranks)):
 					logger.error("Nodes with two parents have identical ranks, Fatal Error")
 				else:
@@ -373,9 +393,9 @@ class DatabaseFunctions(DatabaseConnection):
 		'''
 		if not table:
 			raise Exception("Table was not supplied to DatabaseFuction get_all()")
-		QUERY = '''SELECT * FROM {table}'''.format(table)
+		QUERY = '''SELECT * FROM {table}'''.format(table=table)
 		if sort:
-			QUERY += " ORDER BY {col} ASC".format(sort=sort)
+			QUERY += " ORDER BY {sort} ASC".format(sort=sort)
 		return self.query(QUERY).fetchall()
 
 	def get_taxid_base(self):
@@ -405,8 +425,8 @@ class DatabaseFunctions(DatabaseConnection):
 		QUERY = '''SELECT {cols} FROM {table}'''.format(cols=cols,table=table)
 		if limit > 0:
 			QUERY += " LIMIT {limit}".format(limit=limit)
-		for id,genome in self.query(QUERY).fetchall():
-			genomeDict[genome] = id
+		for node_i,genome in self.query(QUERY).fetchall():
+			genomeDict[genome] = node_i
 		return genomeDict
 
 	def get_node(self, name, database=False):
@@ -664,26 +684,27 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
+		nodes = list(nodes)
+		genomes = list(genomes) if genomes else []
+		if not genomes and not nodes:
+			return True
 		if genomes: # check if genomes were specified for targeted deletion (sometimes a node can hold multiple genomes)
-			if not match_genome_only:
-				QUERY = "DELETE FROM {table} WHERE id in({nodes}) AND genome in({genomes})"
+			gph = ",".join(["?"]*len(genomes))
+			if not match_genome_only and nodes:
+				nph = ",".join(["?"]*len(nodes))
+				QUERY = "DELETE FROM {table} WHERE id in({nodes}) AND genome in({genomes})".format(table=table, nodes=nph, genomes=gph)
+				values = tuple(nodes) + tuple(genomes)
 			else:
-				QUERY = "DELETE FROM {table} WHERE genome in({genomes})"
+				QUERY = "DELETE FROM {table} WHERE genome in({genomes})".format(table=table, genomes=gph)
+				values = tuple(genomes)
 		else:
-			QUERY = "DELETE FROM {table} WHERE id in({nodes})"
+			nph = ",".join(["?"]*len(nodes))
+			QUERY = "DELETE FROM {table} WHERE id in({nodes})".format(table=table, nodes=nph)
+			values = tuple(nodes)
 
 		logger.info("Deleting {nnodes} annotations!".format(nnodes=len(nodes)))
-		#for node in nodes:
-			#logger.info("Delete genomes from: {node}".format(node=node))
-		if genomes:
-			if not match_genome_only:
-				logger.debug(QUERY.format(table=table,nodes="",genomes=""))
-				res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes))), genomes='"'+'","'.join(list(map(str,genomes)))+'"'))
-			else:
-				res = self.query(QUERY.format(table=table, genomes='"'+'","'.join(list(map(str,genomes)))+'"'))
-		else:
-			logger.debug(QUERY.format(table=table,nodes=""))
-			res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes)))))
+		logger.debug(QUERY)
+		res = self.query(QUERY, insert_val=values)
 		
 		## Commit changes
 		if not hold:
@@ -741,7 +762,7 @@ class ModifyFunctions(DatabaseFunctions):
 		if selected:
 			QUERY = '''SELECT child FROM tree WHERE parent in({nodes}) and rank_i = {rank}'''.format(nodes=",".join(map(str,list(parents))), rank=selected)
 		logger.debug(QUERY)
-		res = self.query(QUERY).fetchall()
+		res = self.select(QUERY)
 		if (len(res) + len(children)) != 0:
 			children = set([child_i[0] for child_i in res])
 			if level < maxdepth:
@@ -760,12 +781,13 @@ class ModifyFunctions(DatabaseFunctions):
 			list - parent link and rank
 		'''
 		#QUERY = '''SELECT parent,child,rank FROM tree LEFT JOIN rank on (tree.rank_i = rank.rank_i) WHERE child = "{node}"'''.format(node=name)
-		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child = "{node}"'''.format(node=name)
+		QUERY = '''SELECT parent,child,rank_i FROM tree WHERE child = ?'''
 		logger.debug(QUERY)
 		if all:
-			res = self.query(QUERY).fetchall()
+			res = self.select(QUERY,params=(name,))
 		else:
-			res = self.query(QUERY).fetchone()
+			rows = self.select(QUERY,params=(name,))
+			res = rows[0] if rows else None
 		return res
 
 	def parse_parents(self,parents):
@@ -804,7 +826,7 @@ class ModifyFunctions(DatabaseFunctions):
 			return parents
 		QUERY = '''SELECT parent,child{simple} FROM tree WHERE child in ({node})'''.format(simple=simple, node=",".join(map(str,name)))
 		#if find_all: logger.info(QUERY)
-		res = self.query(QUERY).fetchall()
+		res = self.select(QUERY)
 		if not find_all:
 			try:
 				res = int(res[0])

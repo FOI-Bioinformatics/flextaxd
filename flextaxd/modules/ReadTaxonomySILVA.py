@@ -59,6 +59,14 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 						self.skipped.append((row.strip(),"row could not be parsed"))
 						continue
 				child = nodes[-1]  ## get name of child node
+				'''taxids are used as integer node ids in the database, a non numeric id would break later lookups'''
+				taxid = taxid.strip()
+				try:
+					taxid = int(taxid)
+				except ValueError:
+					logger.debug("Row {row} has a non numeric taxid".format(row=row))
+					self.skipped.append((row.strip(),"taxid {taxid} is not numeric".format(taxid=taxid)))
+					continue
 				self.add_rank(rank)
 				'''If the tree was not properly formatted an a parent is missing make sure that function works anyway by adding any parent node above child'''
 				try:

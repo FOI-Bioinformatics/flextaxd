@@ -34,8 +34,6 @@ __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge","bracken"
 __suppored_visualizations__ = ["newick","newick_vis","tree"]
 
 
-import rlcompleter
-import readline
 ## If script is executed run pipeline of selected options
 def main():
     ###################################--system imports--####################################
@@ -378,7 +376,10 @@ def main():
     ''' 2. Dump custom taxonomy database into NCBI/kraken readable format)'''
     if args.dump or args.dump_mini:
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
-        nameprefix,nodeprefix = args.dump_prefix.split(",")
+        dump_prefixes = args.dump_prefix.split(",")
+        if len(dump_prefixes) != 2:
+            raise InputError("Argument --dump_prefix requires two comma separated prefixes: names,nodes")
+        nameprefix,nodeprefix = dump_prefixes
         if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nodeprefix+".dmp")) and not force:
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:

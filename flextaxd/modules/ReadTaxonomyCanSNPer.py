@@ -48,7 +48,7 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 			self.add_rank("no rank")
 		self.add_rank(rank)
 		if root_name != "cellular organisms" and not cnp:
-			self.add_link(c_i,1)
+			self.add_link(c_i,self.root)
 		if root_name != "root" and not cnp:
 			self.add_link(root_i,c_i,rank=rank) ## root is always added as top parent if not one force 1
 			self.taxonomy[root_i] = 1  ## Add local link to root

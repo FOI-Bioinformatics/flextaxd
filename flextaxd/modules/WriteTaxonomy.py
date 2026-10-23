@@ -18,7 +18,7 @@ class WriteTaxonomy(object):
 		logging.debug("Output path: {outdir}".format(outdir=self.path))
 		self.separator = separator
 		logging.debug("Output separator: '{separator}'".format(separator=self.separator))
-		self.prefix = prefix.split(",")
+		self.prefix = self.check_prefix(prefix)
 		logging.debug("Prefix: nodes:{nodes} names:{names} ".format(nodes=self.prefix[1],names=self.prefix[0]))
 		self.dump_descriptions = desc
 		logging.debug("Add descriptions: {desc}".format(desc=self.dump_descriptions))
@@ -86,8 +86,15 @@ class WriteTaxonomy(object):
 			self.separator = "\t"
 		self.minimal=True
 
+	def check_prefix(self,prefix):
+		'''The prefix must hold exactly two names: the names prefix and the nodes prefix'''
+		parts = prefix.split(",")
+		if len(parts) != 2:
+			raise ValueError("The dump prefix requires two comma separated names (names,nodes), got: {prefix}".format(prefix=prefix))
+		return parts
+
 	def set_prefix(self,prefix):
-		self.prefix=prefix.split(",")
+		self.prefix=self.check_prefix(prefix)
 		logging.debug("Update output prefix nodes:{nodes} names:{names} ".format(nodes=self.prefix[1],names=self.prefix[0]))
 		return self.prefix
 
@@ -99,7 +106,7 @@ class WriteTaxonomy(object):
 		return self.database.query(QUERY).fetchall()
 
 	def get_links(self, table, select="child,parent,rank"):
-		QUERY = "SELECT {select} FROM {table} JOIN (rank) on rank.rank_i = tree.rank_i".format(select=select, table=table)
+		QUERY = "SELECT {select} FROM {table} JOIN rank on rank.rank_i = {table}.rank_i".format(select=select, table=table)
 		logging.debug(QUERY)
 		return self.database.query(QUERY).fetchall()
 

@@ -228,9 +228,12 @@ class NewickTree(object):
 		            ),
 		]
 		answers = inquirer.prompt(questions)
+		if not answers or "parent" not in answers:
+			raise VisualisationError("No parent lineage was selected, visualisation aborted!")
 		selected = tn[answers["parent"]] ## Return back to id
 		taxids = []
 		unique = set()
+		rank = False
 		for link in links:
 			if link[0] == selected:
 				rank = link[2]
@@ -238,7 +241,8 @@ class NewickTree(object):
 				'''Update incoming taxid which may not be correct'''
 				self.taxid = link[1]
 			unique.add(link[1])
-		rank = rank +1
+		if rank is not False:
+			rank = rank +1
 		if len(unique) > len(taxids):
 			rank = False
 		return rank,taxids ## Parent rank is selected, child rank is plus one
@@ -342,12 +346,11 @@ class NewickTree(object):
 			try:
 				t_parent,t_child,rank = self.get_parent(parent)
 			except KeyError:
-				raise Error("Something is wrong")
+				raise VisualisationError("Something is wrong")
 			logger.debug("Adding parent: [{parent},{pname}] of child: [{child},{cname}]".format(parent=t_parent,pname=self.taxonomy[t_parent],cname=self.taxonomy[t_child],child=t_child))
 			if self.new_node(t_child,nodes,t_parent,link=link-1): ## Add the missing parent
 				self.new_node(child,nodes,parent,link)	  ## Try again to add the node
 			else:
-				self.added_parent = child
 				return False
 			return True
 		logger.debug("NewickNode p:{parent} c: {child} added".format(parent=parent,child=child))
@@ -465,7 +468,6 @@ class NewickTree(object):
 			tree,nodes = self.fix_tree(tree,duplicates,nodes)
 		logger.debug("Nodes: {n} Links: {l}".format(n=len(nodes),l=len(tree)))
 		logger.debug([nodes,tree])
-		self.added_parent = False
 		self.link_exists=False
 		'''Add root node as incoming taxid'''
 		if taxid:

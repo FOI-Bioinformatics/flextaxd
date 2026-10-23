@@ -62,10 +62,11 @@ class ReadTaxonomy(object):
 
 	def zopen(self, path,*args, **kwargs):
 		'''Redefine open to handle zipped files automatically'''
+		mode = args[0] if args else ""
 		if path.endswith(".gz"):
-			if str(*args) in ["r","w"] and sys.version_info.major >= 3:
+			if mode in ["r","w"] and sys.version_info.major >= 3:
 				## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
-				args = (str(*args)+"t",)
+				args = (mode+"t",)
 			else:
 				args = ("rt",)
 			return gzip.open(path,*args,**kwargs)
@@ -137,6 +138,9 @@ class ReadTaxonomy(object):
 					rank = data.pop().strip()
 					if rank.strip() != "":
 						self.add_rank(rank)
+				if len(data) < 2:
+					'''A row must hold both a child and a parent to define a link'''
+					continue
 				if swap:
 					data[0],data[1] = data[1],data[0]
 				'''Add nodes into database'''
