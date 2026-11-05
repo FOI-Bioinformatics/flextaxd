@@ -2,11 +2,22 @@ import sys
 import os
 import sqlite3
 import subprocess
+import datetime
 import logging
 logger = logging.getLogger(__name__)
 
 MAX_BIND_PARAMS = 900 ## Maximum number of "?" placeholders per query, keep below the lowest
                       ## compile time limit of sqlite (999), the limit varies between builds
+
+def flextaxd_version():
+	'''The version of flextaxd that is running, recorded in the meta table of every database.
+			Imported inside the function: the modules package is also used as a top level package,
+			where the installed flextaxd package may not be reachable'''
+	try:
+		from flextaxd import __version__
+		return __version__
+	except ImportError:
+		return "unknown"
 
 class ConnectionError(Exception):
 	def __init__(self, value):
@@ -32,8 +43,10 @@ class DatabaseConnection(object):
 		super().__init__()
 		self.verbose = verbose
 		self.database = database
+		self.meta_ready = False
 		BASE_DIR = os.path.dirname(os.path.abspath(__file__))  ## Retrieve path
-		if not os.path.exists(self.database):
+		created = not os.path.exists(self.database)
+		if created:
 			cmd = [sys.executable, os.path.join(BASE_DIR,"CreateDatabase.py"), self.database]
 			if self.verbose:
 				logger.debug(" ".join(cmd))
@@ -45,6 +58,11 @@ class DatabaseConnection(object):
 			logger.debug("Connecting to {database}".format(database=self.database))
 			self.conn = self.connect(self.database)
 			self.cursor = self.create_cursor(self.conn)
+		## Databases written by older flextaxd versions have no meta table
+		self.ensure_meta_table()
+		if created and self.get_meta("built_with") is None:
+			self.set_meta("built_with",flextaxd_version())
+			self.set_meta("built",datetime.datetime.now().isoformat(timespec="seconds"))
 
 	def __str__(self):
 		return "Object of class DatabaseConnection, connected to {database}".format(database=self.database)
@@ -91,8 +109,110 @@ class DatabaseConnection(object):
 			sys.stderr.write(str(e))
 		raise ConnectionError("Count not create db cursor to {database}".format(database=self.database))
 
-	def commit(self):
+	def ensure_meta_table(self):
+		'''Create the meta and report tables of databases written before flextaxd recorded build
+				information, does nothing to databases that already have them
+
+		------
+		Returns:
+			true
+		'''
+		self.query("""CREATE TABLE IF NOT EXISTS meta (
+						key VARCHAR(255) PRIMARY KEY,
+						value TEXT
+					);""")
+		self.query("""CREATE TABLE IF NOT EXISTS report (
+						kind VARCHAR(31) NOT NULL,
+						source VARCHAR(255) NOT NULL,
+						entry TEXT NOT NULL,
+						UNIQUE (kind,source,entry)
+					);""")
 		self.conn.commit()
+		self.meta_ready = True
+		return True
+
+	def set_meta(self,key,value):
+		'''Store a single value in the meta table, replacing any previous value of that key
+
+		------
+		Returns:
+			str - the value stored
+		'''
+		self.query("INSERT OR REPLACE INTO meta (key,value) VALUES (?,?);",insert_val=(key,value))
+		self.conn.commit()
+		return value
+
+	def get_meta(self,key):
+		'''Read a single value from the meta table
+
+		------
+		Returns:
+			str - the value of the key, None when the key is not set
+		'''
+		res = self.select("SELECT value FROM meta WHERE key = ?;",params=(key,))
+		if res:
+			return res[0][0]
+		return None
+
+	def get_build_info(self):
+		'''The flextaxd build information stored in the meta table
+
+		------
+		Returns:
+			dict - built_with, built, modified_with and modified keys, values None when unset
+		'''
+		return {info: self.get_meta(info) for info in ["built_with","built","modified_with","modified"]}
+
+	def save_report(self,kind,source,entries):
+		'''Store the findings of one build step, replacing the findings of the same kind from the
+				same input of an earlier run
+
+		------
+		Parameters:
+			str - kind of finding, missing_on_disk, unannotated_file or skipped_import
+			str - the input the findings came from, a genome path or an input file
+			iterable - the entries to store
+		------
+		Returns:
+			int - number of entries stored
+		'''
+		entries = list(entries)
+		self.query("DELETE FROM report WHERE kind = ? AND source = ?;",insert_val=(kind,source))
+		if entries:
+			self.cursor.executemany("INSERT OR IGNORE INTO report (kind,source,entry) VALUES (?,?,?);",
+									[(kind,source,str(entry)) for entry in entries])
+		count = self.select("SELECT COUNT(*) FROM report WHERE kind = ? AND source = ?;",params=(kind,source))
+		self.conn.commit()
+		if count:
+			return count[0][0]
+		return 0
+
+	def get_report(self,kind,source=False):
+		'''Read the stored findings of one kind
+
+		------
+		Returns:
+			list - tuples of (source, entry)
+		'''
+		if source:
+			return self.select("SELECT source,entry FROM report WHERE kind = ? AND source = ? ORDER BY entry;",params=(kind,source))
+		return self.select("SELECT source,entry FROM report WHERE kind = ? ORDER BY entry;",params=(kind,))
+
+	def report_kinds(self):
+		'''How many findings of each kind the database holds
+
+		------
+		Returns:
+			dict - kind to number of entries
+		'''
+		return {row[0]: row[1] for row in self.select("SELECT kind,COUNT(*) FROM report GROUP BY kind;")}
+
+	def commit(self):
+		'''Commit the transaction and record which flextaxd version changed the database last'''
+		self.conn.commit()
+		if getattr(self,"meta_ready",False):
+			self.set_meta("modified_with",flextaxd_version())
+			self.set_meta("modified",datetime.datetime.now().isoformat(timespec="seconds"))
 
 	def query(self,query,insert_val = False, cursor=False,error=False):
 		'''The query function is a wrapper around sqlite3 execute to form responses related to the request
@@ -321,29 +441,59 @@ class DatabaseFunctions(DatabaseConnection):
 		return True
 
 	def statistics(self):
-		'''Print statistics of the database
+		'''Print statistics and the stored build report of the database
 
 		------
 		Returns:
 			true
 		'''
-		logger.info("Get all database nodes")
-		self.nodes = self.get_nodes(col=1)					## get all nodes
-		logger.info("Get all database edges")
-		self.edges = self.get_links()					## Get all links
-		logger.info("Get annotated genomes")
-		self.genomes = self.get_genomes()
-
+		logger.info("Counting database rows")
 		stats = """Tree statistics
 					Nodes: {nodes}
 					Links: {links}
 					Genomes: {ngenomes}
-					""".format(nodes = len(self.nodes),
-								links=len(self.edges),
-								ngenomes=len(self.genomes)
+					""".format(nodes = self.num_rows('nodes'),
+								links=self.num_rows('tree'),
+								ngenomes=self.num_rows('genomes')
 		)
 		print(stats)
+		for line in self.report_lines():
+			print(line)
 		return True
+
+	def report_lines(self,limit=20):
+		'''The build report stored in the database: which flextaxd versions built and changed it, and
+				what the last run that used a genome path or an input file found missing
+
+		------
+		Parameters:
+			int - entries shown for each kind of finding, None shows all of them
+		------
+		Returns:
+			list - lines to print
+		'''
+		build = self.get_build_info()
+		lines = ["Database built with flextaxd: {v}".format(v=build["built_with"] or "unknown, the database was built by an earlier flextaxd version"),
+				"Database last changed with flextaxd: {v}".format(v=build["modified_with"] or "unknown")]
+		if build["built"]:
+			lines.append("Database created: {t}".format(t=build["built"]))
+		if build["modified"]:
+			lines.append("Database last changed: {t}".format(t=build["modified"]))
+		report_date = self.get_meta("report_date")
+		if report_date:
+			lines.append("Disk report from {d}, genome path {p}".format(d=report_date,p=self.get_meta("genomes_path") or "unknown"))
+		for kind,description in [("missing_on_disk","Genome annotations without sequence file"),
+						("unannotated_file","Sequence files without genome annotation"),
+						("skipped_import","Rows skipped by the taxonomy import")]:
+			entries = [entry for source,entry in self.get_report(kind)]
+			if not entries:
+				continue
+			lines.append("{d}: {n}".format(d=description,n=len(entries)))
+			show = entries if limit is None else entries[:limit]
+			lines.extend(["\t{e}".format(e=entry) for entry in show])
+			if limit is not None and len(entries) > limit:
+				lines.append("\tand {n} more".format(n=len(entries)-limit))
+		return lines
 
 	def check_parent(self):
 		'''check tree structure parent

@@ -20,7 +20,9 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.6.0"
+from flextaxd import __version__  ## kept here so that setup.py and --version can read it, the
+                                   ## value itself lives in flextaxd/__init__.py, which is also
+                                   ## importable from the database code
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -109,6 +111,7 @@ def main():
     basic.add_argument("--force", action='store_true',                              help="use when script is implemented in pipeline to avoid security questions on overwrite!")
     basic.add_argument('--validate', action='store_true',                           help="Validate database format")
     basic.add_argument('--stats', action='store_true',                              help="Print some statistics from the database")
+    basic.add_argument('--report', action='store_true',                             help="Print the build report of the database: the flextaxd version it was built with, annotated genomes without sequence file and sequence files without annotation. With --genomes_path the comparison against the directory is redone first")
 
     rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
@@ -184,7 +187,7 @@ def main():
     	logval = args.debug
     elif args.verbose:
     	logval = args.verbose
-    if args.validate:  #On validate always turn on logging
+    if args.validate or args.report:  #On validate and report always turn on logging
         logval = logging.INFO
 
     import datetime
@@ -237,9 +240,22 @@ def main():
         db.validate_tree()
         exit("Validation comleted!")
 
+    if args.report:
+        from modules.database.DatabaseConnection import ModifyFunctions
+        from modules.ProcessDirectory import ProcessDirectory
+        db = ModifyFunctions(args.database)
+        if args.genomes_path:
+            ProcessDirectory(args.database).report_disk(args.genomes_path)
+        for line in db.report_lines(limit=None):
+            print(line)
+        exit("")
+
     if args.stats:
         from modules.database.DatabaseConnection import ModifyFunctions
+        from modules.ProcessDirectory import ProcessDirectory
         db = ModifyFunctions(args.database)
+        if args.genomes_path:
+            ProcessDirectory(args.database).report_disk(args.genomes_path)
         db.statistics()
         exit("")
 

@@ -3,7 +3,7 @@
 Process directory
 '''
 
-import logging,os,re
+import logging,os,re,datetime
 from .database.DatabaseConnection import DatabaseFunctions
 logger = logging.getLogger(__name__)
 
@@ -269,4 +269,53 @@ class ProcessDirectory(object):
 			existing_genomes.append(genome)
 		for file_not_present in set(self.genome_id_dict.keys()) - set(existing_genomes):
 			download_files.append({"genome_id":file_not_present,"outdir":folder_path.rstrip("/")+"/downloads"})
+		self.store_disk_report(folder_path,[m["genome_id"] for m in download_files],self.notused)
 		return self.files,download_files
+
+	def store_disk_report(self,folder_path,missing,unannotated):
+		'''Record the discrepancy between the annotations of the database and the files on disk inside
+				the database, so that flextaxd --stats can report it without the genome folder
+
+		------
+		Parameters:
+			str - the genome path the report was made against
+			iterable - annotated genomes with no sequence file on disk
+			iterable - sequence files on disk with no annotation in the database
+		------
+		Returns:
+			tuple - number of missing genomes and number of unannotated files stored
+		'''
+		missing = sorted(missing)
+		unannotated = sorted(unannotated)
+		self.database.set_meta("report_date",datetime.datetime.now().isoformat(timespec="seconds"))
+		self.database.set_meta("genomes_path",folder_path)
+		self.database.set_meta("genomes_missing_on_disk",str(len(missing)))
+		self.database.set_meta("files_unannotated",str(len(unannotated)))
+		self.database.save_report("missing_on_disk",folder_path,missing)
+		self.database.save_report("unannotated_file",folder_path,unannotated)
+		logger.info("Disk report stored in the database: {m} annotated genomes have no file, {u} files have no annotation".format(m=len(missing),u=len(unannotated)))
+		return len(missing),len(unannotated)
+
+	def report_disk(self,folder_path):
+		'''Compare the genome annotations of the database with the sequence files on disk, using the
+				same matching rules as the build, so that a report cannot disagree with a build
+
+		------
+		Parameters:
+			str - path to the genome directory
+		------
+		Returns:
+			dict - annotated and on_disk counts, missing (annotated genomes with no file) and
+				unannotated (files on disk with no annotation) as sorted lists
+		'''
+		logger.info("Number of genomes annotated in database {n}".format(n=len(self.genome_id_dict)))
+		self.files, self.genome_names = self.walk_directory(folder_path)
+		missing = sorted(set(self.genome_id_dict.keys()) - set(self.genome_names))
+		unannotated = sorted(self.notused)
+		logger.info("{n} annotated genomes have no sequence file on disk".format(n=len(missing)))
+		logger.info("{n} sequence files on disk have no annotation in the database".format(n=len(unannotated)))
+		self.store_disk_report(folder_path,missing,unannotated)
+		return {"annotated": len(self.genome_id_dict),
+				"on_disk": len(set(self.genome_names)),
+				"missing": missing,
+				"unannotated": unannotated}

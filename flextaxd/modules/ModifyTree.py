@@ -446,6 +446,9 @@ class ModifyTree(object):
 				for entry,reason in skipped:
 					logger.warning("Skipped genome {entry}: {reason}".format(entry=entry,reason=reason))
 					print("{entry}\t{reason}".format(entry=entry,reason=reason), end="\n", file=of)
+			self.taxonomydb.save_report("skipped_import",
+										genomeid2taxid,
+										["{entry}\t{reason}".format(entry=entry,reason=reason) for entry,reason in skipped])
 			logger.warning("{n} genome annotations skipped, listed in {file}".format(n=len(skipped),file=skipped_file))
 		gid = self.taxonomydb.get_genomes()
 		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
@@ -462,6 +465,7 @@ class ModifyTree(object):
 		updated = 0
 		added = 0
 		notadded = 0
+		notadded_genomes = []
 		'''Database has been updated, so the internal nodeDict needs to be updated'''
 		if len(self.mod_genomes) >= 100:
 			allupdates = []
@@ -474,6 +478,7 @@ class ModifyTree(object):
 			except KeyError:  ## taxid does not exist in receiving database, skip genome
 				#logger.debug("Genome not added {genome}".format(genome=genome))
 				notadded +=1
+				notadded_genomes.append("{genome}\ttaxid {taxid} is not in the receiving database".format(genome=genome,taxid=inc_taxid))
 				continue
 			if len(self.mod_genomes) < 100:
 				update["set_value"] = id
@@ -496,6 +501,11 @@ class ModifyTree(object):
 			if notadded > 0:
 				logger.info("{notadded} genomes not added, taxonomy id does not exist in the receiving database".format(notadded=notadded))
 			logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
+		if notadded > 0:
+			'''List the genomes that were not transferred in the report of the receiving database'''
+			source = self.moddb.database if getattr(self,"moddb",False) else "modification"
+			self.taxonomydb.save_report("skipped_import",source,notadded_genomes)
+			logger.warning("{n} genomes were not added, they are listed by flextaxd --report".format(n=notadded))
 		self.taxonomydb.commit()
 		return
 

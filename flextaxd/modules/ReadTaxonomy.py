@@ -57,6 +57,10 @@ class ReadTaxonomy(object):
 			for entry,reason in self.skipped:
 				logger.warning("Skipped {entry}: {reason}".format(entry=entry,reason=reason))
 				print("{entry}\t{reason}".format(entry=entry,reason=reason), end="\n", file=of)
+		'''Also store them in the database, so that flextaxd --report can list them without the file'''
+		self.database.save_report("skipped_import",
+									self.taxonomy_file or "FlexTaxD",
+									["{entry}\t{reason}".format(entry=entry,reason=reason) for entry,reason in self.skipped])
 		logger.warning("{n} rows/genomes skipped, listed in {file}".format(n=len(self.skipped),file=skipped_file))
 		return skipped_file
 
