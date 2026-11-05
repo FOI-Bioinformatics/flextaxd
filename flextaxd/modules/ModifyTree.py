@@ -575,14 +575,23 @@ class ModifyTree(object):
 		if len(self.clean_links) < len(self.all_links) and len(self.clean_links) > 0:
 			logger.info("Cleaning {nlinks} links".format(nlinks=len(self.clean_links)))
 			if self.fast_clean:
-				self.taxonomydb.fast_delete_links(self.clean_links)
+				links_removed = self.taxonomydb.fast_delete_links(self.clean_links)
 			else:
 				logger.info("Cleaning tree (this will take a long time for large trees)")
-				self.taxonomydb.delete_links(self.clean_links)
+				links_removed = self.taxonomydb.delete_links(self.clean_links)
+			if not links_removed:
+				logger.error("Links could not be removed, database changes are not committed and cleaning is aborted!")
+				return
 		if len(self.clean_nodes) < len(self.all_nodes) and len(self.clean_nodes) > 0:
-			self.taxonomydb.delete_nodes(self.clean_nodes)
+			nodes_removed = self.taxonomydb.delete_nodes(self.clean_nodes)
+			if not nodes_removed:
+				logger.error("Nodes could not be removed, database changes are not committed and cleaning is aborted!")
+				return
 			if not ncbi:
-				self.taxonomydb.delete_genomes(self.clean_nodes)
+				genomes_removed = self.taxonomydb.delete_genomes(self.clean_nodes)
+				if not genomes_removed:
+					logger.error("Genome annotations could not be removed, cleaning is aborted!")
+					return
 		if self.taxonomydb.validate_tree():
 			self.taxonomydb.commit()
 
@@ -615,13 +624,16 @@ class ModifyTree(object):
 				remove_genome_keys = set(genomes_nodes) - genomes_list## Genomes missing and in database
 
 			num_rows_before = self.taxonomydb.num_rows('genomes')
-			self.taxonomydb.delete_genomes(nodes_keep,genomes=genomes_list,match_genome_only=True)
-
-			
-			self.clean_database(ncbi=True)
+			genomes_removed = self.taxonomydb.delete_genomes(nodes_keep,genomes=genomes_list,match_genome_only=True)
 			num_rows_after = self.taxonomydb.num_rows('genomes')
 			num_rows_deleted = num_rows_before - num_rows_after
 			logger.info('Removed '+str(num_rows_deleted)+' node genomes')
+			if not genomes_removed:
+				logger.error("Genome annotations could not be removed, database is left unchanged and cleaning is skipped!")
+				return
+			if num_rows_deleted < len(genomes_list) and not force_genome_delete:
+				logger.warning(str(len(genomes_list)-num_rows_deleted)+' missing genomes had no genome annotation in the database, use --purge_database_force to remove their nodes as well')
+			self.clean_database(ncbi=True)
 			return
 			
 	def keep_levels(self, links):

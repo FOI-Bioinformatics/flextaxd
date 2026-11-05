@@ -5,6 +5,9 @@ import subprocess
 import logging
 logger = logging.getLogger(__name__)
 
+MAX_BIND_PARAMS = 900 ## Maximum number of "?" placeholders per query, keep below the lowest
+                      ## compile time limit of sqlite (999), the limit varies between builds
+
 class ConnectionError(Exception):
 	def __init__(self, value):
 		self.value = value
@@ -606,14 +609,17 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
-		logger.info("Slow clean")
-		QUERY = "DELETE FROM {table} WHERE parent = {parent} AND child = {child} AND rank_i = {rank_i}"
-		logger.debug("Deleting {nlinks} links!".format(nlinks=len(links)))
-		logger.debug(QUERY.format(table=table,parent="",child="",rank_i=""))
-		logger.info("{links}".format(links=len(links)))
-		for parent,child,rank in links:
-			logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
-			res = self.query(QUERY.format(table=table, parent=parent, child=child, rank_i=rank))
+		logger.info("Slow clean, deleting {links} links from {table}".format(links=len(links),table=table))
+		QUERY = "DELETE FROM {table} WHERE parent = ? AND child = ? AND ifnull(rank_i,-1) = ?"
+		num_deleted = 0
+		for parent,child,rank_i in links:
+			logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank_i))
+			res = self.query(QUERY.format(table=table), insert_val=(parent,child,-1 if rank_i is None else rank_i),error=True)
+			if isinstance(res,Exception):
+				logger.error("Error deleting link {}-{} from {table}: {err}".format(parent,child,table=table,err=str(res)))
+				return False
+			num_deleted += res.rowcount
+		logger.info("{num} links deleted!".format(num=num_deleted))
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
@@ -621,22 +627,35 @@ class DatabaseFunctions(DatabaseConnection):
 		return True
 
 	def fast_delete_links(self,links,table="tree",hold=False):
-		'''This function is used when general clean function is executed
+		'''This function is used when general clean function is executed.
+		    Links are removed as exact (parent,child,rank_i) combinations through a temporary table,
+		    the query stays the same size no matter how many links are removed
+
 		Returns
 		------
 			boolean
 		'''
-		logger.info("Fast clean")
-		parents = set()
-		children = set()
-		QUERY = "DELETE FROM {table} WHERE parent in ({parents}) AND child in ({children})"
-		logger.debug("Deleting {nlinks} links!".format(nlinks=len(links)))
-		for parent,child,rank in links:
-			parents |= set([parent])
-			children |= set([child])
-			#logger.debug("{}-{} rank: {} deleted!".format(parent,child,rank))
-		logger.debug(QUERY.format(table=table,parents=len(parents),children=len(children)))
-		res = self.query(QUERY.format(table=table, parents=",".join(list(map(str,parents))), children=",".join(list(map(str,children)))))
+		links = [tuple(link)[:3] for link in links]
+		logger.info("Fast clean, deleting {nlinks} links from {table}".format(nlinks=len(links),table=table))
+		if not links:
+			return True
+		temp_table = self._temp_link_table("ftx_temp_{table}_links".format(table=table),links)
+		if not temp_table:
+			return False
+		QUERY = ("DELETE FROM {table} WHERE exists (select 1 from {temp}"
+				" where {temp}.parent = {table}.parent"
+				" and {temp}.child = {table}.child"
+				" and ifnull({temp}.rank_i,-1) = ifnull({table}.rank_i,-1))").format(table=table,temp=temp_table)
+		logger.debug(QUERY)
+		try:
+			res = self.cursor.execute(QUERY)
+			num_deleted = res.rowcount
+		except Exception as e:
+			logger.error("Error deleting links from {table}: {err}".format(table=table,err=str(e)))
+			self.drop_temp_tables([temp_table])
+			return False
+		self.drop_temp_tables([temp_table])
+		logger.info("{num} links deleted!".format(num=num_deleted))
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
@@ -667,14 +686,85 @@ class DatabaseFunctions(DatabaseConnection):
 		------
 			boolean
 		'''
-		QUERY = "DELETE FROM {table} WHERE id in ({nodes})"
-		logger.debug("Deleting {nnodes} nodes!".format(nnodes=len(nodes)))
-		logger.debug(QUERY.format(table=table,nodes=""))
-		res = self.query(QUERY.format(table=table, nodes=",".join(list(map(str,nodes)))))
+		nodes = list(nodes)
+		logger.info("Deleting {nnodes} nodes from {table}!".format(nnodes=len(nodes),table=table))
+		if not nodes:
+			return True
+		if len(nodes) > MAX_BIND_PARAMS:
+			## Too many id values to pass as bind variables in one query, use a temporary table
+			temp_table = self._temp_value_table("ftx_temp_{table}_ids".format(table=table),nodes)
+			if not temp_table:
+				return False
+			QUERY = "DELETE FROM {table} WHERE id in (select val from {temp})".format(table=table,temp=temp_table)
+			logger.debug(QUERY)
+			try:
+				res = self.cursor.execute(QUERY)
+				num_deleted = res.rowcount
+			except Exception as e:
+				logger.error("Error deleting nodes from {table}: {err}".format(table=table,err=str(e)))
+				self.drop_temp_tables([temp_table])
+				return False
+			self.drop_temp_tables([temp_table])
+		else:
+			QUERY = "DELETE FROM {table} WHERE id in ({nodes})".format(table=table, nodes=",".join(["?"]*len(nodes)))
+			logger.debug(QUERY)
+			res = self.query(QUERY, insert_val=tuple(nodes),error=True)
+			if isinstance(res,Exception):
+				logger.error("Error deleting nodes from {table}: {err}".format(table=table,err=str(res)))
+				return False
+			num_deleted = res.rowcount
+		logger.info("{num} nodes deleted!".format(num=num_deleted))
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
 			self.commit()
+		return True
+
+	def _temp_value_table(self,name,values):
+		'''Fill a temporary table with a large list of values, used to sidestep the
+		    sqlite limit on the number of bind variables in a single query
+
+		Returns
+		------
+			str - 	name of the temporary table
+			boolean - False if the table could not be created or filled
+		'''
+		self.query("DROP TABLE IF EXISTS {name}".format(name=name))
+		try:
+			self.cursor.execute("CREATE TEMP TABLE {name} (val primary key)".format(name=name))
+			self.cursor.executemany("INSERT OR IGNORE INTO {name} (val) VALUES (?)".format(name=name),[(value,) for value in values])
+			return name
+		except Exception as e:
+			logger.warning("Could not fill temporary table {name}: {err}".format(name=name,err=str(e)))
+			return False
+
+	def _temp_link_table(self,name,links):
+		'''Fill a temporary table with links (parent,child,rank_i), used to remove many links
+		    with a single query, without building a list of values in the query text
+
+		Returns
+		------
+			str - 	name of the temporary table
+			boolean - False if the table could not be created or filled
+		'''
+		self.query("DROP TABLE IF EXISTS {name}".format(name=name))
+		try:
+			self.cursor.execute("CREATE TEMP TABLE {name} (parent integer, child integer, rank_i integer, primary key (parent,child,rank_i))".format(name=name))
+			self.cursor.executemany("INSERT OR IGNORE INTO {name} (parent,child,rank_i) VALUES (?,?,?)".format(name=name),[tuple(link)[:3] for link in links])
+			return name
+		except Exception as e:
+			logger.warning("Could not fill temporary table {name}: {err}".format(name=name,err=str(e)))
+			return False
+
+	def drop_temp_tables(self,names):
+		'''Remove temporary value tables created by _temp_value_table
+
+		Returns
+		------
+			boolean
+		'''
+		for name in names:
+			self.query("DROP TABLE IF EXISTS {name}".format(name=name))
 		return True
 
 	def delete_genomes(self,nodes,genomes='',match_genome_only=False,table="genomes",hold=False):
@@ -688,24 +778,48 @@ class DatabaseFunctions(DatabaseConnection):
 		genomes = list(genomes) if genomes else []
 		if not genomes and not nodes:
 			return True
+		conditions = []
 		if genomes: # check if genomes were specified for targeted deletion (sometimes a node can hold multiple genomes)
-			gph = ",".join(["?"]*len(genomes))
+			conditions.append(("genome",genomes))
 			if not match_genome_only and nodes:
-				nph = ",".join(["?"]*len(nodes))
-				QUERY = "DELETE FROM {table} WHERE id in({nodes}) AND genome in({genomes})".format(table=table, nodes=nph, genomes=gph)
-				values = tuple(nodes) + tuple(genomes)
-			else:
-				QUERY = "DELETE FROM {table} WHERE genome in({genomes})".format(table=table, genomes=gph)
-				values = tuple(genomes)
+				conditions.append(("id",nodes))
 		else:
-			nph = ",".join(["?"]*len(nodes))
-			QUERY = "DELETE FROM {table} WHERE id in({nodes})".format(table=table, nodes=nph)
-			values = tuple(nodes)
+			conditions.append(("id",nodes))
 
 		logger.info("Deleting {nnodes} annotations!".format(nnodes=len(nodes)))
-		logger.debug(QUERY)
-		res = self.query(QUERY, insert_val=values)
-		
+		if sum(len(values) for column,values in conditions) > MAX_BIND_PARAMS:
+			## Too many values to pass as bind variables in one query, use temporary tables instead
+			temp_tables = []
+			where = []
+			for column,values in conditions:
+				temp_table = self._temp_value_table("ftx_temp_{table}_{column}".format(table=table,column=column),values)
+				if not temp_table:
+					self.drop_temp_tables(temp_tables)
+					return False
+				temp_tables.append(temp_table)
+				where.append("{column} in (select val from {temp})".format(column=column,temp=temp_table))
+			QUERY = "DELETE FROM {table} WHERE {where}".format(table=table,where=" AND ".join(where))
+			logger.debug(QUERY)
+			try:
+				res = self.cursor.execute(QUERY)
+				num_deleted = res.rowcount
+			except Exception as e:
+				logger.error("Error deleting genomes from {table}: {err}".format(table=table,err=str(e)))
+				self.drop_temp_tables(temp_tables)
+				return False
+			self.drop_temp_tables(temp_tables)
+		else:
+			where = " AND ".join(["{column} in({ph})".format(column=column,ph=",".join(["?"]*len(values))) for column,values in conditions])
+			QUERY = "DELETE FROM {table} WHERE {where}".format(table=table,where=where)
+			values = tuple([value for column,vals in conditions for value in vals])
+			logger.debug(QUERY)
+			res = self.query(QUERY, insert_val=values,error=True)
+			if isinstance(res,Exception):
+				logger.error("Error deleting genomes from {table}: {err}".format(table=table,err=str(res)))
+				return False
+			num_deleted = res.rowcount
+		logger.info("{num} genome annotations deleted!".format(num=num_deleted))
+
 		## Commit changes
 		if not hold:
 			logger.debug("Commit changes!")
