@@ -557,6 +557,8 @@ class ModifyTree(object):
 		logger.info("Annotated nodes: {an}".format(an=an))
 		if an == 0 and not ncbi:
 			raise InputError("Database has no annotations, the whole database would be cleaned")
+		## An NCBI clean of an unannotated database is allowed (used to slim a database before
+		## adding the taxonomy that is actually wanted), but the size of the result is reported
 		'''Add parents to all nodes that may not have annotations'''
 		logger.info("Retrieve all parents of annotated nodes")
 		parents = self.taxonomydb.get_ancestor_nodes(self.annotated_nodes, max_depth=50)
@@ -571,7 +573,7 @@ class ModifyTree(object):
 			if children is False:
 				logger.error("Root levels of the taxonomy could not be fetched, cleaning is aborted!")
 				return
-			self.keep = set(children)
+			self.keep = set(children) | set([1])  ## the root node itself is kept, its children link to it
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
 		num_nodes = self.taxonomydb.num_rows('nodes')
@@ -583,6 +585,8 @@ class ModifyTree(object):
 			logger.info("All {nnodes} nodes are annotated or parents of annotations, nothing to remove".format(nnodes=num_nodes))
 			return
 		logger.info("Nodes to keep {nnodes} of {all}".format(nnodes=len(self.annotated_nodes),all=num_nodes))
+		if an == 0:
+			logger.warning("Database has no genome annotations, this clean keeps only the top levels of the taxonomy: {keep} of {all} nodes survive".format(keep=len(self.annotated_nodes),all=num_nodes))
 		keep_table = self.taxonomydb._temp_value_table("ftx_temp_keep_nodes", self.annotated_nodes)
 		if not keep_table:
 			logger.error("The list of nodes to keep could not be built, cleaning is aborted!")
@@ -648,7 +652,13 @@ class ModifyTree(object):
 				return
 			if num_rows_deleted < len(genomes_list) and not force_genome_delete:
 				logger.warning(str(len(genomes_list)-num_rows_deleted)+' missing genomes had no genome annotation in the database, use --purge_database_force to remove their nodes as well')
-			self.clean_database(ncbi=True)
+			if num_rows_after == 0:
+				logger.warning("The purge removed every genome annotation in the database, the taxonomy is left untouched")
+				return
+			try:
+				self.clean_database(ncbi=True)
+			except InputError as e:
+				logger.warning("Cleaning after the purge was refused: {err}".format(err=str(e)))
 			return
 			
 	def keep_levels(self, links):
