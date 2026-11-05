@@ -79,8 +79,12 @@ class ModifyTree(object):
 		### Connect to or create database
 		self.taxonomydb = ModifyFunctions(database,verbose=verbose)
 		self.rank= self.taxonomydb.get_rank(col=2)
-		## Save all nodes in the current database
-		self.nodeDict = self.taxonomydb.get_nodes()
+		## Save all nodes in the current database, only needed when nodes are looked up by name
+		if mod_database or mod_file or update_node_names or rename_node or update_genomes:
+			self.nodeDict = self.taxonomydb.get_nodes()
+		else:
+			self.nodeDict = {}
+			logger.debug("Node names are not used by this modification, nodeDict is not loaded")
 		self.clean = clean_database
 		self.taxonomy_type = False
 		self.do_not_delete_old = set()
@@ -543,55 +547,66 @@ class ModifyTree(object):
 	#	return
 
 	def clean_database(self, ncbi=False):
-		'''Function that removes all node and node paths without annotation'''
+		'''Function that removes all node and node paths without annotation.
+		    The nodes that survive are the annotated nodes, all their parents and, for NCBI
+		    databases, the top levels of the tree. Which rows to keep is decided inside the
+		    database, so the size of the database does not decide the amount of data read'''
 		logger.info("Fetch annotated nodes")
-		self.annotated_nodes = set(self.taxonomydb.get_genomes(cols="genome,id").keys())
+		self.annotated_nodes = set(self.taxonomydb.get_genome_nodes())
 		an = len(self.annotated_nodes)
 		logger.info("Annotated nodes: {an}".format(an=an))
 		if an == 0 and not ncbi:
 			raise InputError("Database has no annotations, the whole database would be cleaned")
-		logger.info("Get all links in database")
-		self.all_links = set(self.taxonomydb.get_links())
-		logger.info("Get all nodes in database")
-		self.all_nodes = set(self.taxonomydb.get_nodes(col=1).keys())
 		'''Add parents to all nodes that may not have annotations'''
 		logger.info("Retrieve all parents of annotated nodes")
-		self.annotated_nodes |= self.taxonomydb.get_parents(self.annotated_nodes,find_all=True,ncbi=ncbi)
-		logger.info("Parents added: {an}".format(an=len(self.annotated_nodes)-an))
+		parents = self.taxonomydb.get_ancestor_nodes(self.annotated_nodes, max_depth=50)
+		if parents is False:
+			logger.error("Parent nodes could not be fetched, cleaning is aborted!")
+			return
+		self.annotated_nodes |= set(parents)
+		logger.info("Parents added: {an}".format(an=len(set(parents))-an))
 		if ncbi:
 			logger.info("Keep main nodes of the NCBI taxonomy (parents on level 3 and above)")
-			self.keep = set(self.taxonomydb.get_children([1],maxdepth=3))  #set([self.nodeDict[node] for node in self.taxonomydb.get_children([1],maxdepth=1)])
+			children = self.taxonomydb.get_descendant_nodes([1], max_depth=3)
+			if children is False:
+				logger.error("Root levels of the taxonomy could not be fetched, cleaning is aborted!")
+				return
+			self.keep = set(children)
 			logger.info("Adding root levels {nlev}".format(nlev=len(self.keep-self.annotated_nodes)))
 			self.annotated_nodes |= self.keep
-		'''Get all links related to an annotated node and its parents'''
-		self.annotated_links = set(self.taxonomydb.get_links(self.annotated_nodes,only_parents=True))
-		self.clean_links = self.all_links - self.annotated_links
-		self.clean_nodes = self.all_nodes - self.annotated_nodes
-		logger.info("Links to remove {nlinks}".format(nlinks=len(self.clean_links)))
-		logger.debug("Links remaining {nlinks}".format(nlinks=len(self.annotated_links)))
-		logger.info("Nodes to remove {nnodes}".format(nnodes=len(self.clean_nodes)))
-		logger.debug("Nodes remaining {nnodes}".format(nnodes=len(self.annotated_nodes)))
-		logger.info("Clean annotations related to removed nodes")
-		if len(self.clean_links) < len(self.all_links) and len(self.clean_links) > 0:
-			logger.info("Cleaning {nlinks} links".format(nlinks=len(self.clean_links)))
-			if self.fast_clean:
-				links_removed = self.taxonomydb.fast_delete_links(self.clean_links)
-			else:
-				logger.info("Cleaning tree (this will take a long time for large trees)")
-				links_removed = self.taxonomydb.delete_links(self.clean_links)
-			if not links_removed:
-				logger.error("Links could not be removed, database changes are not committed and cleaning is aborted!")
+		num_nodes = self.taxonomydb.num_rows('nodes')
+		num_links = self.taxonomydb.num_rows('tree')
+		if len(self.annotated_nodes) == 0:
+			logger.info("No nodes would survive the cleaning, nothing is removed")
+			return
+		if len(self.annotated_nodes) >= num_nodes:
+			logger.info("All {nnodes} nodes are annotated or parents of annotations, nothing to remove".format(nnodes=num_nodes))
+			return
+		logger.info("Nodes to keep {nnodes} of {all}".format(nnodes=len(self.annotated_nodes),all=num_nodes))
+		keep_table = self.taxonomydb._temp_value_table("ftx_temp_keep_nodes", self.annotated_nodes)
+		if not keep_table:
+			logger.error("The list of nodes to keep could not be built, cleaning is aborted!")
+			return
+		'''Remove all links leading to nodes that are not kept, then the nodes themselves'''
+		logger.info("Cleaning {nlinks} links".format(nlinks=num_links - len(self.annotated_nodes)))
+		links_removed = self.taxonomydb.delete_rows_not_in('tree','child',keep_table,hold=True)
+		if links_removed is False:
+			self.taxonomydb.drop_temp_tables([keep_table])
+			logger.error("Links could not be removed, database changes are not committed and cleaning is aborted!")
+			return
+		nodes_removed = self.taxonomydb.delete_rows_not_in('nodes','id',keep_table,hold=True)
+		if nodes_removed is False:
+			self.taxonomydb.drop_temp_tables([keep_table])
+			logger.error("Nodes could not be removed, database changes are not committed and cleaning is aborted!")
+			return
+		if not ncbi:
+			genomes_removed = self.taxonomydb.delete_rows_not_in('genomes','id',keep_table,hold=True)
+			if genomes_removed is False:
+				self.taxonomydb.drop_temp_tables([keep_table])
+				logger.error("Genome annotations could not be removed, cleaning is aborted!")
 				return
-		if len(self.clean_nodes) < len(self.all_nodes) and len(self.clean_nodes) > 0:
-			nodes_removed = self.taxonomydb.delete_nodes(self.clean_nodes)
-			if not nodes_removed:
-				logger.error("Nodes could not be removed, database changes are not committed and cleaning is aborted!")
-				return
-			if not ncbi:
-				genomes_removed = self.taxonomydb.delete_genomes(self.clean_nodes)
-				if not genomes_removed:
-					logger.error("Genome annotations could not be removed, cleaning is aborted!")
-					return
+		self.taxonomydb.drop_temp_tables([keep_table])
+		self.taxonomydb.commit()
 		if self.taxonomydb.validate_tree():
 			self.taxonomydb.commit()
 

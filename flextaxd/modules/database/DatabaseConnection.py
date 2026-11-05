@@ -767,6 +767,31 @@ class DatabaseFunctions(DatabaseConnection):
 			self.query("DROP TABLE IF EXISTS {name}".format(name=name))
 		return True
 
+	def delete_rows_not_in(self, table, column, temp_table, hold=False):
+		'''Delete all rows of a table where the column value is not present in a temporary
+		    table with a single "val" column. The query size is independent of the number of
+		    values that are kept, so it works for tables of any size
+
+		Returns
+		------
+			int - 	number of rows deleted
+			boolean - False if the query failed
+		'''
+		QUERY = "DELETE FROM {table} WHERE {column} not in (select val from {temp})".format(table=table,column=column,temp=temp_table)
+		logger.debug(QUERY)
+		try:
+			res = self.cursor.execute(QUERY)
+			num_deleted = res.rowcount
+		except Exception as e:
+			logger.error("Error removing rows from {table}: {err}".format(table=table,err=str(e)))
+			return False
+		logger.info("{num} rows removed from {table}".format(num=num_deleted,table=table))
+		## Commit changes
+		if not hold:
+			logger.debug("Commit changes!")
+			self.commit()
+		return num_deleted
+
 	def delete_genomes(self,nodes,genomes='',match_genome_only=False,table="genomes",hold=False):
 		'''This function clean up genomes from given nodes
 
@@ -884,7 +909,72 @@ class ModifyFunctions(DatabaseFunctions):
 					children |= self.get_children(parents=children,level=level+1,maxdepth=maxdepth)
 				except RecursionError:
 					logger.debug('Maximum depth reached, halting tree traversal')
-					return children
+		return children
+
+	def get_genome_nodes(self, table="genomes"):
+		'''Get all node ids that carry at least one genome annotation
+
+		Returns
+		------
+			list - node ids
+		'''
+		QUERY = "SELECT DISTINCT id FROM {table}".format(table=table)
+		logger.debug(QUERY)
+		return [row[0] for row in self.select(QUERY)]
+
+	def get_ancestor_nodes(self, nodes, table="tree", max_depth=50):
+		'''Collect all parents above the given nodes, walking the tree in the database
+		    instead of one query per level
+
+		Returns
+		------
+			list - the given nodes and all their parent node ids
+			boolean - False if the query failed
+		'''
+		seed = self._temp_value_table("ftx_temp_seed_nodes", nodes)
+		if not seed:
+			return False
+		QUERY = ("WITH RECURSIVE path(id,depth) AS ("
+				" SELECT val,0 FROM {seed}"
+				" UNION"
+				" SELECT {table}.parent,path.depth+1 FROM {table} JOIN path ON {table}.child = path.id"
+				" WHERE path.depth < {maxdepth})"
+				" SELECT DISTINCT id FROM path").format(seed=seed, table=table, maxdepth=max_depth)
+		logger.debug(QUERY)
+		try:
+			res = [row[0] for row in self.cursor.execute(QUERY).fetchall()]
+		except Exception as e:
+			logger.error("Could not collect parent nodes: {err}".format(err=str(e)))
+			res = False
+		self.drop_temp_tables([seed])
+		return res
+
+	def get_descendant_nodes(self, nodes, table="tree", max_depth=50):
+		'''Collect all nodes below the given nodes, walking the tree in the database
+
+		Returns
+		------
+			list - all node ids below the given nodes (the given nodes themselves are not included)
+			boolean - False if the query failed
+		'''
+		seed = self._temp_value_table("ftx_temp_seed_nodes", nodes)
+		if not seed:
+			return False
+		QUERY = ("WITH RECURSIVE path(id,depth) AS ("
+				" SELECT val,0 FROM {seed}"
+				" UNION"
+				" SELECT {table}.child,path.depth+1 FROM {table} JOIN path ON {table}.parent = path.id"
+				" WHERE path.depth < {maxdepth})"
+				" SELECT DISTINCT id FROM path WHERE id not in (select val from {seed})").format(seed=seed, table=table, maxdepth=max_depth)
+		logger.debug(QUERY)
+		try:
+			res = [row[0] for row in self.cursor.execute(QUERY).fetchall()]
+		except Exception as e:
+			logger.error("Could not collect child nodes: {err}".format(err=str(e)))
+			res = False
+		self.drop_temp_tables([seed])
+		return res
+
 		return children
 
 	def get_parent(self,name,all=False):
