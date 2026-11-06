@@ -224,45 +224,41 @@ def main():
             os.system("mkdir -p {outdir}".format(outdir = args.outdir))
     skip=False
     skip_genomes=False
+    resume_library=False
+    multifiles=False
+    '''Packed multi sequence files, the --nt_source file and the files --multifile_prefix finds in the
+        genome folder, are handed to the database module: their sequences are added to the library as
+        they are and their taxids are written to the seqid2taxid map. The input files themselves are
+        never split up into genome files and never modified.'''
+    packed_files = [args.nt_source] if args.nt_source else []
     if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
         ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
         if ans in ["o", "O"]:
             logger.info("Overwrite current build progress")
             shutil.rmtree("{db_path}".format(db_path=args.db_name))
         elif ans in ["m", "M"]:
-            logger.info("Merge input fasta with library.fna")
-            cmd = "cat"
-            if args.nt_source:
-                logger.info("Nucleotide source transfered to library")
-                if args.nt_source.endswith(".gz"):
-                    cmd = "zcat"    
-                os.system("{cmd} {large_source} >> {db_path}/library/library.fna".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
-            else:
+            if not args.nt_source:
                 exit("No large input file given")
+            logger.info("Merge input fasta with library.fna")
+            '''The genome files already in the library are kept (skip_genomes), but the packed file is
+                still added to the library and to the map, which is what made its sequences enter the
+                build without a taxid (issue #115)'''
+            skip_genomes = True
+            skip = True
         elif ans.strip() in ["u", "U"]:
             logger.info("Resume database build")
             skip_genomes =True
             skip = True
+            '''Everything, packed files included, is already in the library: nothing is added again'''
+            resume_library = True
         else:
             exit("Cancel execution!")
-    else:
-        if args.nt_source:
-            logger.info("Nucleotide source transfered to library")
-            #ans = input("Im here: ")
-            cmd = "cp"
-            cmd2 = ""
-            if args.nt_source.endswith(".gz"):
-                cmd = "zcat"
-                cmd2 = " > "
-            print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
-            ans = input("Write c to continue")
-            if ans != "c":
-               exit()
-            if not os.path.exists("{db_path}/library".format(db_path=args.db_name)): os.makedirs("{db_path}/library".format(db_path=args.db_name))
-            os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
-            genomes=[args.nt_source]
-            args.genomes_path=os.path.dirname(args.nt_source)
-            skip=True
+    elif not args.genomes_path:
+        '''Without a genome folder only the packed files go into the library'''
+        if not packed_files:
+            raise InputError("genomes_path parameter was not given")
+        skip = True
+
 
     ''' 1. Process genome_path directory'''
     if not skip:
@@ -373,10 +369,14 @@ def main():
                                         verbose=args.verbose,
                                         tmpdir=args.tmpdir,
                                         create_lib=args.create_lib,
-                                        skip_genomes=skip_genomes
+                                        skip_genomes=skip_genomes,
+                                        multifiles=packed_files
         )
         report_time(current_time)
-        if not skip:
+        if not resume_library:
+            '''The library is written: the genome files (unless an existing library is kept), the files
+                --multifile_prefix found and the packed --nt_source file, together with the taxid map
+                lines of every sequence that has an annotation in the database'''
             logger.info("Create library.fna")
             classifierDB.create_library_from_files(multifiles)
         logger.info("Genome folder preprocessing completed!")

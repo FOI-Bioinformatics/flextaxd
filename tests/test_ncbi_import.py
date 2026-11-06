@@ -139,6 +139,65 @@ def test_genome_header_without_description_still_matches(tmp_path):
 
 
 def test_nothing_missing_writes_no_report_file(tmp_path):
-    """A run that found nothing missing leaves no empty FlexTaxD.not_added behind (issue #120)"""
-    assert ncbi_reader(tmp_path, tmp_path / "empty.fdb").write_missing([]) is False
+    """A run that found nothing missing leaves no finding file behind (issue #120), and the list of a
+    run that found something is written next to the database instead of into the current directory,
+    the database keeping only the number (issue #129)"""
+    empty = tmp_path / "empty.fdb"
+    assert ncbi_reader(tmp_path, empty).write_missing([]) is False
+    assert not os.path.exists(str(empty) + ".unannotated")
     assert not os.path.exists("FlexTaxD.not_added")
+    full = tmp_path / "full.fdb"
+    reader = ncbi_reader(tmp_path, full)
+    listed = reader.write_missing(["GCF_0000099999.1"], source="nucl_gb.accession2taxid.gz")
+    assert listed == str(full) + ".unannotated"
+    assert "GCF_0000099999.1" in open(listed).read()
+    assert reader.database.get_report("skipped_import", "nucl_gb.accession2taxid.gz") == [
+        ("nucl_gb.accession2taxid.gz", "total\t1\t" + listed)]
+
+
+
+def test_mixed_folder_keeps_assembly_and_nt_references_apart(tmp_path):
+    """The acceptance case: ncbi/genomes_plain holds three GCF_* assemblies and an nt.fna carrying
+    the same accessions, the assemblies keep their genome id and refseq label and only the accession
+    that no assembly file has is annotated as nt, for both accession2taxid layouts. The sequences
+    that stayed unannotated are listed next to the database and counted in its report"""
+    assemblies = [("GCF_000005845.2", 511145, "refseq"),
+                  ("GCF_000009065.1", 1841072, "refseq"),
+                  ("GCF_000013465.1", 367579, "refseq")]
+    for layout, annotated, unannotated in (
+            ("nucl_gb.accession2taxid.gz", sorted(assemblies + [("CP000250.1", 562, "nt")]),
+             ["LC_test_1"]),
+            ("gi.accession2taxid.gz", sorted(assemblies), ["CP000250.1", "LC_test_1"])):
+        annotation = os.path.join(TESTDATA, layout)
+        database = str(tmp_path / "{}.fdb".format(layout.split(".")[0]))
+        reader = ncbi_reader(tmp_path, database)
+        missing = reader.parse_genomeid2taxid(os.path.join(TESTDATA, "genomes_plain"), annotation)
+        assert genome_rows(database) == annotated
+        assert missing == unannotated
+        assert annotation_nodes_missing(database) == set()
+        listed = database + ".unannotated"
+        assert open(listed).read().split() == unannotated
+        assert reader.database.get_report("skipped_import", annotation) == [
+            (annotation, "total\t{}\t{}".format(len(unannotated), listed))]
+
+
+
+def test_archive_read_before_the_assembly_does_not_win(tmp_path):
+    """The order the folder is walked in does not decide the mapping: an archive entry for an
+    accession that a genome file also carries is replaced by the genome file and not added again"""
+    reader = ncbi_reader(tmp_path, tmp_path / "order.fdb")
+    archive = tmp_path / "nt.fna"
+    with open(str(archive), "w") as handle:
+        handle.write(">NC_000913.3 nt entry\nACGTACGT\n>CP000250.1 nt entry\nACGTACGT\n")
+    reader.parse_nt_file(str(archive), "nt.fna")
+    assert reader.refseqid_reference[b"NC_000913.3"] == "nt"
+    assembly = tmp_path / "GCF_000005845.2_ASM584v2_genomic.fna"
+    write_genome(assembly, "NC_000913.3")
+    reader.parse_genebank_file(str(assembly), "GCF_000005845.2_ASM584v2_genomic.fna")
+    assert reader.refseqid_to_GCF[b"NC_000913.3"] == "GCF_000005845.2"
+    assert reader.refseqid_reference[b"NC_000913.3"] == "refseq"
+    reader.parse_nt_file(str(archive), "nt.fna")
+    assert reader.refseqid_to_GCF[b"NC_000913.3"] == "GCF_000005845.2"
+    assert reader.refseqid_reference[b"NC_000913.3"] == "refseq"
+    assert reader.refseqid_to_GCF[b"CP000250.1"] == "CP000250.1"
+

@@ -172,7 +172,7 @@ class DatabaseConnection(object):
 
 		------
 		Parameters:
-			str - kind of finding, missing_on_disk, unannotated_file or skipped_import
+			str - kind of finding, missing_on_disk, unannotated_file, unannotated_sequence or skipped_import
 			str - the input the findings came from, a genome path or an input file
 			int - how many were found
 			str - where the individual entries can be read, when the step wrote them to a file
@@ -528,6 +528,7 @@ class DatabaseFunctions(DatabaseConnection):
 			lines.append("Disk report from {d}, genome path {p}".format(d=report_date,p=self.get_meta("genomes_path") or "unknown"))
 		for kind,description in [("missing_on_disk","Genome annotations without sequence file"),
 						("unannotated_file","Sequence files without genome annotation"),
+						("unannotated_sequence","Library sequences without taxid"),
 						("skipped_import","Rows skipped by the taxonomy import")]:
 			total, findings, legacy = self.report_findings(kind)
 			if not total:
