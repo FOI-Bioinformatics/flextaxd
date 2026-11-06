@@ -132,11 +132,10 @@ def main():
     mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to modify downstream structure (replace see below).")
     mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed before merge!")
     mod_opts.add_argument('--replace_parent', action='store_true',                      help=argparse.SUPPRESS) ## Replace name of node in incoming tree hidden option
-    mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from unannotated nodes")
+    mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from nodes without an annotated genome downstream (annotated nodes, their parent chain and the top levels of NCBI databases are kept)")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
-    mod_opts.add_argument('--purge_database','--purge_db',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)")
-    mod_opts.add_argument('--purge_database_force','--purge_db_force', action='store_true',default=False,   help="If specified, will remove all genomes that are missing from the FlexTaxD-database, regardless if they are distinct nodes or not in the tree (default = FALSE)")
+    mod_opts.add_argument('--purge_database','--purge_db',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)\nThe annotations are removed by genome name, also where a genome shares its node with a genome that is present, and the nodes that end up without any annotated genome downstream are removed by the database clean (same function as --clean_database)")
 
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
@@ -317,7 +316,7 @@ def main():
         if missing:
             modify_module = dynamic_import("modules", "ModifyTree")
             modify_obj = modify_module(database=args.database,purge_database=True,taxid_base=args.taxid_base)
-            modify_obj.purge_database(missing_genomes,force_genome_delete=args.purge_database_force)
+            modify_obj.purge_database(missing_genomes)
         #/
 
     '''Dump option, export list of genomes, added in flextaxd version 0.4.2'''

@@ -961,7 +961,10 @@ class DatabaseFunctions(DatabaseConnection):
 		else:
 			conditions.append(("id",nodes))
 
-		logger.info("Deleting {nnodes} annotations!".format(nnodes=len(nodes)))
+		if match_genome_only and genomes:
+			logger.info("Deleting annotations of {ngenomes} genomes!".format(ngenomes=len(genomes)))
+		else:
+			logger.info("Deleting {nnodes} annotations!".format(nnodes=len(nodes)))
 		if sum(len(values) for column,values in conditions) > MAX_BIND_PARAMS:
 			## Too many values to pass as bind variables in one query, use temporary tables instead
 			temp_tables = []

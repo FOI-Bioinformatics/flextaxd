@@ -628,40 +628,33 @@ class ModifyTree(object):
 			self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
 
-	def purge_database(self, genomes_list = None, force_genome_delete = False):
-		''' This function takes as input a list of genomes that are missing in the genomes directory specified as --genomes_path in flextaxd-create.
-            It gets the nodes for these genomes and then traverses the tables of the FlexTaxD-database, removing entries (e.g. parent-relations)
-            that are exclusive to such nodes. It tests so that any parent node is not a parent for a node that is not deleted.
-            Optionally, missing genomes that have no distinct nodes in the tree can be removed (force_genome_delete)
-                This occurs when using GTDB taxonomy (full GTDB-database) but only using the representative genomes.
-                The nodes of such datasets have multiple children, of which one is the representative genome and the other children can be removed.
-                When this flag is applied, the function will remove missing entries from all tables wherever possible ("truly missing" datasets)
-                in addition to naively removing all missing genomes (datasets that are missing due to exhaustive import of taxonomy information)
+	def purge_database(self, genomes_list = None):
+		''' This function takes as input a list of genomes that are missing in the genomes directory
+		    given as --purge_database. All annotations of those genomes are removed, matched on the
+		    genome name, which also covers genomes that share their node with a genome that is present:
+		    with GTDB taxonomy (the full GTDB-database) and only the representative dataset on disk,
+		    one species node carries the representative and all other genomes of that species.
+		    Nodes and links that end up with no annotated genome below them are removed by the
+		    database clean that runs afterwards, which is the same function as --clean_database.
+		    The removed option --purge_database_force needs no replacement: removing missing genomes
+		    by name is what the purge always does now, and removing the nodes of the genomes that
+		    have no annotated genome downstream is what the clean always does.
         '''
 		logger.info('Entered purge_database')
 		if not type(genomes_list) == set:
 			genomes_list = set(genomes_list) # Convert input list to hashmap for lookup speed
 		if genomes_list:
-			logger.info('Have '+str(len(genomes_list))+' missing genomes, looking them up in the database...')
-			# Get nodes and genomes from database
-			logger.info('Fetching id,genome from database')
-			genomes_nodes = self.taxonomydb.get_genomes(table='genomes',cols='id,genome') # get_gnomes returns dict of "genome"->"id"
-			
-			nodes_keep = set()
-			
-			if True:
-				remove_genome_keys = set(genomes_nodes) - genomes_list## Genomes missing and in database
-
+			logger.info('Have '+str(len(genomes_list))+' missing genomes, removing their annotations...')
 			num_rows_before = self.taxonomydb.num_rows('genomes')
-			genomes_removed = self.taxonomydb.delete_genomes(nodes_keep,genomes=genomes_list,match_genome_only=True)
+			genomes_removed = self.taxonomydb.delete_genomes(set(),genomes=genomes_list,match_genome_only=True)
 			num_rows_after = self.taxonomydb.num_rows('genomes')
 			num_rows_deleted = num_rows_before - num_rows_after
 			logger.info('Removed '+str(num_rows_deleted)+' node genomes')
 			if not genomes_removed:
 				logger.error("Genome annotations could not be removed, database is left unchanged and cleaning is skipped!")
 				return
-			if num_rows_deleted < len(genomes_list) and not force_genome_delete:
-				logger.warning(str(len(genomes_list)-num_rows_deleted)+' missing genomes had no genome annotation in the database, use --purge_database_force to remove their nodes as well')
+			if num_rows_deleted < len(genomes_list):
+				logger.warning(str(len(genomes_list)-num_rows_deleted)+' missing genomes had no genome annotation in the database')
 			if num_rows_after == 0:
 				logger.warning("The purge removed every genome annotation in the database, the taxonomy is left untouched")
 				return
