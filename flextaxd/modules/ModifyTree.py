@@ -5,7 +5,7 @@ Modify tree from database or source
 '''
 
 from .database.DatabaseConnection import ModifyFunctions
-import logging,os
+import logging,os,datetime
 logger = logging.getLogger(__name__)
 import math,time
 #from .database.database import database
@@ -394,7 +394,12 @@ class ModifyTree(object):
 		return True
 
 	def update_annotations(self, genomeid2taxid, reference=False):
-		'''Function that adds annotation of genome ids to nodes'''
+		'''Function that adds annotation of genome ids to nodes
+			The file lists genome, node (name or index) and optionally the reference
+			(refseq/genbank/nt) of every genome, which is the format of the genome annotation dump
+			(WriteTaxonomy.dump_genome_annotations), so that a dump can be edited and read back
+			without losing the labels. A reference given as argument labels every genome and
+			overrides that column, a file without the column is labelled with the given reference.'''
 		logger.info("Update genome to taxid annotations using {genomeid2taxid}".format(genomeid2taxid=genomeid2taxid))
 		_ref = reference
 		update = {
@@ -403,16 +408,25 @@ class ModifyTree(object):
 			"set_value": "",
 			"where": ""
 		}
-		#if _ref:
-		#	update[""]
+		reference_update = {
+			"set_column": "reference",
+			"where_column": "genome",
+			"set_value": "",
+			"where": ""
+		}
 		updated = 0
 		added = 0
 		skipped = []
 		with open(genomeid2taxid) as f:
 			for row in f:
+				'''The reference belongs to the row it was read with: the argument of the function
+				   labels every genome, otherwise the third column of the file does'''
+				genome_reference = _ref
 				try:
 					if len(row.strip().split(self.sep)) > 2:
-						genome,name,reference = row.strip().split(self.sep)
+						genome,name,column_reference = row.strip().split(self.sep)
+						if not _ref:
+							genome_reference = column_reference
 					else:
 						genome,name = row.strip().split(self.sep)
 				except ValueError:
@@ -439,6 +453,10 @@ class ModifyTree(object):
 							updated += 1
 						else:
 							added += 1
+					if genome_reference:
+						reference_update["set_value"] = genome_reference
+						reference_update["where"] = genome.strip()
+						self.taxonomydb.update_genome(reference_update)
 		self.taxonomydb.commit()
 		if skipped:
 			skipped_file = "{file}.skipped".format(file=genomeid2taxid)
@@ -448,16 +466,24 @@ class ModifyTree(object):
 					print("{entry}\t{reason}".format(entry=entry,reason=reason), end="\n", file=of)
 			self.taxonomydb.save_report("skipped_import",
 										genomeid2taxid,
-										["{entry}\t{reason}".format(entry=entry,reason=reason) for entry,reason in skipped])
+										len(skipped),
+										skipped_file)
 			logger.warning("{n} genome annotations skipped, listed in {file}".format(n=len(skipped),file=skipped_file))
 		gid = self.taxonomydb.get_genomes()
 		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
 
 	def update_genomes(self):
-		'''When a database is supplied as source for the update genome annotations from that database needs to be transfered to the taxonomydb'''
+		'''When a database is supplied as source for the update genome annotations from that database needs to be transfered to the taxonomydb,
+		   including the reference (refseq/genbank/nt) label every incoming genome carries'''
 		update = {
 			"set_column": "id",
+			"where_column": "genome",
+			"set_value": "",
+			"where": ""
+		}
+		reference_update = {
+			"set_column": "reference",
 			"where_column": "genome",
 			"set_value": "",
 			"where": ""
@@ -466,6 +492,12 @@ class ModifyTree(object):
 		added = 0
 		notadded = 0
 		notadded_genomes = []
+		'''The reference of the incoming genomes is read from the source database, unlabelled
+		   source genomes keep the reference the receiving database already has'''
+		genome_references = {}
+		if getattr(self,"moddb",False):
+			for genome, reference in self.moddb.select("SELECT genome,reference FROM genomes"):
+				genome_references[genome] = reference
 		'''Database has been updated, so the internal nodeDict needs to be updated'''
 		if len(self.mod_genomes) >= 100:
 			allupdates = []
@@ -480,6 +512,7 @@ class ModifyTree(object):
 				notadded +=1
 				notadded_genomes.append("{genome}\ttaxid {taxid} is not in the receiving database".format(genome=genome,taxid=inc_taxid))
 				continue
+			reference = genome_references.get(genome) or genome_references.get(genomeid)
 			if len(self.mod_genomes) < 100:
 				update["set_value"] = id
 				update["where"] = genomeid
@@ -489,23 +522,36 @@ class ModifyTree(object):
 						updated += 1
 					else:
 						added += 1
+				if reference:
+					reference_update["set_value"] = reference
+					reference_update["where"] = genomeid
+					self.taxonomydb.update_genome(reference_update)
 			else:
-				allupdates.append("({id},'{genomeid}')".format(id=id,genomeid=str(genomeid).replace("'","''")))
+				reference_value = "NULL" if not reference else "'{ref}'".format(ref=str(reference).replace("'","''"))
+				allupdates.append("({id},'{genomeid}',{reference})".format(id=id,genomeid=str(genomeid).replace("'","''"),reference=reference_value))
 		if len(self.mod_genomes) >= 100:
-			update["set_value"] = "id"
-			update["where_value"] = "genome"
+			update["columns"] = ["id","genome","reference"]
 			update["data"] = allupdates
-			self.taxonomydb.multi_update(update,"genomes")
-			logger.info("Genomes transfered to increase speed no statistics were calculated")
+			num_rows_before = self.taxonomydb.num_rows('genomes')
+			if self.taxonomydb.multi_update(update,"genomes"):
+				added = self.taxonomydb.num_rows('genomes') - num_rows_before
+				updated = len(allupdates) - added
+				logger.info("{added} added and {updated} genome annotations were transfered in one batch".format(added=added,updated=updated))
+			else:
+				logger.error("{n} genome annotations could not be transfered, the receiving database keeps the annotations it had".format(n=len(allupdates)))
 		else:
-			if notadded > 0:
-				logger.info("{notadded} genomes not added, taxonomy id does not exist in the receiving database".format(notadded=notadded))
 			logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		if notadded > 0:
-			'''List the genomes that were not transferred in the report of the receiving database'''
+			logger.info("{notadded} genomes not added, taxonomy id does not exist in the receiving database".format(notadded=notadded))
+			'''The genomes that could not be transfered are listed in a file next to the receiving
+			   database: the database itself keeps the number, not the individual genomes'''
+			notadded_file = "{database}.notadded".format(database=self.taxonomydb.database)
+			with open(notadded_file,"w") as of:
+				for entry in notadded_genomes:
+					print(entry, end="\n", file=of)
 			source = self.moddb.database if getattr(self,"moddb",False) else "modification"
-			self.taxonomydb.save_report("skipped_import",source,notadded_genomes)
-			logger.warning("{n} genomes were not added, they are listed by flextaxd --report".format(n=notadded))
+			self.taxonomydb.save_report("skipped_import",source,len(notadded_genomes),notadded_file)
+			logger.warning("{n} genomes were not added, they are listed in {file}".format(n=notadded,file=notadded_file))
 		self.taxonomydb.commit()
 		return
 
@@ -628,7 +674,7 @@ class ModifyTree(object):
 			self.taxonomydb.query("vacuum")
 		logger.info("Database is cleaned!")
 
-	def purge_database(self, genomes_list = None):
+	def purge_database(self, genomes_list = None, genome_path = False):
 		''' This function takes as input a list of genomes that are missing in the genomes directory
 		    given as --purge_database. All annotations of those genomes are removed, matched on the
 		    genome name, which also covers genomes that share their node with a genome that is present:
@@ -639,6 +685,11 @@ class ModifyTree(object):
 		    The removed option --purge_database_force needs no replacement: removing missing genomes
 		    by name is what the purge always does now, and removing the nodes of the genomes that
 		    have no annotated genome downstream is what the clean always does.
+		    The disk report of --purge_database (genome_path) describes the state before the purge:
+		    every genome it listed as annotated without a file has just been removed, so its numbers
+		    are updated to the state after it. The file is compacted at the end: the clean only
+		    vacuums when it removed nodes itself, while a GTDB purge removes genome rows below nodes
+		    that keep their representative and therefore no nodes at all.
         '''
 		logger.info('Entered purge_database')
 		if not type(genomes_list) == set:
@@ -655,14 +706,35 @@ class ModifyTree(object):
 				return
 			if num_rows_deleted < len(genomes_list):
 				logger.warning(str(len(genomes_list)-num_rows_deleted)+' missing genomes had no genome annotation in the database')
+			if genome_path:
+				'''The scan that produced this list stored its findings for that directory, the purge
+				   just removed all of them except the ones that had no annotation to remove'''
+				missing_after = len(genomes_list) - num_rows_deleted
+				self.taxonomydb.set_meta("genomes_path",genome_path)
+				self.taxonomydb.set_meta("report_date",datetime.datetime.now().isoformat(timespec="seconds"))
+				self.taxonomydb.set_meta("genomes_missing_on_disk",str(missing_after))
+				self.taxonomydb.save_report("missing_on_disk",genome_path,missing_after)
 			if num_rows_after == 0:
 				logger.warning("The purge removed every genome annotation in the database, the taxonomy is left untouched")
+				self._compact_database()
 				return
 			try:
 				self.clean_database(ncbi=True)
 			except InputError as e:
 				logger.warning("Cleaning after the purge was refused: {err}".format(err=str(e)))
+			self._compact_database()
 			return
+
+	def _compact_database(self):
+		'''Give the pages the purge freed back to the file: the vacuum of clean_database only runs
+			when that function had nodes to remove, which a purge of a GTDB style database has not'''
+		logger.info("Vacuum database after the purge")
+		'''A vacuum cannot run inside an open transaction, and the clean can return early without
+		   committing when it finds nothing to remove'''
+		self.taxonomydb.commit()
+		res = self.taxonomydb.query("vacuum")
+		if isinstance(res,Exception):
+			logger.warning("The database file could not be compacted: {err}".format(err=str(res)))
 			
 	def keep_levels(self, links):
 		parent_levels = {}

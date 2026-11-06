@@ -87,9 +87,14 @@ def test_disk_report_lists_missing_genomes_and_unannotated_files(tmp_path):
     assert report["annotated"] == 2 and report["on_disk"] == 1
     stored = ModifyFunctions(database=db)
     assert stored.report_kinds() == {"missing_on_disk": 1, "unannotated_file": 1}
-    assert [entry for source, entry in stored.get_report("missing_on_disk")] == ["GCF_000000002.1"]
+    assert [entry for source, entry in stored.get_report("missing_on_disk")] == ["total\t1"]
+    assert stored.get_meta("genomes_missing_on_disk") == "1"
+    assert stored.get_meta("files_unannotated") == "1"
     lines = "\n".join(stored.report_lines())
-    assert "GCF_000000002.1" in lines and "GCF_000000003.1_genomic.fna" in lines
+    assert "Genome annotations without sequence file: 1" in lines
+    assert "Sequence files without genome annotation: 1" in lines
+    ## the database keeps the numbers, not the individual genomes and files
+    assert "GCF_000000002.1" not in lines and "GCF_000000003.1_genomic.fna" not in lines
 
 
 def test_disk_report_is_replaced_by_the_next_run(tmp_path):
@@ -105,11 +110,32 @@ def test_disk_report_is_replaced_by_the_next_run(tmp_path):
     assert conn.get_meta("genomes_missing_on_disk") == "0"
 
 
-def test_skipped_import_rows_are_stored_in_the_database(tmp_path):
+def test_skipped_import_rows_are_counted_and_stay_in_the_file(tmp_path):
     db = str(tmp_path / "skip.fdb")
     read_object = ReadTaxonomy(taxonomy_file=str(tmp_path / "tax.tsv"), database=db)
     read_object.skipped = [("bad_row_1", "no taxid"), ("bad_row_2", "taxid not in database")]
-    assert read_object.write_skipped() == str(tmp_path / "tax.tsv.skipped")
-    stored = ModifyFunctions(database=db).get_report("skipped_import")
-    assert [entry for source, entry in stored] == ["bad_row_1\tno taxid", "bad_row_2\ttaxid not in database"]
-    assert "Rows skipped by the taxonomy import: 2" in "\n".join(ModifyFunctions(database=db).report_lines())
+    skipped_file = read_object.write_skipped()
+    assert skipped_file == str(tmp_path / "tax.tsv.skipped")
+    conn = ModifyFunctions(database=db)
+    findings = conn.get_report("skipped_import")
+    assert len(findings) == 1
+    assert findings[0][0] == str(tmp_path / "tax.tsv")
+    assert findings[0][1].startswith("total\t2\t")
+    lines = "\n".join(conn.report_lines())
+    assert "Rows skipped by the taxonomy import: 2" in lines
+    assert str(skipped_file) in lines
+    ## the rows themselves are only in the file, not in the database
+    assert "bad_row_1" not in lines
+    assert "bad_row_1\tno taxid" in open(skipped_file).read()
+
+
+def test_an_older_database_still_lists_the_entries_it_stored(tmp_path):
+    """Databases written by an earlier flextaxd version hold one row per finding: --report has to
+    keep showing those entries instead of reading them as counts"""
+    db = make_old_database(tmp_path)
+    conn = ModifyFunctions(database=db)
+    conn.query("INSERT INTO report (kind,source,entry) VALUES ('missing_on_disk','/genomes','GCF_000000001.1')")
+    conn.commit()
+    lines = "\n".join(ModifyFunctions(database=db).report_lines())
+    assert "Genome annotations without sequence file: 1" in lines
+    assert "GCF_000000001.1" in lines

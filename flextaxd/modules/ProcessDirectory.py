@@ -291,8 +291,8 @@ class ProcessDirectory(object):
 		self.database.set_meta("genomes_path",folder_path)
 		self.database.set_meta("genomes_missing_on_disk",str(len(missing)))
 		self.database.set_meta("files_unannotated",str(len(unannotated)))
-		self.database.save_report("missing_on_disk",folder_path,missing)
-		self.database.save_report("unannotated_file",folder_path,unannotated)
+		self.database.save_report("missing_on_disk",folder_path,len(missing))
+		self.database.save_report("unannotated_file",folder_path,len(unannotated))
 		logger.info("Disk report stored in the database: {m} annotated genomes have no file, {u} files have no annotation".format(m=len(missing),u=len(unannotated)))
 		return len(missing),len(unannotated)
 

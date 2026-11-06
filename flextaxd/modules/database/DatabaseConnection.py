@@ -163,29 +163,62 @@ class DatabaseConnection(object):
 		'''
 		return {info: self.get_meta(info) for info in ["built_with","built","modified_with","modified"]}
 
-	def save_report(self,kind,source,entries):
-		'''Store the findings of one build step, replacing the findings of the same kind from the
-				same input of an earlier run
+	def save_report(self,kind,source,count,detail=False):
+		'''Store what one step found for one input as a number only: the individual genomes and rows
+				are never kept in the database, they are either written to a file by the step (the
+				"<input>.skipped" files) or can be recomputed from the genome folder with --genomes_path.
+				Findings of the same kind from the same input of an earlier run are replaced, a count of
+				zero removes the stored finding.
 
 		------
 		Parameters:
 			str - kind of finding, missing_on_disk, unannotated_file or skipped_import
 			str - the input the findings came from, a genome path or an input file
-			iterable - the entries to store
+			int - how many were found
+			str - where the individual entries can be read, when the step wrote them to a file
 		------
 		Returns:
-			int - number of entries stored
+			int - the number stored
 		'''
-		entries = list(entries)
+		count = int(count)
 		self.query("DELETE FROM report WHERE kind = ? AND source = ?;",insert_val=(kind,source))
-		if entries:
-			self.cursor.executemany("INSERT OR IGNORE INTO report (kind,source,entry) VALUES (?,?,?);",
-									[(kind,source,str(entry)) for entry in entries])
-		count = self.select("SELECT COUNT(*) FROM report WHERE kind = ? AND source = ?;",params=(kind,source))
-		self.conn.commit()
 		if count:
-			return count[0][0]
-		return 0
+			self.query("INSERT INTO report (kind,source,entry) VALUES (?,?,?);",
+						insert_val=(kind,source,self.report_count_entry(count,detail)))
+		self.conn.commit()
+		return count
+
+	def report_count_entry(self,count,detail=False):
+		'''The single entry that holds a finding count, marked so that report_lines can tell it apart
+				from the individual entries that databases written before this change contain'''
+		if detail:
+			return "total\t{count}\t{detail}".format(count=count,detail=detail)
+		return "total\t{count}".format(count=count)
+
+	def report_findings(self,kind):
+		'''The findings of one kind as they are stored: one entry with the number per input
+
+		------
+		Returns:
+			tuple - (total, list of "input: number, listed in file" lines, list of individual
+					entries of databases written by an earlier flextaxd version)
+		'''
+		total = 0
+		lines = []
+		legacy = []
+		for source,entry in self.get_report(kind):
+			if entry.startswith("total\t"):
+				fields = entry.split("\t")
+				number = int(fields[1])
+				total += number
+				line = "{source}: {number}".format(source=source,number=number)
+				if len(fields) > 2:
+					line += ", listed in {file}".format(file=fields[2])
+				lines.append(line)
+			else:
+				total += 1
+				legacy.append("{source}\t{entry}".format(source=source,entry=entry))
+		return total, lines, legacy
 
 	def get_report(self,kind,source=False):
 		'''Read the stored findings of one kind
@@ -305,22 +338,33 @@ class DatabaseConnection(object):
 		Parameters
 			list - data in form of a list with updates
 			table - which table to update
+			optional key "columns" in data - every column of the value rows in the order they
+				are written, default the two update columns (set_column, where_column). Rows that
+				already exist get every column but the identifying one from the incoming value,
+				an incoming NULL keeps the value that is already stored.
 		------
 		Returns
-			boolean - 	True: if rowcount of update is not zero
-						False if column is not set (value is inserted)
+			boolean - 	True: the statement ran
+						False: the statement failed (the rows were not written)
 		'''
+		columns = data.get("columns",[data["set_column"],data["where_column"]])
 		UPDATE_QUERY = '''
-			INSERT INTO {table} ({set_column},{where_column})
+			INSERT INTO {table} ({columns})
 			VALUES {data}
 			ON CONFLICT({where_column}) DO UPDATE SET
-			{where_column} = {where_column},
-			{set_column}   = {set_column};
-		'''.format(table=table,set_column=data["set_column"],where_column=data["where_column"],data=",".join(data["data"]))
+			{assignments};
+		'''.format(table=table,
+					columns=",".join(columns),
+					data=",".join(data["data"]),
+					where_column=data["where_column"],
+					assignments=", ".join("{col} = COALESCE(excluded.{col}, {table}.{col})".format(col=col,table=table) for col in columns if col != data["where_column"]))
 		#udata = tuple([data["set_value"],data["where"]])
 		logger.debug("{q}".format(q=UPDATE_QUERY))
 		#exit()
 		res = self.query(UPDATE_QUERY,error=True)
+		if isinstance(res,Exception):
+			logger.error("The batched update of the {table} table failed: {err}".format(table=table,err=str(res)))
+			return False
 		#if self.rowcount() == 0:
 		#	res = self.insert({data["set_column"]:data["set_value"],data["where_column"]:data["where"]}, table)
 		#	return False
@@ -485,14 +529,17 @@ class DatabaseFunctions(DatabaseConnection):
 		for kind,description in [("missing_on_disk","Genome annotations without sequence file"),
 						("unannotated_file","Sequence files without genome annotation"),
 						("skipped_import","Rows skipped by the taxonomy import")]:
-			entries = [entry for source,entry in self.get_report(kind)]
-			if not entries:
+			total, findings, legacy = self.report_findings(kind)
+			if not total:
 				continue
-			lines.append("{d}: {n}".format(d=description,n=len(entries)))
-			show = entries if limit is None else entries[:limit]
-			lines.extend(["\t{e}".format(e=entry) for entry in show])
-			if limit is not None and len(entries) > limit:
-				lines.append("\tand {n} more".format(n=len(entries)-limit))
+			lines.append("{d}: {n}".format(d=description,n=total))
+			lines.extend(["\t{line}".format(line=line) for line in findings])
+			if legacy:
+				## databases written by an earlier flextaxd version still hold the entries themselves
+				show = legacy if limit is None else legacy[:limit]
+				lines.extend(["\t{e}".format(e=entry) for entry in show])
+				if limit is not None and len(legacy) > limit:
+					lines.append("\tand {n} more entries stored by an earlier flextaxd version".format(n=len(legacy)-limit))
 		return lines
 
 	def check_parent(self):

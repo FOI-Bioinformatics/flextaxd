@@ -316,7 +316,7 @@ def main():
         if missing:
             modify_module = dynamic_import("modules", "ModifyTree")
             modify_obj = modify_module(database=args.database,purge_database=True,taxid_base=args.taxid_base)
-            modify_obj.purge_database(missing_genomes)
+            modify_obj.purge_database(missing_genomes,genome_path=genomes_path)
         #/
 
     '''Dump option, export list of genomes, added in flextaxd version 0.4.2'''

@@ -4,6 +4,7 @@ import sqlite3
 import pytest
 
 from flextaxd.modules import ModifyTree as modify_module
+from flextaxd.modules.ProcessDirectory import ProcessDirectory
 from flextaxd.modules.database import DatabaseConnection
 from flextaxd.modules.database.DatabaseConnection import DatabaseFunctions, ModifyFunctions
 
@@ -261,4 +262,60 @@ def test_purge_removes_nodes_without_annotated_genome_below_them(tmp_path):
     assert row_count(db, "genomes") == 1
     assert row_ids(db, "nodes") == {1, 2, 3, 4, 10, 11, 12, 13, 14}
     assert row_ids(db, "tree", "child") == {1, 2, 3, 4, 10, 11, 12, 13, 14}
+
+
+def make_gtdb_shape_database(path, n_species=200, genomes_per_species=20):
+    """One node per species carrying its representative and the other genomes of that species, the
+    shape of the full GTDB taxonomy with only the representative dataset on disk"""
+    db = str(path)
+    conn = ModifyFunctions(database=db)
+    conn.query("INSERT INTO rank (rank_i,rank) VALUES (1,'no rank'),(4,'species')")
+    conn.query("INSERT INTO nodes (id,name) VALUES (1,'root')")
+    conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (1,1,1)")
+    for n in range(n_species):
+        node = 2 + n
+        conn.query("INSERT INTO nodes (id,name) VALUES ({},'species_{:04d}')".format(node, n))
+    rows = []
+    for n in range(n_species):
+        for g in range(genomes_per_species):
+            rows.append((2 + n, "GCF_{:09d}.1".format(n * 100 + g), "refseq" if g == 0 else "genbank"))
+    conn.cursor.executemany("INSERT INTO genomes (id,genome,reference) VALUES (?,?,?)", rows)
+    conn.commit()
+    representatives = [rows[n * genomes_per_species][1] for n in range(n_species)]
+    return db, [row[1] for row in rows], representatives
+
+
+def test_purge_does_not_grow_the_database_and_leaves_no_stale_report(tmp_path):
+    """Regression test for the two effects that made --purge_database enlarge the database: the scan
+    of the genome folder stored one report row per missing genome, and the pages the purge freed
+    stayed in the file because the clean had no nodes to remove (every species keeps its
+    representative) and therefore skipped its vacuum"""
+    db, accessions, representatives = make_gtdb_shape_database(
+        tmp_path / "gtdb.fdb", n_species=300, genomes_per_species=30)
+    folder = tmp_path / "genomes"
+    folder.mkdir()
+    for accession in representatives:
+        (folder / (accession + "_ASMv1_genomic.fna")).write_text(">x\nACGT\n")
+    size_before = os.path.getsize(db)
+
+    files, missing = ProcessDirectory(db).process_folder(str(folder))
+    missing_genomes = set(entry["genome_id"] for entry in missing)
+    assert len(missing_genomes) == len(accessions) - len(representatives)
+    ## the scan keeps the number, not one row per missing genome
+    assert row_count(db, "report") == 1
+    assert ModifyFunctions(database=db).get_meta("genomes_missing_on_disk") == str(len(missing_genomes))
+
+    modify_object = modify_module.ModifyTree(database=db, purge_database=True)
+    modify_object.purge_database(missing_genomes, genome_path=str(folder))
+
+    assert row_count(db, "genomes") == len(representatives)
+    conn = ModifyFunctions(database=db)
+    assert conn.get_meta("genomes_missing_on_disk") == "0"
+    assert conn.get_report("missing_on_disk") == []
+    stored = " ".join(entry for entry, in conn.select("SELECT entry FROM report"))
+    removed = set(accessions) - set(representatives)
+    assert not [accession for accession in removed if accession in stored]
+    ## the vacuum gives the freed pages back, so the command cannot leave the file bigger behind
+    assert conn.query("PRAGMA freelist_count").fetchone()[0] == 0
+    assert os.path.getsize(db) <= size_before
 
