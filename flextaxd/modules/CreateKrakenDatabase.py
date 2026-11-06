@@ -5,14 +5,13 @@ This part of the script is kept because it is convenient when creating kraken2 o
 however it is not optimized in any way and uses os.system instead of a proper Popen for subprocessing.
 '''
 
-import sys
-import gzip
 import random
 import os
 import glob
 from multiprocessing import Process,Manager,Pool
 from subprocess import Popen,PIPE,check_output,CalledProcessError
 from .database.DatabaseConnection import DatabaseFunctions
+from .functions import zopen, strip_gz
 from time import sleep
 
 '''gzip have changed their error format between python version 3.7 and 3.8, this is at least a temporary fix for that'''
@@ -25,16 +24,6 @@ except ImportError:
 
 import logging
 logger = logging.getLogger(__name__)
-
-def zopen(path,*args, **kwargs):
-	'''Redefine open to handle zipped files automatically'''
-	if path.endswith(".gz"):
-		if str(*args) in ["r","w"] and sys.version_info.major >= 3:
-			## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
-			args = (str(*args)+"t",)
-		return gzip.open(path,*args,**kwargs)
-	else:
-		return open(path,*args,**kwargs)
 
 class CreateKrakenDatabase(object):
 	"""docstring for CreateKrakenDatabase."""
@@ -147,7 +136,7 @@ class CreateKrakenDatabase(object):
 			filepath = self.genome_path[genome]
 			kraken_header = "kraken:taxid"
 			tmpname = ".tmp{rand}.gz".format(rand=random.randint(10**7,10**9))
-			tmppath = "{tmpdir}/{tmppath}".format(tmpdir=self.tmpdir.rstrip("/"),tmppath=tmpname).rstrip(".gz")
+			tmppath = strip_gz("{tmpdir}/{tmppath}".format(tmpdir=self.tmpdir.rstrip("/"),tmppath=tmpname))
 
 			'''Get taxid from database'''
 			try:
@@ -229,7 +218,7 @@ class CreateKrakenDatabase(object):
 								print(taxidline.strip('\n'),end="\n",file=seqidtotaxid)
 					tmpfile.close()  ## Close and save tmp file
 					if self.create_db or self.create_lib:
-						output = self.tmpdir.rstrip("/")+"/"+filepath.split("/")[-1].rstrip(".gz")
+						output = strip_gz(self.tmpdir.rstrip("/")+"/"+filepath.split("/")[-1])
 						os.rename(tmppath, output)
 						try:
 							#ans = check_output(self.krakenversion+"-build --add-to-library {file} --skip-maps --db {krakendb}  > /dev/null 2>&1 ".format(file=output,krakendb=self.krakendb),shell=True)

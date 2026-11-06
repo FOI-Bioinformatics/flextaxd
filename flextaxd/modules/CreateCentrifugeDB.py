@@ -5,23 +5,12 @@ This part of the script is kept because it is convenient when creating ganon2 or
 however it is not optimized in any way and uses os.system instead of a proper Popen for subprocessing.
 '''
 
-import sys
-import gzip
 import random
 import os
 from multiprocessing import Process, Queue
 from subprocess import Popen,PIPE
 from .database.DatabaseConnection import DatabaseFunctions
-
-def zopen(path,*args, **kwargs):
-	'''Redefine open to handle zipped files automatically'''
-	if path.endswith(".gz"):
-		if str(*args) in ["r","w"] and sys.version_info.major >= 3:
-			## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
-			args = (str(*args)+"t",)
-		return gzip.open(path,*args,**kwargs)
-	else:
-		return open(path,*args,**kwargs)
+from .functions import zopen
 
 class CreateGanonDB(object):
 	"""docstring for CreateGanonDB."""

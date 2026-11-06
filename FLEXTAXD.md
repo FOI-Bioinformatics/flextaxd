@@ -1,0 +1,18 @@
+## FlexTaxD  Flexible taxonomy database
+
+So the original gap that this program suite aim to close is the large varitety of differente taxonomy database formats and that many if not all of them are incomplete in some perspective. 
+
+1. NCBI based on morphology which means unbalance between within variation of species, genus, family etc in particular within bacteria. However this is the only complete database that includes eucaryotes so it is needed as a base.
+2. GTDB a reorganization of the Bacteria and Archaea Kingdoms. A systematic reorganisation based on genetics, more accurate solved most of the known problems and creates balance on within and between variation at taxonomic levels. Caveat, subspecies resolution is dropped.
+3. Custom databases, perhaps the public databases do not have all the information that is know for a group and in particular now when database resolution is limited to species.
+4. Different database structures. Many databases have different formats. For example greengens(QIIME) has a format where all levels are repeated for a species (redundant information), we have a custom format based on SNP differences (although similar redundancy as greengenes)
+5. Different outputs required for the next stage which is in most cases creating genetic databases based on the sequences ordered by the taxonomic structure. There is flextaxd-create which was a quick fix to build databases, but it was not actually an intended feature for the original program. Perhaps it will be dropped in the future or split into its own function. But there are other packages we can merge into eventually that focus on building the databases themselves.
+
+There are also some virus databases that may need to be merged, or for example the nt database from NCBI (nucleotide redundant database). The branch we work is tries to avoid the need for "splitting the file into genomes" since the last step before "kraken2" is to merge them all into one file again. But we need a way to annotate everything and merge it with the individual genomes on disk. 
+
+Then we have some problems we need to solve.
+NCBI has the gold standard and decisive taxonomy IDs based on a number. This is priority to keep in the database wherever possible, so if a database with new information is merged and it does not have the correct number. It should merge based on the name. One problem however is that the database is not unique on names when the eucaryotic part of the tree is included. So we may need to track the parent if we find duplicated nodes. Then if that happens the Eucaryotic name should change to avoid complications in the future. Preferably we can add e_ before the name for eucaryotic (not implemented)
+
+So main pipeline is to create a NCBI database. Then swap the bacteria and archaea nodes to follow GTDB. Then if nessesary add custom databases that resolves a species to whatever level is required, either just subspecies or all the way down a SNP tree that may differ just on a few bases between nodes. Finally the information needs to be exported so that databases such as kraken2 can be built. Here we need the taxonomy tree on names.dmp and nodes.dmp plus a genom2taxid table which has taxid and sequence. This is why we have a function to match a genome id (from the GTDB database) to the actual sequences within the file of that genome that is found on disk.
+
+We also have some functions intended for speed increase. For example clear_database which is intended to remove any NCBI node that is not giving information (Having a genome annotated downstream)

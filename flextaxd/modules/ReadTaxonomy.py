@@ -5,9 +5,8 @@ Read SILVA taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .database.DatabaseConnection import DatabaseFunctions
+from . import functions
 import logging
-import gzip
-import sys
 logger = logging.getLogger(__name__)
 
 class InputError(Exception):
@@ -65,16 +64,9 @@ class ReadTaxonomy(object):
 		return skipped_file
 
 	def zopen(self, path,*args, **kwargs):
-		'''Redefine open to handle zipped files automatically'''
-		mode = args[0] if args else ""
-		if path.endswith(".gz"):
-			if mode in ["r","w"] and sys.version_info.major >= 3:
-				## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
-				args = (mode+"t",)
-			else:
-				args = ("rt",)
-			return gzip.open(path,*args,**kwargs)
-		return open(path,*args,**kwargs)
+		'''Redefine open to handle zipped files automatically, a mode containing "b" keeps the
+		    returned data binary. The implementation is shared with the database builders'''
+		return functions.zopen(path,*args,**kwargs)
 
 	#@staticmethod
 	def parse_taxonomy(self,treefile=False):

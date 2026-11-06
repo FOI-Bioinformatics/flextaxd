@@ -5,7 +5,7 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .ReadTaxonomy import ReadTaxonomy
-from gzip import open as zopen
+from . import functions
 import zlib
 import os
 import logging
@@ -24,11 +24,21 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.force_multisource = kwargs["force_multisource"]
 
 	def write_missing(self,missing):
-		'''Write missing genomes to file'''
+		'''Write missing genomes to file, nothing is written when nothing is missing'''
+		if not missing:
+			return False
 		with open("FlexTaxD.not_added", "w") as of:
 			for gen in missing:
 				print(gen, end="\n", file=of)
-		return
+		return "FlexTaxD.not_added"
+
+	def sequence_id(self,header):
+		'''The id of a sequence is the first white space separated word of its FASTA header, the
+			header may hold no description and end with the line ending'''
+		words = header.split()
+		if not words:
+			return False
+		return words[0].lstrip(b">")
 
 	def set_accession_file(self,file):
 		self.accessionfile = file
@@ -74,26 +84,61 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			self.database.commit()
 		return
 
-	def parse_genebank_file(self,filepath,filename):
+	def parse_genebank_file(self,filepath,filename,reference="refseq"):
 		logger.debug("Parse file {filename}".format(filename=filename))
 		genebankid = filename.split("_",2)
 		genebankid = genebankid[0]+"_"+genebankid[1]
-		f = zopen(filepath,"r")
-		refseqid = f.readline().split(b" ")[0].lstrip(b">")
-		f.close()
+		'''The sequence names are compared as bytes, so the file is read binary, compressed or not'''
+		with self.zopen(filepath,"rb") as f:
+			refseqid = self.sequence_id(f.readline())
+		if not refseqid:
+			logger.warning("No sequence id in the first line of {file}, the genome stays unannotated".format(file=filename))
+			return False
 		self.refseqid_to_GCF[refseqid] = genebankid
+		self.refseqid_reference[refseqid] = reference
 		return
 
-	def parse_nt_file(self,filepath,filename):
+	def parse_nt_file(self,filepath,filename,reference="nt"):
 		'''Parse large file with all nt entries'''
 		logger.info("Processing {file}".format(file=filename))
-		with zopen(filepath,"r") as f:
+		with self.zopen(filepath,"rb") as f:
 			for row in f:
 				if row.startswith(b">"):
-					seqid = row.split(b" ")[0].lstrip(b">")
+					seqid = self.sequence_id(row)
+					if not seqid:
+						continue
 					self.refseqid_to_GCF[seqid] = seqid.decode("utf-8")
+					self.refseqid_reference[seqid] = reference
 					#self.database.add_genome(genome=seqid,_id=taxid.decode("utf-8"),reference="nt")
 		return
+
+	def get_annotation_columns(self,headers):
+		'''Find the columns holding the sequence id and the taxid in an NCBI accession2taxid file,
+			the header of the file decides the layout:
+				accession | accession.version | taxid | gi
+				accessions | accessions.versioned | accessions.nonredundant_GI_seqVersion | taxid
+				gi | accession.version | taxid
+			The versioned accession column is the one that matches the sequence names in the genome
+			files, the gi column must never be read as a taxid.
+		------
+		Returns
+			tuple - (accession column, taxid column)
+		'''
+		accession_col,taxid_col = False,False
+		for col,name in enumerate([header.strip().lower() for header in headers]):
+			if name.endswith(b"taxid"):
+				taxid_col = col
+			elif (name.startswith(b"accession") and b"version" in name and b"nonredundant" not in name
+					and accession_col is False):
+				accession_col = col
+		if accession_col is False:
+			for col,name in enumerate([header.strip().lower() for header in headers]):
+				if name.startswith(b"accession"):
+					accession_col = col
+					break
+		if taxid_col is False or accession_col is False:
+			raise TypeError("Could not find the accession and taxid columns in the header of the annotation file: {headers}".format(headers=b"\t".join(headers)))
+		return (accession_col,taxid_col)
 
 	def parse_genomeid2taxid(self, genomes_path,annotation_file,reference="refseq"):
 		'''To allow NCBI databases to be build from scratch the sequences names needs to be stored in the database,
@@ -103,57 +148,62 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		file_endings = (".fna",".fa",".fasta")
 		logger.info("Parsing ncbi accession2taxid, genome_path: {dir}".format(dir = genomes_path))
 		self.refseqid_to_GCF = {}
+		self.refseqid_reference = {}
 		for root, dirs, files in os.walk(genomes_path,followlinks=True):
 			for filename in files:
-				if filename.strip(".gz").endswith(file_endings):
+				base_name = functions.strip_gz(filename)
+				if base_name.endswith(file_endings):
 					filepath = os.path.join(root, filename)
-					if filename.startswith("GC") and filename.rstrip(".gz").endswith(".fna"):
-						self.parse_genebank_file(filepath,filename)
+					if filename.startswith("GC") and base_name.endswith(".fna"):
+						self.parse_genebank_file(filepath,filename,reference=reference)
 					elif filename.startswith("nt") or self.force_multisource:
 						if self.force_multisource:
-							self.parse_nt_file(filepath,filename)
+							self.parse_nt_file(filepath,filename,reference="nt")
 						else:
-							reference="nt" 
 							if filename.endswith(".gz"): 
 								compressed=True 
 							else: 
 								compressed=False
 							stats = os.stat(filepath)
 							logger.info("Parsing nt archive, filesize: {filesize}Mb, compressed: {compressed}".format(compressed=compressed,filesize=(stats.st_size / (1024 * 1024))))
-							self.parse_nt_file(filepath,filename)
+							self.parse_nt_file(filepath,filename,reference="nt")
 					else:
-						self.parse_genebank_file(filepath,filename)
+						self.parse_genebank_file(filepath,filename,reference=reference)
 		logger.info("genomes folder read, {n} sequence files found".format(n=len(self.refseqid_to_GCF)))
 		if not annotation_file.endswith("accession2taxid.gz"):
 			raise TypeError("The supplied annotation file does not seem to be the ncbi nucl_gb.accession2taxid.gz")
 		annotated_genome = set()
 		try:
-			with zopen(annotation_file,"r") as f:
+			with self.zopen(annotation_file,"rb") as f:
 				headers = f.readline().split(b"\t")
+				accession_col,taxid_col = self.get_annotation_columns(headers)
+				logger.info("Annotation file columns: accession {acc}, taxid {tax}".format(acc=headers[accession_col].strip().decode("utf-8"),tax=headers[taxid_col].strip().decode("utf-8")))
 				for row in f:
-					if row.strip() != "": ## If there are trailing empty lines in the file
-						if len(row.split(b"\t")) > 2:
-							try:
-								refseqid,taxid = row.split(b"\t")[1:3]
-							except:
-								logger.info(row)
-								logger.info(row.split(b"\t"))
-								if len(annotated_genome) > 0:
-									logger.info("Potential error in last row?")
-								else:
-									logger.info("Error on first line in annotation file, check format!")
-							try:
-								genebankid = self.refseqid_to_GCF[refseqid]
-								self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"),reference=reference)
-								annotated_genome.add(refseqid)
-							except KeyError:
-								pass
+					if row.strip() == b"": ## If there are trailing empty lines in the file
+						continue
+					columns = row.rstrip(b"\n").split(b"\t")
+					if len(columns) <= max(accession_col,taxid_col):
+						logger.info(row)
+						logger.info(columns)
+						if len(annotated_genome) > 0:
+							logger.info("Potential error in last row?")
+						else:
+							logger.info("Error on first line in annotation file, check format!")
+						continue
+					refseqid = columns[accession_col].strip()
+					taxid = columns[taxid_col].strip()
+					try:
+						genebankid = self.refseqid_to_GCF[refseqid]
+						self.database.add_genome(genome=genebankid,_id=taxid.decode("utf-8"),reference=self.refseqid_reference.get(refseqid,reference))
+						annotated_genome.add(refseqid)
+					except KeyError:
+						pass
 				self.database.commit()
 		except zlib.error as e:
 			logger.info("Error in annotation file {e}".format(e=e))
 		missing = set(self.refseqid_to_GCF.keys()) - annotated_genome
 		missing = [self.refseqid_to_GCF[m] for m in missing] ## Translate to GCF ids
-		if logging.root.level <=20: ## Equal to --verbose
+		if logging.root.level <=20 and missing: ## Equal to --verbose
 			logger.info("Printing non added genome id´s (GCF) to ./FlexTaxD.not_added")
 			self.write_missing(missing)
 		logger.debug(missing)  ## If debug also print genomes to terminal
