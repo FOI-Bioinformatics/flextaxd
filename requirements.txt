@@ -1,4 +1,4 @@
-pytest==8.4.2
+pytest==9.0.3
 inquirer==3.3.0
 biopython==1.85
 matplotlib==3.10.0
