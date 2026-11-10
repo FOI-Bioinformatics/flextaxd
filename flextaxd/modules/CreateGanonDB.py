@@ -7,7 +7,8 @@ however it is not optimized in any way and uses os.system instead of a proper Po
 
 import random
 import os
-from multiprocessing import Process, Queue
+import glob
+import multiprocessing
 from subprocess import Popen,PIPE
 from .database.DatabaseConnection import DatabaseFunctions
 from .functions import zopen
@@ -19,18 +20,31 @@ logger = logging.getLogger(__name__)
 
 class CreateGanonDB(object):
 	"""docstring for CreateGanonDB."""
-	def __init__(self, database, ganon_database, genome_names, outdir,verbose=False,debug=False,processes=1,limit=0,dbprogram="ganon",params="",create_db=False,skip=False,build_processes=False,usezip=False):
+	def __init__(self, database, ganon_database, genome_names, outdir,verbose=False,debug=False,processes=1,limit=0,dbprogram="ganon",params="",create_db=False,skip=False,build_processes=False,usezip=False,**kwargs):
 		super(CreateGanonDB, self).__init__()
+		'''create_databases hands one argument list to whichever program was selected, and ganon accepted
+		   neither tmpdir, create_lib, skip_genomes nor multifiles: every --dbprogram ganon run died with
+		   "TypeError: unexpected keyword argument" before any work was done (issue #133). The options that
+		   mean something for ganon are used, the others are accepted for the shared interface until T5
+		   unifies these classes.'''
 		self.database = DatabaseFunctions(database)
 		if outdir == "":
 			outdir = "./"
 		self.outdir = outdir.rstrip("/")+"/"
+		self.tmpdir = kwargs.get("tmpdir") or outdir
+		self.create_lib = kwargs.get("create_lib", False)
+		self.skip_genomes = kwargs.get("skip_genomes") or []
+		self.packed_files = []
+		for packed in (kwargs.get("multifiles") or []):
+			if packed not in self.packed_files:
+				self.packed_files.append(packed)
 		self.params=params
 		self.seqid2taxid = self.outdir+"/seqid2taxid.map"
 		if os.path.exists(self.outdir+"/seqid2taxid.map"): open(self.seqid2taxid,"w").close() ## clean existing map if file exists
 		self.accession_to_taxid = self.database.get_genomes(self.database , limit=limit)
-		self.genome_names = list(genome_names.keys())   ## List for multiprocessing
-		self.genome_path = genome_names					## genome_id to path dictionary
+		'''a build that was told to skip the genome folder arrives here with no genome dictionary at all'''
+		self.genome_path = genome_names or {}
+		self.genome_names = list(self.genome_path.keys())   ## List for multiprocessing
 		self.files = []
 		self.usezip = ""
 		if usezip:
@@ -48,9 +62,16 @@ class CreateGanonDB(object):
 
 	def ganon_fasta_multiproc(self,genomes):
 		'''function to run addition of genomes in paralell'''
+		'''The children inherit the database connection and the genome path dictionary of this object
+		   instead of having them pickled over, so this pass needs the fork start method whatever the
+		   interpreter has as its default: python 3.14 made forkserver the default and that pickles the
+		   target, which dies on the open sqlite connection (issue #146, the same failure #130 fixed for
+		   the kraken header pass)'''
+		ctx = multiprocessing.get_context("fork")
 		jobs = []
 		for i in range(self.processes):
-			p = Process(target=self.ganon_fasta, args=(genomes[i],i))
+			p = ctx.Process(target=self.ganon_fasta, args=(genomes[i],i))
+			p.daemon = True
 			p.start()
 			jobs.append(p)
 		for job in jobs:
@@ -132,13 +153,100 @@ class CreateGanonDB(object):
 		print("Process-{process} completed".format(process=process),end="\r")
 		return True
 
-	def create_library_from_files(self):
+	def add_packed_file_to_library(self,mfile,tmpout):
+		'''A packed multi sequence file (the --nt_source file, a --multifile_prefix file) is never split into
+		   genome files: its sequences are written to the library as they are and the taxid of every one of
+		   them goes to the seqid2taxid map, which is what ganon reads for the taxid of a sequence (issue #133).
+		   ganon also wants the length of every sequence in that map, which the kraken map does not carry.
+		------
+		Parameters:
+			str - path to the packed file
+			file - the open library file of this run
+		------
+		Returns:
+			tuple - (sequences read, sequences with a taxid in the map)
+		'''
+		if not os.path.exists(mfile):
+			logger.warning("Packed sequence file {mfile} does not exist, nothing was added to the library".format(mfile=mfile))
+			return (0,0)
+		sequences = 0
+		annotated = 0
+		unannotated = set()
+		with zopen(mfile,"r") as library_file, open(self.seqid2taxid,"a") as taxidmap:
+			seqid = False
+			lines = []
+			seqlen = 0
+			def flush():
+				'''write one sequence: the library keeps it as it is, the map carries its length and taxid'''
+				if not seqid or seqlen == 0:
+					return
+				taxid = self.accession_to_taxid.get(seqid,False)
+				if not taxid:
+					unannotated.add(seqid)
+					logger.debug("No taxid in the database for sequence {seqid} of {mfile}".format(seqid=seqid,mfile=mfile))
+					return
+				print("{seqid}\t{seqlen}\t{taxid}".format(seqid=seqid,seqlen=seqlen,taxid=taxid),end="\n",file=taxidmap)
+				print(">{seqid}".format(seqid=seqid),file=tmpout)
+				print("\n".join(lines),file=tmpout)
+			for line in library_file:
+				if line.startswith(">"):
+					flush()
+					words = line.split()
+					seqid = words[0].lstrip(">").strip() if words else False
+					lines = []
+					seqlen = 0
+					if seqid:
+						sequences += 1
+				elif seqid:
+					sequence = line.strip()
+					if sequence:
+						lines.append(sequence)
+						seqlen += len(sequence)
+			flush()
+		annotated = sequences - len(unannotated)
+		if unannotated:
+			logger.warning("{n} sequences of {mfile} have no annotation in the database and cannot be placed by ganon: {names}".format(
+				n=len(unannotated),mfile=mfile,names=", ".join(sorted(unannotated)[:10])))
+		logger.info("{sequences} sequences of {mfile} are in the library, {annotated} have a taxid in the map".format(
+			sequences=sequences,mfile=mfile,annotated=annotated))
+		return (sequences,annotated)
+
+	def create_library_from_files(self,multifiles=False):
+		'''Create the ganon library and its seqid2taxid map. The packed files arrive as an argument (the
+		   --nt_source file and what --multifile_prefix found), the same call the kraken class gets (#133).'''
 		processes = self.processes
-		logger.info("Process {ngen} genomes".format(ngen=len(self.genome_names)))
-		genome_process_list = self.split(self.genome_names,processes)
-		logger.info(self.ganon_fasta_multiproc(genome_process_list))
-		#sleep(1)
-		#logger.info("Number of genomes added to ganon database: {count}".format(count=len(self.genome_names)))
+		if self.skip_genomes:
+			'''genomes the run was told to skip never enter the library. The skip list is a dictionary of
+			   genome ids and taxids when it came from a file, a plain list of names otherwise'''
+			if isinstance(self.skip_genomes,dict):
+				skipped = set(self.skip_genomes.get("genome_id",[]))
+			else:
+				skipped = set(self.skip_genomes)
+			before = len(self.genome_names)
+			self.genome_names = [genome for genome in self.genome_names if genome not in skipped]
+			if before != len(self.genome_names):
+				logger.info("{n} genomes on the skip list were left out of the library".format(n=before-len(self.genome_names)))
+		packed_files = list(self.packed_files)
+		for mfile in (multifiles or []):
+			if mfile not in packed_files:
+				packed_files.append(mfile)
+		if self.genome_names:
+			logger.info("Process {ngen} genomes".format(ngen=len(self.genome_names)))
+			genome_process_list = self.split(self.genome_names,processes)
+			logger.info(self.ganon_fasta_multiproc(genome_process_list))
+		else:
+			logger.info("No genome files to add, the library is built from the packed files only")
+		if packed_files:
+			logger.info("Adding sequences from {n} packed sequence files to the library".format(n=len(packed_files)))
+			packed = "{ganondb}/.tmppacked.fasta".format(ganondb=self.ganondb.rstrip("/"))
+			added = 0
+			with open(packed,"w") as tmpout:
+				for mfile in packed_files:
+					sequences,annotated = self.add_packed_file_to_library(mfile,tmpout)
+					added += sequences
+			if self.usezip:
+				os.system("gzip {packed}".format(packed=packed))
+			logger.info("Number of sequences added to the library from the packed files: {count}".format(count=added))
 		return
 
 	def split(self,a, n):
@@ -155,9 +263,13 @@ class CreateGanonDB(object):
 		os.system("cp {outdir}/*names.dmp {ganon}/taxonomy/names.dmp".format(outdir=outdir,ganon=self.ganondb))
 
 		logger.info("Build ganon database")
+		'''the library files this run wrote: one per process plus the packed sequences, whatever they are
+		   named - listing them by hand over the process numbers left the packed file out of the build'''
 		logger.debug("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta{usezip}".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes,usezip=self.usezip))
 		#os.system("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta{usezip}".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes,usezip=self.usezip))
-		inputlist = " ".join(["{outdir}/.tmp{thread}{usezip}.fasta".format(outdir=self.ganondb,usezip=self.usezip,thread=x) for x in range(self.processes)])
+		inputlist = " ".join(sorted(glob.glob("{outdir}/.tmp*.fasta*".format(outdir=self.ganondb.rstrip("/")))))
+		if not inputlist:
+			logger.error("No library files in {ganondb}, the ganon build has nothing to read".format(ganondb=self.ganondb))
 		os.system("ganon build -d {ganondb}/ --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {inputlist}".format(ganondb=self.ganondb.rstrip("/"),seqid2taxid=self.seqid2taxid,processes=self.build_processes,outdir=outdir,usezip=self.usezip,inputlist=inputlist))
 
 		# logger.debug("Merge gene library map")

@@ -6,6 +6,7 @@ Read SILVA taxonomy dmp files (nodes or names) and holds a dictionary
 
 from .database.DatabaseConnection import DatabaseFunctions
 from . import functions
+from . import ranks
 import logging
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,12 @@ class InputError(Exception):
 
 class ReadTaxonomy(object):
 	"""docstring for ReadTaxonomy."""
+	'''The importers that add nodes by name work against the names the database already holds: an import into
+	   a database that already has the tree would otherwise add a second node for every name and annotate the
+	   genomes of the second run to that copy (issue #145). The NCBI reader works with taxids and turns this
+	   off, it would only pay for a dictionary of millions of names.'''
+	match_nodes = True
+
 	def __init__(self, taxonomy_file=False, taxonomy_name=False, database=False,verbose=False,**kwargs):
 		super(ReadTaxonomy, self).__init__()
 		### Connect to or create database
@@ -34,6 +41,13 @@ class ReadTaxonomy(object):
 		self.ids = 0
 		self.qiime = 0
 		self.skipped = []
+		self.new_nodes = 0          ## nodes this run actually inserted, the ones already in the database are matched (issue #145)
+		self.unknown_levels = set()   ## level codes of an input file that name no rank, reported once (issue #141)
+
+		if self.match_nodes:
+			'''the names already in the database, so that a name met again keeps the node it has (issue #145)'''
+			self.taxonomy = self.database.get_nodes(col=2)
+			logger.debug("Matching the {n} node names already in the database".format(n=len(self.taxonomy)))
 
 		## Add base node
 		self.root = self.add_node("root")
@@ -79,37 +93,73 @@ class ReadTaxonomy(object):
 		self.sep = sep
 
 	def add_rank(self, rank,qiime=False):
-		'''Insert rank into database'''
+		'''Insert the rank level of a rank name into the database and remember its id.
+
+		A name that says nothing - no rank column, an empty field, the text None - gets no rank level: the
+		link of that level stays without one, which the dmp export writes as an empty rank field (issue #134)
+		and which is not the same thing as the name "no rank" that NCBI gives its unnamed taxids (issue #142).
+		'''
+		name = self.rank_name(rank,qiime=qiime)
+		if ranks.unnamed(name):
+			return None
 		try:
 			return self.rank[rank]
 		except KeyError:
 			pass
-		if rank:
-			if qiime:
-				rank_i = self.database.add_rank(self.levelDict.get(rank))
-			else:
-				rank_i = self.database.add_rank(rank)
-			self.rank[rank] = rank_i
-		else:
-			return False
+		rank_i = self.database.add_rank(name)
+		self.rank[rank] = rank_i
 		return rank_i
 
-	def add_link(self, child=None, parent=None,rank="no rank"):
-		'''Add relationship in tree'''
-		#print(child,parent,rank)
+	def rank_name(self,rank,qiime=False):
+		'''The rank name a caller means: a QIIME/GTDB file carries level codes (g, s, sk) where the others
+		   carry the rank name itself. A code outside that vocabulary is reported once, not on every row of
+		   the file, and the levels it names are added without a rank (issue #141)'''
+		if qiime or self.qiime:
+			name = self.levelDict.get(rank)
+			if name is None and rank is not None:
+				if rank not in self.unknown_levels:
+					self.unknown_levels.add(rank)
+					logger.warning("Level {level} is not a QIIME level code: the nodes of that level are added without a rank".format(level=rank))
+			return name
+		return rank
+
+	def add_link(self, child=None, parent=None,rank=None):
+		'''Add relationship in tree
+
+		The rank is a rank name, and it is added to the rank table when it is new: an input that brings a rank
+		in keeps it (issue #142). A link without a rank name carries no rank level at all, and takes no rank id
+		by default - rank_i 1 used to do that, which is the "no rank" level of every NCBI derived database.
+		'''
 		if not child and parent:
 			raise InputError("A link requires both a child and a parent!")
-		self.database.add_link(child=child,parent=parent,rank=self.rank[rank])
+		self.database.add_link(child=child,parent=parent,rank=self.add_rank(rank))
 		self.ids+=1
+
+	def rank_summary(self):
+		'''Say which rank levels the database ended up with: the NCBI defined ones, the custom ones a taxonomy
+		   file brought in, and the number of levels that carry no rank'''
+		return ranks.summary(self.database, log=logger)
 
 	def add_node(self, description,id=False):
 		'''Add node to tree
 			extend databaseFunction add_node function using self.taxonomy
 			dict to keep track of which nodes were already added
+
+			A name that is already known - added earlier in this run, or already in the database when the
+			importer matches names - keeps the node it has: this project identifies nodes by name, and an
+			import that met an existing name used to add a second node for it and put the annotations of the
+			second run on that copy (issue #145). A file that brings its own taxid for a name that exists
+			under another one is reported, the name decides.
 		'''
 		logger.debug("Node desc: {desc} id: {id}".format(desc=description,id=id))
+		if description in self.taxonomy:
+			found = self.taxonomy[description]
+			if id and id != found:
+				logger.warning("Node {node} is already in the database as {found}, the taxid {given} of the input is not used".format(node=description,found=found,given=id))
+			return found
 		self.taxid_base = self.database.add_node(description,id)
 		self.taxonomy[description] = self.taxid_base
+		self.new_nodes += 1
 		return self.taxid_base
 
 

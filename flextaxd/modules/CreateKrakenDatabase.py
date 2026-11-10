@@ -10,6 +10,7 @@ import os
 import glob
 import shlex
 from multiprocessing import Process,Manager,Pool
+import multiprocessing
 from subprocess import Popen,PIPE,check_output,CalledProcessError,run
 from .database.DatabaseConnection import DatabaseFunctions
 from .functions import zopen, strip_gz
@@ -123,11 +124,17 @@ class CreateKrakenDatabase(object):
 	def kraken_fasta_header_multiproc(self,genomes):
 		'''function to run addition of genomes in paralell'''
 		logger.info("Processing files; create kraken seq.map")
+		'''The children inherit the database connection and the genome path dictionary of this object
+			instead of having them pickled to them, so this pass needs the fork start method whatever
+			the interpreter has as its default: python 3.14 made forkserver the default and that pickles
+			the target, which fails on the open sqlite connection (issue #130). T6 replaces this parallel
+			pass with one streamed read of the inputs.'''
+		ctx = multiprocessing.get_context("fork")
 		jobs = []
-		manager = Manager()
+		manager = ctx.Manager()
 		added = manager.Queue()
 		for i in range(self.processes):
-			p = Process(target=self.kraken_fasta_header, args=(genomes[i],added))
+			p = ctx.Process(target=self.kraken_fasta_header, args=(genomes[i],added))
 			p.daemon=True
 			p.start()
 			jobs.append(p)
@@ -391,6 +398,28 @@ class CreateKrakenDatabase(object):
 		logger.info("Number of sequences added to the {krakenversion} library from the packed files: {count}".format(count=self.sequence_count,krakenversion=self.krakenversion))
 		return
 
+	def run_program_command(self,cmd,required=True):
+		'''Run one command of the external program and look at its exit status (issue #132): a kraken2
+			that is not installed, or a build step that fails, only printed its error on stderr while the
+			run went on logging that the database was created, leaving a database directory with nothing
+			in it but the library and its map. The build step is required: the run stops there. A step
+			that only adds a report file is reported and the run continues.
+		------
+		Parameters:
+			str - the command to run
+			boolean - False if a failure of this command only needs reporting
+		------
+		Returns:
+			boolean - True when the command succeeded, False when a failure was only reported
+		'''
+		res = run(cmd,shell=True)
+		if res.returncode != 0:
+			logger.error("The command returned {code}: {cmd}".format(code=res.returncode,cmd=cmd))
+			if required:
+				raise CalledProcessError(res.returncode,cmd)
+			return False
+		return True
+
 	def create_database(self,outdir,keep=False):
 		'''For test create a small database and run tests'''
 		if not os.path.exists("{krakendb}/taxonomy".format(outdir=outdir, krakendb=self.krakendb)):
@@ -422,16 +451,17 @@ class CreateKrakenDatabase(object):
 		
 		if self.krakenversion == 'krakenuniq':
 			logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-			os.system(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			self.run_program_command(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 		else:
 			logger.info(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-			os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			self.run_program_command(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 
 		if self.krakenversion in ["kraken2"]:
 			logger.info("Create inspect file!")
-			os.system(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes ))
+			inspect_ok = self.run_program_command(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes),required=False)
 			os.system("gzip {krakendb}/*.map".format(krakendb=self.krakendb))
-			os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
+			if inspect_ok:
+				os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
 		if not keep:
 			os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
 			## re-add taxonomy

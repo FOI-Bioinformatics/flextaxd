@@ -81,6 +81,8 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 				self.add_link(child_i,parent_i,rank=rank)
 		self.database.commit()
 		self.write_skipped()
-		self.length = len(self.taxonomy)                ## Check number of new nodes added
-		self.taxid_num = len(self.taxonomy)
+		'''the nodes this run added, not the names of the database it added them to (issue #145)'''
+		self.length = self.new_nodes
+		self.taxid_num = self.new_nodes
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
+		self.rank_summary()

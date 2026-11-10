@@ -6,13 +6,18 @@ Read NCBI taxonomy dmp files (nodes or names) and holds a dictionary
 
 from .ReadTaxonomy import ReadTaxonomy
 from . import functions
+from . import ranks
 import zlib
 import os
 import logging
 logger = logging.getLogger(__name__)
 
 class ReadTaxonomyNCBI(ReadTaxonomy):
-	"""docstring for ReadTaxonomyNCBI."""
+	"""docstring for ReadTaxonomy."""
+	'''the NCBI tree arrives with its taxids and is read straight into the tree table, it never looks a node
+	   up by name, so it does not pay for the name dictionary of issue #145'''
+	match_nodes = False
+
 	def __init__(self, taxonomy_file=False, database=False,**kwargs):
 		super(ReadTaxonomyNCBI, self).__init__(database=database)
 		self.taxonomy_file = taxonomy_file
@@ -21,7 +26,10 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 		self.length = 0
 		self.ids = 0
 		self.accessionfile = False
-		self.force_multisource = kwargs["force_multisource"]
+		'''the option to keep sequences bound to the source they came from is optional: every caller of the
+		   command line passes it, but requiring the keyword made the reader impossible to construct without
+		   it (issue #144)'''
+		self.force_multisource = kwargs.get("force_multisource", False)
 		self.refseqid_to_GCF = {}
 		self.refseqid_reference = {}
 		self.assembly_seqids = set()
@@ -71,13 +79,18 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			for taxonomy_row in _taxfile:
 				data = taxonomy_row.strip().split("\t|\t")
 				child,parent,rank = data[0],data[1],data[2]
-				if rank == "None" or rank == None:
-					rank = "no rank"
+				'''an empty rank field or the text None names nothing: that level stays without a rank instead
+				   of being called "no rank", which is the name NCBI itself gives the taxids it does not place
+				   in a rank (issue #142)'''
+				if ranks.unnamed(rank):
+					rank = None
+				'''every rank name the file brings in is stored and kept, one level per name (issue #138)'''
 				if rank not in self.rank:
 					self.add_rank(rank)
-				lev = self.rank[rank]
+				lev = self.rank.get(rank)
 				self.database.add_link(child=data[0],parent=data[1],rank=lev)
 			self.database.commit()
+		self.rank_summary()
 		return
 
 	def read_names(self, taxfile):

@@ -8,6 +8,14 @@ from .database.DatabaseConnection import DatabaseFunctions
 import logging
 logger = logging.getLogger(__name__)
 
+class DumpFormatError(Exception):
+	'''The dump that was asked for cannot be written: the columns a program reads and the minimal dump
+	   exclude each other, and writing the minimal file for a program leaves it with taxids and no names
+	   (issue #136)'''
+	def __init__(self, message):
+		super(DumpFormatError, self).__init__(message)
+		self.message = message
+
 class WriteTaxonomy(object):
 	"""docstring for WriteTaxonomy."""
 	def __init__(self, path, database=".taxonomydb",separator="\t|\t",minimal=False,prefix="names,nodes",desc=False,dbprogram=None,dump_genomes=False,**kwargs):
@@ -25,16 +33,14 @@ class WriteTaxonomy(object):
 		### Allows a minimal output file with only nessesary fields default is NCBI id | name | empty | scientific name
 		self.updated = False
 		self.minimal = minimal
+		'''both settings are kept: the writers of the dmp files refuse the combination of a minimal layout and
+		   a program format, while the other dumps (the genome lists) do not depend on the columns'''
+		self.dbprogram  = dbprogram
 		if self.minimal:
-			if dbprogram:
-				logger.warning("# WARNING: dbprogram cannot be used in combination with dump_mini, parameter ignored! (use --dump)")
-			self.dbprogram = None
 			if separator != "\t|\t":
 				self.separator = separator
 			else:
 				self.separator = "\t"
-		else:
-			self.dbprogram  = dbprogram
 		if self.dbprogram: logging.debug("Output format for program {program}".format(program=self.dbprogram))
 		self.link_order = False ## Default print is NCBI structure with child in the first column
 		logging.debug("NCBI structure (child first): {parent}".format(parent=self.link_order))
@@ -80,7 +86,12 @@ class WriteTaxonomy(object):
 		self.link_order = order
 
 	def set_minimal(self):
+		'''Switch the writer to the minimal layout: tab separated, without the trailing columns. Those columns
+		   are what kraken2 and krakenuniq read for the name of a taxid, so the two cannot be combined
+		   (issue #136)'''
 		logging.debug("Set minimal output to True!")
+		if self.dbprogram:
+			raise DumpFormatError("the minimal dump cannot be written for --dbprogram {program}: it drops the trailing columns {program} reads, leave either the minimal layout or the program out".format(program=self.dbprogram))
 		self.dbprogram = None
 		if self.separator == "\t|\t":
 			self.separator = "\t"
@@ -106,7 +117,15 @@ class WriteTaxonomy(object):
 		return self.database.query(QUERY).fetchall()
 
 	def get_links(self, table, select="child,parent,rank"):
-		QUERY = "SELECT {select} FROM {table} JOIN rank on rank.rank_i = {table}.rank_i".format(select=select, table=table)
+		'''The links of a table with the name of their rank level beside them.
+
+			The rank is taken with a LEFT JOIN, so every link of the tree is returned: a database holds far
+			more nodes than it has rank levels (only the official ranks have a row, and a custom taxonomy
+			deliberately leaves the levels below species without one), and a link that is not returned never
+			reaches the exported files, which takes its whole subtree away from the program that reads them
+			(issue #134). A link without a rank row comes back with the rank as None, which the writers turn
+			into an empty rank field.'''
+		QUERY = "SELECT {select} FROM {table} LEFT JOIN rank on rank.rank_i = {table}.rank_i".format(select=select, table=table)
 		logging.debug(QUERY)
 		return self.database.query(QUERY).fetchall()
 
@@ -121,11 +140,22 @@ class WriteTaxonomy(object):
 			lmax = max(self.nodeDict)
 		return lmax,child_w_dpi
 
+	def check_program_layout(self):
+		'''The trailing columns names.dmp and nodes.dmp write for kraken2, krakenuniq and bracken are exactly
+		   the columns the minimal layout drops. Measured with kraken2 2.17.2: the same 8 sequences get indexed
+		   either way, but the database built from the minimal dump lists every taxid without a name, and the
+		   run says nothing - so the combination is refused (issue #136).'''
+		if self.minimal and self.dbprogram:
+			raise DumpFormatError("--dump_mini cannot be combined with --dbprogram {program}: the minimal dump drops the columns {program} reads, use --dump --dbprogram {program} or leave the program out".format(program=self.dbprogram))
+
 	def nodes(self):
 		'''Write database tree to nodes.dmp'''
+		self.check_program_layout()
 		logging.info('Write tree to: {}{}.dmp'.format(self.path,self.prefix[1]))
 		child_w_dpi = []
 		checklist = {}
+		written = 0
+		unranked = 0
 		with open('{}{}.dmp'.format(self.path,self.prefix[1]),"w") as outputfile:
 			## Retrieve all links that exists in the database
 			if self.dump_descriptions:
@@ -136,6 +166,13 @@ class WriteTaxonomy(object):
 			links = self.get_links('tree','child,parent,rank')
 			for link in links:
 				link = list(link)
+				if link[2] is None:
+					'''A level with no rank row keeps an empty rank field: only the official ranks have a
+						row in the database and the levels a custom taxonomy adds below species deliberately
+						have none, and the program reading the file numbers those itself (kraken2 gives them
+						S1, S2 ...). Printing the value as it comes back would name the rank "None".'''
+					link[2] = ""
+					unranked += 1
 				'''If child with duplicate index, make sure link has unique index, match with node'''
 				if link[0] in child_w_dpi:
 					try:
@@ -159,9 +196,24 @@ class WriteTaxonomy(object):
 				if not self.minimal:
 					link = list(link)+[""]
 				print(*link, sep=self.separator, end="\n", file=outputfile)
+				written += 1
+		'''Every link of the tree must reach the file: a node that is missing from it takes its whole subtree
+			away from the program that reads the dump, and nothing else in a run says so (issue #134)'''
+		counted = self.database.query("SELECT COUNT(*) FROM tree")
+		if isinstance(counted, Exception):
+			logger.warning("The number of tree links written could not be checked: {err}".format(err=counted))
+			return
+		links = counted.fetchone()[0]
+		if written != links:
+			logger.warning("{w} of {n} tree links were written to {file}: {m} links did not reach the file".format(
+							w=written,n=links,file=self.path+self.prefix[1]+".dmp",m=links-written))
+		else:
+			logger.info("{w} tree links written to {file}, {u} of them without a rank level".format(
+						w=written,u=unranked,file=self.path+self.prefix[1]+".dmp"))
 
 	def names(self):
 		'''Write node annotations to names.dmp'''
+		self.check_program_layout()
 		logging.info('Write annotations to: {}{}.dmp'.format(self.path,self.prefix[0]))
 		end = "\n"
 		if self.dbprogram in ["krakenuniq","kraken2"]:

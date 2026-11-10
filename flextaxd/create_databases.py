@@ -35,6 +35,7 @@ def main():
     import argparse
     import time
     import logging
+    from subprocess import CalledProcessError
     if sys.version_info.major < 3 and sys.version_info.minor < 5:
         exit("This script is written for python3.5 and above please upgrade python!")
 
@@ -388,7 +389,16 @@ def main():
             exit()
         report_time(current_time)
         logger.info("Create database")
-        classifierDB.create_database(args.tmpdir,args.keep)
+        try:
+            classifierDB.create_database(args.tmpdir,args.keep)
+        except CalledProcessError as e:
+            '''The external program did not finish, so the directory of --db_name holds the library and
+                its map but no database at all: the run stops here instead of ending as if the database
+                had been built (issue #132)'''
+            logger.error("#Error: no {program} database was created in {db_name}, the command "
+                         "{cmd} returned {code}".format(program=args.dbprogram,db_name=args.db_name,
+                                                        cmd=e.cmd,code=e.returncode))
+            exit(1)
 
     '''Clean up temp files'''
     if os.path.exists(args.tmpdir) and not args.keep:

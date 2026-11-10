@@ -14,6 +14,7 @@ __date__ = "2020-01-17"
 __status__ = "Production"
 
 from .ReadTaxonomy import ReadTaxonomy
+from . import ranks
 import logging
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,9 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 	def __init__(self, taxonomy_file=False, database=".canSNPdb",  taxid_base=1,root_name=False,rank="family", cnp=False, verbose=False,**kwargs):
 		super(ReadTaxonomyCanSNPer, self).__init__(taxonomy_file=taxonomy_file, database=database,cnp=cnp,verbose=verbose,**kwargs)
 		self.input = taxonomy_file
-		self.taxonomy = {}
+		'''the name dictionary of this run was seeded from the nodes of the database by the base class:
+		   clearing it here made every name of the file a new node, also when the database already knew it
+		   (issue #145)'''
 		self.taxid_num = taxid_base
 		## Initiate database
 		logger.info(taxonomy_file)
@@ -44,11 +47,13 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 		root_i = self.add_node(root_name)
 		self.taxid_num =taxid_base ## reset
 		logger.debug("Adding ranks!")
-		if rank != "no rank":
-			self.add_rank("no rank")
+		'''the top level of the tree takes the rank the run asked for, the backbone node takes the "no rank"
+		   name the NCBI backbone gives it, and the levels of the CanSNPer file itself take no rank at all:
+		   they are strain/sequence type levels below that rank and were put on the "no rank" level only
+		   because the rank id was defaulted (issue #142)'''
 		self.add_rank(rank)
 		if root_name != "cellular organisms" and not cnp:
-			self.add_link(c_i,self.root)
+			self.add_link(c_i,self.root,rank=ranks.NO_RANK)
 		if root_name != "root" and not cnp:
 			self.add_link(root_i,c_i,rank=rank) ## root is always added as top parent if not one force 1
 			self.taxonomy[root_i] = 1  ## Add local link to root
@@ -110,7 +115,12 @@ class ReadTaxonomyCanSNPer(ReadTaxonomy):
 					continue
 				'''Now all parents exists, add new child node and add the link'''
 				child_i = self.add_node(child)
-				self.database.add_link(child_i,parent_i)
+				'''this level of the CanSNPer tree has no rank of its own: the link goes through this class, which
+				   adds a rank level for a rank name that comes in and leaves the link without one when nothing
+				   named it - the database default used to be rank_i 1, the "no rank" level of an NCBI derived
+				   database (issue #137, #142)'''
+				self.add_link(child_i,parent_i)
 		self.database.commit()
 		self.length = self.taxid_num - self.root                ## Check number of new nodes added
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))
+		self.rank_summary()

@@ -17,6 +17,11 @@ class ProcessDirectory(object):
 		super(ProcessDirectory, self).__init__()
 		self.database = DatabaseFunctions(database)
 		self.genome_id_dict = self.database.get_genomes(self.database , limit=limit)
+		'''annotations made on a sequence rather than on a genome (the packed --nt_source route): their
+		   sequence is inside the packed file and their taxid travels in the map of the library, so no
+		   sequence file of their own is expected in the genome folder and they are never counted as
+		   missing, never offered for download and never purged (issue #131)'''
+		self.sequence_annotations = self.database.get_sequence_annotations()
 		self.ref_ext = [".fna"]
 		self.oth_ext = [".fasta",".fa"]
 		self.ext = self.ref_ext+self.oth_ext
@@ -259,20 +264,37 @@ class ProcessDirectory(object):
 			logger.info("# WARNING: No genomes from the input folder was added! Are your genomes annotated properly in the database?")
 		return self.files, self.genome_names
 
+	def split_missing(self,found_genomes):
+		'''The annotations of the database with no sequence file in this folder, split into the genome
+				annotations that should have a file of their own and the sequence level annotations, whose
+				sequence is inside a packed file and whose taxid travels in the map of the library
+				(issue #131 - counting them as missing made --report name sequences the library had in
+				fact got from the packed file, made --download offer accessions for download, and made
+				--purge_database delete the annotations of sequences that were used)
+
+		------
+		Parameters:
+			iterable - genome names matched to a file in the folder by walk_directory
+		------
+		Returns:
+			tuple - (sorted genome annotations without file, number of sequence level annotations without file)
+		'''
+		absent = set(self.genome_id_dict.keys()) - set(found_genomes)
+		sequences = set(g for g in absent if g in self.sequence_annotations)
+		if sequences:
+			logger.info("{n} annotations without a file of their own are sequence level annotations of a packed file, they are reported on their own line and not counted as missing genomes".format(n=len(sequences)))
+		return sorted(absent - sequences),len(sequences)
+
 	def process_folder(self,folder_path):
 		'''Walk through folder and match genomes to database entries, database entries with no matching file be downloaded'''
 		logger.info("Number of genomes annotated in database {n}".format(n=len(self.genome_id_dict)))
 		self.files, self.genome_names = self.walk_directory(folder_path)
-		existing_genomes = []
-		download_files = []
-		for genome in self.genome_names:
-			existing_genomes.append(genome)
-		for file_not_present in set(self.genome_id_dict.keys()) - set(existing_genomes):
-			download_files.append({"genome_id":file_not_present,"outdir":folder_path.rstrip("/")+"/downloads"})
-		self.store_disk_report(folder_path,[m["genome_id"] for m in download_files],self.notused)
+		missing, sequence_annotations = self.split_missing(self.genome_names)
+		download_files = [{"genome_id":genome,"outdir":folder_path.rstrip("/")+"/downloads"} for genome in missing]
+		self.store_disk_report(folder_path,missing,self.notused,sequence_annotations)
 		return self.files,download_files
 
-	def store_disk_report(self,folder_path,missing,unannotated):
+	def store_disk_report(self,folder_path,missing,unannotated,sequence_annotations=0):
 		'''Record the discrepancy between the annotations of the database and the files on disk inside
 				the database, so that flextaxd --stats can report it without the genome folder
 
@@ -281,19 +303,24 @@ class ProcessDirectory(object):
 			str - the genome path the report was made against
 			iterable - annotated genomes with no sequence file on disk
 			iterable - sequence files on disk with no annotation in the database
+			int - annotations on sequence level, whose sequence comes from a packed file instead of a
+				file of its own (reported on their own line, issue #131)
 		------
 		Returns:
 			tuple - number of missing genomes and number of unannotated files stored
 		'''
 		missing = sorted(missing)
 		unannotated = sorted(unannotated)
+		sequence_annotations = int(sequence_annotations or 0)
 		self.database.set_meta("report_date",datetime.datetime.now().isoformat(timespec="seconds"))
 		self.database.set_meta("genomes_path",folder_path)
 		self.database.set_meta("genomes_missing_on_disk",str(len(missing)))
 		self.database.set_meta("files_unannotated",str(len(unannotated)))
+		self.database.set_meta("sequence_annotations_on_disk",str(sequence_annotations))
 		self.database.save_report("missing_on_disk",folder_path,len(missing))
+		self.database.save_report("sequence_annotation",folder_path,sequence_annotations)
 		self.database.save_report("unannotated_file",folder_path,len(unannotated))
-		logger.info("Disk report stored in the database: {m} annotated genomes have no file, {u} files have no annotation".format(m=len(missing),u=len(unannotated)))
+		logger.info("Disk report stored in the database: {m} annotated genomes have no file, {s} annotations are on sequence level, {u} files have no annotation".format(m=len(missing),s=sequence_annotations,u=len(unannotated)))
 		return len(missing),len(unannotated)
 
 	def report_disk(self,folder_path):
@@ -305,17 +332,19 @@ class ProcessDirectory(object):
 			str - path to the genome directory
 		------
 		Returns:
-			dict - annotated and on_disk counts, missing (annotated genomes with no file) and
-				unannotated (files on disk with no annotation) as sorted lists
+			dict - annotated and on_disk counts, missing (annotated genomes with no file), unannotated
+				(files on disk with no annotation) as sorted lists, and the number of sequence level
+				annotations of packed files
 		'''
 		logger.info("Number of genomes annotated in database {n}".format(n=len(self.genome_id_dict)))
 		self.files, self.genome_names = self.walk_directory(folder_path)
-		missing = sorted(set(self.genome_id_dict.keys()) - set(self.genome_names))
+		missing, sequence_annotations = self.split_missing(self.genome_names)
 		unannotated = sorted(self.notused)
 		logger.info("{n} annotated genomes have no sequence file on disk".format(n=len(missing)))
 		logger.info("{n} sequence files on disk have no annotation in the database".format(n=len(unannotated)))
-		self.store_disk_report(folder_path,missing,unannotated)
+		self.store_disk_report(folder_path,missing,unannotated,sequence_annotations)
 		return {"annotated": len(self.genome_id_dict),
 				"on_disk": len(set(self.genome_names)),
 				"missing": missing,
+				"sequence_annotations": sequence_annotations,
 				"unannotated": unannotated}

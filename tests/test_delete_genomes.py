@@ -319,3 +319,38 @@ def test_purge_does_not_grow_the_database_and_leaves_no_stale_report(tmp_path):
     assert conn.query("PRAGMA freelist_count").fetchone()[0] == 0
     assert os.path.getsize(db) <= size_before
 
+
+def test_purge_keeps_the_annotations_a_packed_sequence_file_brought(tmp_path):
+    """issue #131: --purge_database deletes the annotations the genome folder does not hold. The
+    annotations a packed --nt_source file brought have no file in that folder by design (the file is never
+    split up and their taxid travels in the map of the library), so a purge of a folder holding only the
+    representative genomes deleted the annotations of sequences the library had in fact used."""
+    db, accessions, representatives = make_gtdb_shape_database(
+        tmp_path / "packed.fdb", n_species=20, genomes_per_species=10)
+    packed_accessions = ["NC_000913.3", "CP000250.1", "NC_004470.1"]
+    conn = ModifyFunctions(database=db)
+    for accession in packed_accessions:
+        conn.query("INSERT INTO genomes (id,genome,reference) VALUES (?,?,?)", insert_val=(2, accession, "nt"))
+    conn.commit()
+
+    folder = tmp_path / "genomes"
+    folder.mkdir()
+    for accession in representatives:
+        (folder / (accession + "_ASMv1_genomic.fna")).write_text(">x\nACGT\n")
+
+    _, missing = ProcessDirectory(db).process_folder(str(folder))
+    missing_genomes = set(entry["genome_id"] for entry in missing)
+    assert not (missing_genomes & set(packed_accessions)), \
+        "the purge list held annotations whose sequence comes from a packed file"
+    assert len(missing_genomes) == len(accessions) - len(representatives)
+    stored = ModifyFunctions(database=db)
+    assert stored.get_meta("sequence_annotations_on_disk") == str(len(packed_accessions))
+
+    modify_object = modify_module.ModifyTree(database=db, purge_database=True)
+    modify_object.purge_database(missing_genomes, genome_path=str(folder))
+
+    conn = ModifyFunctions(database=db)
+    kept = set(row[0] for row in conn.select("SELECT genome FROM genomes WHERE reference='nt'"))
+    assert kept == set(packed_accessions), "the purge deleted annotations of sequences the library used"
+    assert row_count(db, "genomes") == len(representatives) + len(packed_accessions)
+
