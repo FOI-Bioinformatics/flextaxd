@@ -45,6 +45,18 @@ class CreateDatabase(object):
                                             FOREIGN KEY (id) REFERENCES nodes (id)
                                         ); """
 
+        self.sql_create_meta_table = """ CREATE TABLE IF NOT EXISTS meta (
+                                            key VARCHAR(255) PRIMARY KEY,
+                                            value TEXT
+                                        ); """
+
+        self.sql_create_report_table = """ CREATE TABLE IF NOT EXISTS report (
+                                            kind VARCHAR(31) NOT NULL,
+                                            source VARCHAR(255) NOT NULL,
+                                            entry TEXT NOT NULL,
+                                            UNIQUE (kind,source,entry)
+                                        ); """
+
     def create_connection(self,db_file):
         """ create a database connection to the SQLite database
             specified by db_file
@@ -87,6 +99,10 @@ class CreateDatabase(object):
             self.create_table(self.sql_create_genomes_table)
             # create rank tables
             self.create_table(self.sql_create_rank_table)
+            # create the meta table holding the flextaxd version and the import report
+            self.create_table(self.sql_create_meta_table)
+            # create the report table holding build time findings per input
+            self.create_table(self.sql_create_report_table)
 
             self.conn.commit()
         else:

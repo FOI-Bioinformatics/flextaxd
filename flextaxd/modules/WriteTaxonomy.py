@@ -18,7 +18,7 @@ class WriteTaxonomy(object):
 		logging.debug("Output path: {outdir}".format(outdir=self.path))
 		self.separator = separator
 		logging.debug("Output separator: '{separator}'".format(separator=self.separator))
-		self.prefix = prefix.split(",")
+		self.prefix = self.check_prefix(prefix)
 		logging.debug("Prefix: nodes:{nodes} names:{names} ".format(nodes=self.prefix[1],names=self.prefix[0]))
 		self.dump_descriptions = desc
 		logging.debug("Add descriptions: {desc}".format(desc=self.dump_descriptions))
@@ -82,14 +82,19 @@ class WriteTaxonomy(object):
 	def set_minimal(self):
 		logging.debug("Set minimal output to True!")
 		self.dbprogram = None
-		if self.separator != "\t|\t":
-			self.separator = separator
-		else:
+		if self.separator == "\t|\t":
 			self.separator = "\t"
 		self.minimal=True
 
+	def check_prefix(self,prefix):
+		'''The prefix must hold exactly two names: the names prefix and the nodes prefix'''
+		parts = prefix.split(",")
+		if len(parts) != 2:
+			raise ValueError("The dump prefix requires two comma separated names (names,nodes), got: {prefix}".format(prefix=prefix))
+		return parts
+
 	def set_prefix(self,prefix):
-		self.prefix=prefix.split(",")
+		self.prefix=self.check_prefix(prefix)
 		logging.debug("Update output prefix nodes:{nodes} names:{names} ".format(nodes=self.prefix[1],names=self.prefix[0]))
 		return self.prefix
 
@@ -101,7 +106,7 @@ class WriteTaxonomy(object):
 		return self.database.query(QUERY).fetchall()
 
 	def get_links(self, table, select="child,parent,rank"):
-		QUERY = "SELECT {select} FROM {table} JOIN (rank) on rank.rank_i = tree.rank_i".format(select=select, table=table)
+		QUERY = "SELECT {select} FROM {table} JOIN rank on rank.rank_i = {table}.rank_i".format(select=select, table=table)
 		logging.debug(QUERY)
 		return self.database.query(QUERY).fetchall()
 
@@ -109,7 +114,7 @@ class WriteTaxonomy(object):
 		'''Check duplicated indexes and give them unique IDs before print'''
 		QUERY = "SELECT child FROM tree GROUP BY child HAVING count(parent) > 1"  ## Thanks to andrewjmc@github for this suggestion
 		child_w_dpi = self.database.query(QUERY).fetchall()  ## Fetch all conflicting links and give them unique index before printing
-		child_w_dpi = list(*child_w_dpi)
+		child_w_dpi = [x[0] for x in child_w_dpi]
 		lmax = 10000000
 		if len(child_w_dpi) > 0:
 			self.nodeDict = self.database.get_nodes(col=1)

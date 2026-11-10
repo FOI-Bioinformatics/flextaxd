@@ -41,14 +41,32 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 		logger.info("Parse SILVA tree file")
 		with self.zopen(self.taxonomy_file,"r") as f:
 			for row in f:
-				tree,info = row.strip().rsplit(";",1) ## separate tree from info columns
+				try:
+					tree,info = row.strip().rsplit(";",1) ## separate tree from info columns
+				except ValueError:
+					logger.debug("Row {row} could not be parsed".format(row=row))
+					self.skipped.append((row.strip(),"row could not be parsed"))
+					continue
 				nodes = tree.strip().split(";")  ## get node and all its parents in a list.
 				info = info.lstrip("\t")
 				try:
 					taxid,rank,_ = info.split("\t",2)
 				except ValueError:
-					taxid,rank = info.split("\t")
+					try:
+						taxid,rank = info.split("\t")
+					except ValueError:
+						logger.debug("Row {row} could not be parsed".format(row=row))
+						self.skipped.append((row.strip(),"row could not be parsed"))
+						continue
 				child = nodes[-1]  ## get name of child node
+				'''taxids are used as integer node ids in the database, a non numeric id would break later lookups'''
+				taxid = taxid.strip()
+				try:
+					taxid = int(taxid)
+				except ValueError:
+					logger.debug("Row {row} has a non numeric taxid".format(row=row))
+					self.skipped.append((row.strip(),"taxid {taxid} is not numeric".format(taxid=taxid)))
+					continue
 				self.add_rank(rank)
 				'''If the tree was not properly formatted an a parent is missing make sure that function works anyway by adding any parent node above child'''
 				try:
@@ -62,6 +80,7 @@ class ReadTaxonomySILVA(ReadTaxonomy):
 				child_i = self.add_node(child,id=taxid)
 				self.add_link(child_i,parent_i,rank=rank)
 		self.database.commit()
+		self.write_skipped()
 		self.length = len(self.taxonomy)                ## Check number of new nodes added
 		self.taxid_num = len(self.taxonomy)
 		logger.info("New taxonomy ids assigned {taxidnr}".format(taxidnr=self.length))

@@ -14,8 +14,15 @@ __date__ = "2020-10-30"
 __status__ = "Beta"
 __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
-from flextaxd.custom_taxonomy_databases import __version__
-from flextaxd.modules.functions import read_skip_file
+try:
+    from .custom_taxonomy_databases import __version__
+    from .modules.functions import read_skip_file
+except ImportError:
+    ### Script executed directly, add the package parent to path and import absolutely
+    import os, sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from flextaxd.custom_taxonomy_databases import __version__
+    from flextaxd.modules.functions import read_skip_file
 from importlib import import_module
 import shutil
 
@@ -196,7 +203,7 @@ def main():
         lskip = False
         dump_prefix = "names,nodes"
         nameprefix,nodeprefix = dump_prefix.split(",")
-        if (os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp")):
+        if (os.path.exists(args.tmpdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.tmpdir.rstrip("/")+"/"+nodeprefix+".dmp")):
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite, yes/cancel/no? (y/c/n): ")
             if ans in ["c","C","cancel", "Cancel"]:
                 exit("Dump already exists, abort!")
@@ -216,6 +223,7 @@ def main():
         if not os.path.exists(args.outdir):
             os.system("mkdir -p {outdir}".format(outdir = args.outdir))
     skip=False
+    skip_genomes=False
     if os.path.exists("{db_path}/library/library.fna".format(db_path=args.db_name)):
         ans = input("Database library file already exist, (u)se library, (o)verwrite (c)ancel? (u o,c): ")
         if ans in ["o", "O"]:
@@ -225,30 +233,33 @@ def main():
             logger.info("Merge input fasta with library.fna")
             cmd = "cat"
             if args.nt_source:
+                logger.info("Nucleotide source transfered to library")
                 if args.nt_source.endswith(".gz"):
                     cmd = "zcat"    
-                os.system("{cmd} {large_source} >> {db_path}/library/library.fna >> {large_source}".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
+                os.system("{cmd} {large_source} >> {db_path}/library/library.fna".format(cmd=cmd, db_path=args.db_name, large_source=args.nt_source))
             else:
                 exit("No large input file given")
         elif ans.strip() in ["u", "U"]:
             logger.info("Resume database build")
+            skip_genomes =True
             skip = True
         else:
             exit("Cancel execution!")
     else:
         if args.nt_source:
+            logger.info("Nucleotide source transfered to library")
             #ans = input("Im here: ")
             cmd = "cp"
             cmd2 = ""
             if args.nt_source.endswith(".gz"):
                 cmd = "zcat"
                 cmd2 = " > "
-            #print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
-            #ans = input("Write c to continue")
-            #if ans != "c":
-            #    exit()
-            #os.makedirs("{db_path}/library".format(db_path=args.db_name))
-            #os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
+            print("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
+            ans = input("Write c to continue")
+            if ans != "c":
+               exit()
+            if not os.path.exists("{db_path}/library".format(db_path=args.db_name)): os.makedirs("{db_path}/library".format(db_path=args.db_name))
+            os.system("{cmd} {large_source} {cmd2} {db_path}/library/library.fna".format(db_path=args.db_name, cmd=cmd,cmd2=cmd2,large_source=args.nt_source))
             genomes=[args.nt_source]
             args.genomes_path=os.path.dirname(args.nt_source)
             skip=True
@@ -361,7 +372,8 @@ def main():
                                         debug=args.debug,
                                         verbose=args.verbose,
                                         tmpdir=args.tmpdir,
-                                        create_lib=args.create_lib
+                                        create_lib=args.create_lib,
+                                        skip_genomes=skip_genomes
         )
         report_time(current_time)
         if not skip:
@@ -371,14 +383,12 @@ def main():
 
     ''' 4. Create database'''
     if args.create_db:
+        if not args.db_name:
+            logger.error("#Error: No database name was given!")
+            exit()
         report_time(current_time)
         logger.info("Create database")
-        try:
-            classifierDB.create_database(args.tmpdir,args.keep)
-        except UnboundLocalError as e:
-            logger.error("#Error: No database name was given!")
-            logger.error("#UnboundLocalError "+e)
-            exit()
+        classifierDB.create_database(args.tmpdir,args.keep)
 
     '''Clean up temp files'''
     if os.path.exists(args.tmpdir) and not args.keep:

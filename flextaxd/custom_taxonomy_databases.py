@@ -20,7 +20,9 @@ the NCBI dump except that it contains a header (parent/child), has parent on the
 each column (not <tab>|<tab>).
 '''
 
-__version__ = "0.4.4_dev"
+from flextaxd import __version__  ## kept here so that setup.py and --version can read it, the
+                                   ## value itself lives in flextaxd/__init__.py, which is also
+                                   ## importable from the database code
 __author__ = "David Sundell"
 __credits__ = ["David Sundell"]
 __license__ = "GPLv3"
@@ -34,8 +36,6 @@ __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge","bracken"
 __suppored_visualizations__ = ["newick","newick_vis","tree"]
 
 
-import rlcompleter
-import readline
 ## If script is executed run pipeline of selected options
 def main():
     ###################################--system imports--####################################
@@ -80,7 +80,9 @@ def main():
         read_modules = ['GTDB'] # GTDB will be remapped to QIIME when argparse'd
         for script in os.listdir(BASE_DIR+"/modules"):
             if script.startswith("ReadTaxonomy"):
-                modname = script.lstrip("ReadTaxonomy").rstrip(".py")
+                modname = script[len("ReadTaxonomy"):]
+                if modname.endswith(".py"):
+                    modname = modname[:-3]
                 if modname != "":
                     read_modules.append(modname)
         return sorted(read_modules)
@@ -109,6 +111,7 @@ def main():
     basic.add_argument("--force", action='store_true',                              help="use when script is implemented in pipeline to avoid security questions on overwrite!")
     basic.add_argument('--validate', action='store_true',                           help="Validate database format")
     basic.add_argument('--stats', action='store_true',                              help="Print some statistics from the database")
+    basic.add_argument('--report', action='store_true',                             help="Print the build report of the database: the flextaxd version it was built with, annotated genomes without sequence file and sequence files without annotation. With --genomes_path the comparison against the directory is redone first")
 
     rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
@@ -123,16 +126,16 @@ def main():
     mod_opts.add_argument('-gp', '--genomes_path', metavar="",default=None,             help='Path to genome folder is required when using NCBI_taxonomy as source')
     mod_opts.add_argument('--force_multisource',  action='store_true', default=False,   help='Inputfiles contains multiple sources')
     
-    #mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
-    mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
-    mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
-    mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to add (replace see below) branch")
-    mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed!")
-    mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from unannotated nodes")
+    mod_opts.add_argument('-un', '--update_names', metavar="",default=None,             help='Update node names using old to new name file.')
+    #mod_opts.add_argument('--rename_from', metavar="",default=None,                     help='Updates a node name. Must be paired with --rename_to')
+    #mod_opts.add_argument('--rename_to', metavar="",default=None,                       help='Updates a node name. Must be paired with --rename_from')
+    mod_opts.add_argument('-p', '--parent',metavar="", default=False,                   help="Parent from which to modify downstream structure (replace see below).")
+    mod_opts.add_argument('--replace', action='store_true',                             help="Add if existing children of parents should be removed before merge!")
+    mod_opts.add_argument('--replace_parent', action='store_true',                      help=argparse.SUPPRESS) ## Replace name of node in incoming tree hidden option
+    mod_opts.add_argument('--clean_database','--clean_db',	action='store_true',                    help="Clean up database from nodes without an annotated genome downstream (annotated nodes, their parent chain and the top levels of NCBI databases are kept)")
     mod_opts.add_argument('--skip_annotation',	action='store_true',                    help="Do not automatically add annotation when creating GTDB database")
     mod_opts.add_argument('--refdatabase', metavar="", default=False,                   help="For download command, give value of expected source, default (refseq)")
-    mod_opts.add_argument('--purge_database','--purge_db',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)")
-    mod_opts.add_argument('--purge_database_force','--purge_db_force', action='store_true',default=False,   help="If specified, will remove all genomes that are missing from the FlexTaxD-database, regardless if they are distinct nodes or not in the tree (default = FALSE)")
+    mod_opts.add_argument('--purge_database','--purge_db',metavar='',default=False,                  help="Used to purge the FlexTaxD-database from entries that lack a downloaded genome (such as when creating a GTDB-database using all taxonomy but using just the representative dataset)\nProvide the directory path of the downloaded genomes (default = FALSE)\nThe annotations are removed by genome name, also where a genome shares its node with a genome that is present, and the nodes that end up without any annotated genome downstream are removed by the database clean (same function as --clean_database)")
 
 
     out_opts = parser.add_argument_group('output_opts', "Output options")
@@ -142,6 +145,7 @@ def main():
     out_opts.add_argument('--dump_descriptions', action='store_true', default=False,                help="Dump description names instead of database integers")
     out_opts.add_argument('--dump_genomes', action='store_true', default=False,                     help="Print list of genomes (and source) to file")
     out_opts.add_argument('--dump_genome_annotations', action='store_true', default=False,          help="Add genome taxid annotation to genomes dump")
+    out_opts.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
 
     vis_opts = parser.add_argument_group('vis_opts', "Visualisation options")
     vis_opts.add_argument('--vis_node','--visualise_node', metavar='', default=False,                            help="Visualise tree from selected node")
@@ -182,7 +186,7 @@ def main():
     	logval = args.debug
     elif args.verbose:
     	logval = args.verbose
-    if args.validate:  #On validate always turn on logging
+    if args.validate or args.report:  #On validate and report always turn on logging
         logval = logging.INFO
 
     import datetime
@@ -235,9 +239,22 @@ def main():
         db.validate_tree()
         exit("Validation comleted!")
 
+    if args.report:
+        from modules.database.DatabaseConnection import ModifyFunctions
+        from modules.ProcessDirectory import ProcessDirectory
+        db = ModifyFunctions(args.database)
+        if args.genomes_path:
+            ProcessDirectory(args.database).report_disk(args.genomes_path)
+        for line in db.report_lines(limit=None):
+            print(line)
+        exit("")
+
     if args.stats:
         from modules.database.DatabaseConnection import ModifyFunctions
+        from modules.ProcessDirectory import ProcessDirectory
         db = ModifyFunctions(args.database)
+        if args.genomes_path:
+            ProcessDirectory(args.database).report_disk(args.genomes_path)
         db.statistics()
         exit("")
 
@@ -299,7 +316,7 @@ def main():
         if missing:
             modify_module = dynamic_import("modules", "ModifyTree")
             modify_obj = modify_module(database=args.database,purge_database=True,taxid_base=args.taxid_base)
-            modify_obj.purge_database(missing_genomes,force_genome_delete=args.purge_database_force)
+            modify_obj.purge_database(missing_genomes,genome_path=genomes_path)
         #/
 
     '''Dump option, export list of genomes, added in flextaxd version 0.4.2'''
@@ -342,7 +359,7 @@ def main():
             logger.critical("No genomeid2taxid file given!")
         logger.info("Loading module: ModifyTree")
         modify_module = dynamic_import("modules", "ModifyTree")
-        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
+        modify_obj = modify_module(database=args.database, mod_file=args.mod_file, mod_database= args.mod_database,parent=args.parent,replace=args.replace,replace_parent=args.replace_parent,taxid_base=args.taxid_base,taxonomy_type=args.taxonomy_type)
         modify_obj.update_database()
         if args.mod_file:
             current_time = report_time(current_time)
@@ -355,16 +372,16 @@ def main():
         modify_obj = modify_module(database=args.database, update_genomes=True,taxid_base=args.taxid_base)
         modify_obj.update_annotations(genomeid2taxid=args.genomeid2taxid)
 
-    # if args.update_names:
-    #     modify_module = dynamic_import("modules", "ModifyTree")
-    #     modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
-    #     modify_obj.update_node_names(args.update_names)
+    if args.update_names:
+         modify_module = dynamic_import("modules", "ModifyTree")
+         modify_obj = modify_module(database=args.database, update_node_names=True,taxid_base=args.taxid_base)
+         modify_obj.update_node_names(args.update_names)
     
-    if args.rename_from and args.rename_to:
-        modify_module = dynamic_import("modules", "ModifyTree")
-        data = {'set_column':'name','set_value':args.rename_to,'where_column':'name','where':args.rename_from}
-        modify_obj = modify_module(database=args.database,rename_node=True)#taxid_base=args.taxid_base)
-        modify_obj.rename_node(data,'nodes')
+    #if args.rename_from and args.rename_to:
+    #    modify_module = dynamic_import("modules", "ModifyTree")
+    #    data = {'set_column':'name','set_value':args.rename_to,'where_column':'name','where':args.rename_from}
+    #    modify_obj = modify_module(database=args.database,rename_node=True)#taxid_base=args.taxid_base)
+    #    modify_obj.rename_node(data,'nodes')
 
     if (args.mod_file or args.mod_database) and args.clean_database:
         modify_module = dynamic_import("modules", "ModifyTree")
@@ -374,8 +391,11 @@ def main():
     ''' 2. Dump custom taxonomy database into NCBI/kraken readable format)'''
     if args.dump or args.dump_mini:
         '''Check if datase exists if it does make sure the user intends to overwrite the file'''
-        nameprefix,nodeprefix = args.dump_prefix.split(",")
-        if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp")) and not force:
+        dump_prefixes = args.dump_prefix.split(",")
+        if len(dump_prefixes) != 2:
+            raise InputError("Argument --dump_prefix requires two comma separated prefixes: names,nodes")
+        nameprefix,nodeprefix = dump_prefixes
+        if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nodeprefix+".dmp")) and not force:
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:
                 exit("Dump already exists, abort!")
@@ -395,6 +415,13 @@ def main():
             write_obj.set_prefix("names,taxDB")
             write_obj.set_order(True)
             write_obj.nodes()
+
+    if args.dump_map:
+        logger.info("Dump genome maps")
+        write_module = dynamic_import("modules", "WriteTaxonomy")
+        write_obj = write_module(args.outdir, database=args.database, dump_genome_map=True)
+        write_obj.dump_taxid_map()
+        exit()
 
     if args.vis_node:
         modify_module = dynamic_import("modules", "NewickTree")

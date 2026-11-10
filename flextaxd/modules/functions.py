@@ -3,9 +3,32 @@ from subprocess import Popen,STDOUT,PIPE,CalledProcessError,TimeoutExpired
 from textwrap import wrap
 from os import makedirs,path,walk
 import glob
+import gzip
+import sys
 import logging
 from time import sleep
 logger = logging.getLogger(__name__)
+
+def zopen(path,*args, **kwargs):
+	'''Open a file, gzipped when its name ends in .gz. A mode containing "b" keeps the returned
+	    data binary, every other mode returns text, so callers get what they asked for'''
+	mode = args[0] if args else ""
+	if str(path).endswith(".gz"):
+		if "b" not in mode:
+			if mode in ["r","w"] and sys.version_info.major >= 3:
+				## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
+				args = (mode+"t",)
+			else:
+				args = ("rt",)
+		return gzip.open(path,*args,**kwargs)
+	return open(path,*args,**kwargs)
+
+def strip_gz(name):
+	'''Remove a real .gz suffix. str.strip/rstrip take a set of characters, so a name starting or
+		ending with g, z or . would lose those characters too'''
+	if str(name).endswith(".gz"):
+		return name[:-3]
+	return name
 
 SUPPORTED_TAXONOMIC_GROUPS = [
 	'bacteria',
@@ -47,7 +70,7 @@ def get_section(accession):
 	Returns
 		str refseq or genbank
 	'''
-	if accession.strip()[2] == "F":
+	if accession.strip().startswith("GCF"):
 		return "refseq"
 	return "genbank"
 
@@ -76,13 +99,11 @@ def check_taxonomic_group(accession,section=False,force=False):
 			pass #logger.debug(e)
 	'''group could not be found in section, if X on try other section'''
 	'''This should not be done as genomes removed from RefSeq usually are better to skip'''
-	if force:
-		accession=list(accession)
-		if accession[2] == "A":
-			accession[2] = "F"
+	if force and (accession.startswith("GCF") or accession.startswith("GCA")):
+		if accession.startswith("GCF"):
+			accession = "GCA" + accession[3:]
 		else:
-			accession[2] = "A"
-		accession = ''.join(accession)
+			accession = "GCF" + accession[3:]
 		group,section,accession = check_taxonomic_group(accession,section=swap_section[section])
 		if group:
 			return group,section,accession
@@ -177,6 +198,7 @@ def read_skip_file(fin):
 	tset = set()
 	gset = set()
 	result = {"tax_id":tset,"genome_id":gset}
+	ldict = gset ## default for header-less files (genome ids one per row)
 	with open(fin) as f:
 		for row in f:
 			data = row.strip().split("\t")[0]

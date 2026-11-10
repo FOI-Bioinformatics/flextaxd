@@ -1,0 +1,51 @@
+# opencode-sandbox settings for this project.
+#
+# OpenCode sees this project folder (read-write) and nothing above it.
+# Lines below give it more:
+#   ro: PATH    extra folder, read-only
+#   rw: PATH    extra folder, read-write
+#   env: PATH   Python venv or conda env to use (read-only, its bin/ first on PATH)
+#   auto: fix build   let /fix and/or /build change files without asking you
+#               (default: /fix asks per edit, /build writes drafts that you
+#               review and then apply with /implement)
+#   net: internet     also reach public internet addresses (pip, npm, git
+#               clone, ...); without it only the model server is reachable
+#   net: HOST:PORT    also reach this service (e.g. a dev database), as
+#               localhost:PORT inside
+#   net: host         the whole network, unfiltered (localhost, LAN): avoid
+#   net: search       web search + reading result pages, through a gateway
+#               outside: short queries only (SearXNG, see the machine config),
+#               pages only from search results; no other internet access
+#               Each query and page asks you first (y/N) in the opencode
+#               window; nothing goes out before you say yes
+#   noask       on a net: line, switches the asking off: "net: search noask"
+#               (queries and pages without asking), "net: internet noask"
+#               (opencode's webfetch without asking; curl, wget, git clone,
+#               pip and npm installs still ask)
+# Relative paths are relative to the project, ~ is your home folder.
+#
+# Protections, always on (see "opencode-sandbox --show"). If one turns out to
+# break something in this project, switch it off here with the unlock: line:
+#   .vscode/ and .idea/ are read-only inside. VS Code runs tasks from
+#     .vscode/tasks.json ("runOn": "folderOpen") and applies .vscode/settings.json
+#     (e.g. which python it runs) outside the sandbox; JetBrains IDEs do the
+#     same with .idea/. Symptom: the model can't create or change launch.json,
+#     settings.json, run configurations.         Switch off: unlock: editor
+#   No new user namespaces inside (bwrap --disable-userns): less of the kernel
+#     reachable for exploits. Symptom: programs that build their own sandbox
+#     fail inside: Chrome/Electron/Playwright without --no-sandbox, podman,
+#     flatpak, bwrap itself.                      Switch off: unlock: userns
+#   Not switchable: .git read-only, this file read-only, the network limited
+#     to the model server (net: lines add to it), terminal injection blocked.
+#
+# This file is always read-only inside the sandbox (enforced by the sandbox
+# itself, no line needed). When it has changed you are asked to approve it,
+# and changes apply on the next start of opencode-sandbox.
+#
+# Examples:
+# ro: ~/data/raw_data
+# ro: ./raw_data
+# env: ~/envs/build-env
+# rw: ~/scratch/out
+# auto: build fix     # suggested while building a first version; remove for full control
+# net: internet       # when the project needs to download packages

@@ -5,9 +5,8 @@ Read SILVA taxonomy dmp files (nodes or names) and holds a dictionary
 '''
 
 from .database.DatabaseConnection import DatabaseFunctions
+from . import functions
 import logging
-import gzip
-import sys
 logger = logging.getLogger(__name__)
 
 class InputError(Exception):
@@ -34,6 +33,7 @@ class ReadTaxonomy(object):
 		self.length = 0
 		self.ids = 0
 		self.qiime = 0
+		self.skipped = []
 
 		## Add base node
 		self.root = self.add_node("root")
@@ -44,16 +44,30 @@ class ReadTaxonomy(object):
 	def set_qiime(self,opt):
 		self.qiime = opt
 
+	def write_skipped(self):
+		'''Write and print rows/genomes skipped during parsing, so the user knows what was not added to the database'''
+		if not self.skipped:
+			return False
+		if self.taxonomy_file:
+			skipped_file = "{file}.skipped".format(file=self.taxonomy_file)
+		else:
+			skipped_file = "FlexTaxD.skipped"
+		with open(skipped_file,"w") as of:
+			for entry,reason in self.skipped:
+				logger.warning("Skipped {entry}: {reason}".format(entry=entry,reason=reason))
+				print("{entry}\t{reason}".format(entry=entry,reason=reason), end="\n", file=of)
+		'''Keep only the number in the database, the rows themselves stay in the file written above'''
+		self.database.save_report("skipped_import",
+									self.taxonomy_file or "FlexTaxD",
+									len(self.skipped),
+									skipped_file)
+		logger.warning("{n} rows/genomes skipped, listed in {file}".format(n=len(self.skipped),file=skipped_file))
+		return skipped_file
+
 	def zopen(self, path,*args, **kwargs):
-		'''Redefine open to handle zipped files automatically'''
-		if path.endswith(".gz"):
-			if str(*args) in ["r","w"] and sys.version_info.major >= 3:
-				## Python version three and above interprets binary formats as binary, add t (rt) to get text returned
-				args = (str(*args)+"t",)
-			else:
-				args = ("rt")
-			return gzip.open(path,*args,**kwargs)
-		return open(path,*args,**kwargs)
+		'''Redefine open to handle zipped files automatically, a mode containing "b" keeps the
+		    returned data binary. The implementation is shared with the database builders'''
+		return functions.zopen(path,*args,**kwargs)
 
 	#@staticmethod
 	def parse_taxonomy(self,treefile=False):
@@ -121,6 +135,9 @@ class ReadTaxonomy(object):
 					rank = data.pop().strip()
 					if rank.strip() != "":
 						self.add_rank(rank)
+				if len(data) < 2:
+					'''A row must hold both a child and a parent to define a link'''
+					continue
 				if swap:
 					data[0],data[1] = data[1],data[0]
 				'''Add nodes into database'''
@@ -142,23 +159,32 @@ class ReadTaxonomy(object):
 			self.database.commit()
 
 	def parse_genomeid2taxid(self,genomeid2taxid,reference=False):
-		'''Parse file that annotates genome_id´s to nodes in the tree'''
+		'''Parse file that annotates genome_id´s to nodes in the tree
+			The file lists genome, node (name or taxid) and optionally the reference
+			(refseq/genbank/nt) of that genome. The reference belongs to the row it was read with:
+			a reference given as argument labels every genome and overrides that column, a row
+			without one stays unlabelled.'''
 		nodeDict = self.database.get_nodes()
 		_ref = reference
 		with self.zopen(genomeid2taxid,"rt") as f:
 			# headers = f.readline().strip().split("\t") # This line was commented away since this genomeid2taxid is not documented to have a header
 			for row in f:
 				if row.strip() != "": ## If there are trailing empty lines in the file
+					columns = row.strip().split("\t")
+					if len(columns) < 2:
+						columns = row.strip().split("    ") ## fallback shared with ModifyTree.update_annotations
+					if len(columns) < 2:
+						logger.warning("# WARNING: row without genome and taxid column skipped: {row}".format(row=row.strip()))
+						self.skipped.append((row.strip(),"row has no genome and taxid columns"))
+						continue
+					genomeid,taxid = columns[0],columns[1]
+					## the argument wins over the third column, and extra columns are ignored
+					row_reference = _ref if _ref else (columns[2] if len(columns) > 2 else False)
 					try:
-						genomeid,taxid = row.strip().split("\t")
-					except:
-						if not _ref: ## override if there is a reference in file, and use given ref
-							genomeid,taxid,reference = row.strip().split("\t")
-						else:
-							genomeid,taxid,override = row.strip().split("\t")
-					try:
-						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()],reference=reference)
+						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()],reference=row_reference)
 					except KeyError:
 						logger.warning("# WARNING: {taxid} not found in the database".format(taxid=taxid))
+						self.skipped.append((genomeid.strip(),"taxid {taxid} not found in the database".format(taxid=taxid)))
 			self.database.commit()
+		self.write_skipped()
 		return

@@ -94,6 +94,9 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		level, description = current_level.split("__")
 		'''Fix greengenes bug with empty end nodes'''
 		if description == "":
+			if current_i + 1 >= len(tree):
+				'''All levels were empty, no description could be found'''
+				return level, description
 			level, description = self.parse_description(tree,current_i+1)
 		return level,description
 
@@ -105,14 +108,16 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.missed = 0
 		self.errors = 0
 		self.added = 0
+		self.skipped = []
 		_ref = reference
 		refDict = {"RS":"refseq","GB":"genbank"}  ## Refdict for GTDB formatted sources
 		taxid_start = self.taxid_base
-		with open(self.input) as f:
+		with self.zopen(self.input,"rt") as f:
 			'''Each row defines a genome annotation file connected to a tree level'''
 			for row in f:
 				if row.strip() != "":  ## If there are trailing empty lines in the file
 					data = row.strip().split("\t")
+					reference = _ref  ## reset per row, otherwise rows without the GTDB RS_/GB_ prefix keep the previous reference or stay unbound
 					try:
 						if data[0].startswith(("RS","GB")):
 							'''GTDB genome annotations contain one additional annotation to their genome names eg. RS_, this function removes this'''
@@ -125,12 +130,20 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 							'''Greengenes adaption, empty levels'''
 
 						#print(genome_id)
-					except IndexError:
+					except (IndexError, ValueError, KeyError):
 						logger.debug("Row {row} could not be parsed".format(row=data))
 						self.errors +=1
+						self.skipped.append((data[0],"row could not be parsed"))
+						continue
 					### Walk through tree and make sure all nodes back to root are annotated!
-					taxonomy = list(reversed(data[-1].split(";")))
-					taxonomy_i = self.parse_tree(taxonomy)
+					try:
+						taxonomy = list(reversed(data[-1].split(";")))
+						taxonomy_i = self.parse_tree(taxonomy)
+					except (ValueError, IndexError):
+						logger.debug("Taxonomy of row {row} could not be parsed".format(row=data))
+						self.errors +=1
+						self.skipped.append((genome_id,"taxonomy could not be parsed"))
+						continue
 					if taxonomy_i:
 						test = self.database.add_genome(genome=genome_id,_id=taxonomy_i,reference=reference)
 						if not str(test).startswith("UNIQUE"):
@@ -138,7 +151,9 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 					else:
 						logger.debug("Warning taxonomy: {taxonomy} could not be parsed!!")
 						self.missed +=1
+						self.skipped.append((genome_id,"taxonomy could not be parsed"))
 		self.database.commit()
+		self.write_skipped()
 		self.length = self.taxid_base - taxid_start
 		logger.info("Genomes added to database: {genomes}".format(genomes=self.added))
 		logger.debug("Genomes not added to database {missed} errors {errors}".format(missed=self.missed,errors=self.errors))

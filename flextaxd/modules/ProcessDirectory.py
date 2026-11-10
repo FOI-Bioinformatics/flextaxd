@@ -3,7 +3,7 @@
 Process directory
 '''
 
-import logging,os,re
+import logging,os,re,datetime
 from .database.DatabaseConnection import DatabaseFunctions
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,15 @@ class ProcessDirectory(object):
 		else:
 			self.multifile_prefix = False
 		self.located_mfiles = []
+		self.notused = set()
 		#logger.debug(self.genome_id_dict)
+
+	def strip_gz(self, name):
+		'''Remove a real .gz suffix. str.strip/rstrip take a set of characters, so
+				a name starting or ending with g, z or . would lose those characters too'''
+		if name.endswith(".gz"):
+			return name[:-3]
+		return name
 
 	def get_genome_names(self):
 		'''
@@ -189,16 +197,17 @@ class ProcessDirectory(object):
 		## Parse accession with regex, get node ID as taxid (this is done in the other cases too)
 		if not taxid:
 			accn = self.is_gcf_gca_regex(fname)
-			accn_noExt = os.path.splitext(accn)[0]
-			genome_name = accn_noExt # required to move on
-			taxid = self.get_taxid(accn_noExt) # required to move on
+			if accn:
+				accn_noExt = os.path.splitext(accn)[0]
+				genome_name = accn_noExt # required to move on
+				taxid = self.get_taxid(accn_noExt) # required to move on
 		##/
 		if not taxid:
 			#print('[IDE] find_local_fasta',fname)
 			taxid,genome_name = self.find_local_fasta(fname)
 			
 		'''In official sources there is sometimes a file called from_genomic.fna; make sure this file does not get included in the file list'''
-		if not file.strip(".gz").endswith("from_genomic.fna") and taxid:
+		if not self.strip_gz(file).endswith("from_genomic.fna") and taxid:
 			filepath = os.path.join(root, file)  ## Save the path to the file
 			self.files.append(filepath)
 			self.genome_names.append(genome_name.strip())
@@ -219,17 +228,17 @@ class ProcessDirectory(object):
 		self.notused = set()
 		download_files = []
 		if not folder_path:
-			raise IOError("Parameter --genomes_path was not set".format(folder_path))
+			raise IOError("Parameter --genomes_path was not set")
 		logger.info("Process genome path ({path})".format(path=folder_path))
 		logger.debug("Extensions valid: ({f})".format(f=self.ext))
 		for root, dirs, files in os.walk(folder_path,followlinks=True):
 			for file in files:
-				fname = file.rstrip(".gz") ## remove gz if present
+				fname = self.strip_gz(file) ## remove gz if present
 				if fname.endswith(tuple(self.ext)):
 					if count % 1000 == 0:
 						print("Processed {count} files/genomes".format(count=count), end="\r")
 					if self.multifile_prefix:
-						if fname.lower().startswith(self.multifile_prefix):
+						if fname.lower().startswith(tuple(self.mfiles)):
 							print("Processing multifile {mfile}".format(mfile=fname), end="\r")
 							count+=1
 							self.process_multi_file(file,fname,root)
@@ -260,4 +269,53 @@ class ProcessDirectory(object):
 			existing_genomes.append(genome)
 		for file_not_present in set(self.genome_id_dict.keys()) - set(existing_genomes):
 			download_files.append({"genome_id":file_not_present,"outdir":folder_path.rstrip("/")+"/downloads"})
+		self.store_disk_report(folder_path,[m["genome_id"] for m in download_files],self.notused)
 		return self.files,download_files
+
+	def store_disk_report(self,folder_path,missing,unannotated):
+		'''Record the discrepancy between the annotations of the database and the files on disk inside
+				the database, so that flextaxd --stats can report it without the genome folder
+
+		------
+		Parameters:
+			str - the genome path the report was made against
+			iterable - annotated genomes with no sequence file on disk
+			iterable - sequence files on disk with no annotation in the database
+		------
+		Returns:
+			tuple - number of missing genomes and number of unannotated files stored
+		'''
+		missing = sorted(missing)
+		unannotated = sorted(unannotated)
+		self.database.set_meta("report_date",datetime.datetime.now().isoformat(timespec="seconds"))
+		self.database.set_meta("genomes_path",folder_path)
+		self.database.set_meta("genomes_missing_on_disk",str(len(missing)))
+		self.database.set_meta("files_unannotated",str(len(unannotated)))
+		self.database.save_report("missing_on_disk",folder_path,len(missing))
+		self.database.save_report("unannotated_file",folder_path,len(unannotated))
+		logger.info("Disk report stored in the database: {m} annotated genomes have no file, {u} files have no annotation".format(m=len(missing),u=len(unannotated)))
+		return len(missing),len(unannotated)
+
+	def report_disk(self,folder_path):
+		'''Compare the genome annotations of the database with the sequence files on disk, using the
+				same matching rules as the build, so that a report cannot disagree with a build
+
+		------
+		Parameters:
+			str - path to the genome directory
+		------
+		Returns:
+			dict - annotated and on_disk counts, missing (annotated genomes with no file) and
+				unannotated (files on disk with no annotation) as sorted lists
+		'''
+		logger.info("Number of genomes annotated in database {n}".format(n=len(self.genome_id_dict)))
+		self.files, self.genome_names = self.walk_directory(folder_path)
+		missing = sorted(set(self.genome_id_dict.keys()) - set(self.genome_names))
+		unannotated = sorted(self.notused)
+		logger.info("{n} annotated genomes have no sequence file on disk".format(n=len(missing)))
+		logger.info("{n} sequence files on disk have no annotation in the database".format(n=len(unannotated)))
+		self.store_disk_report(folder_path,missing,unannotated)
+		return {"annotated": len(self.genome_id_dict),
+				"on_disk": len(set(self.genome_names)),
+				"missing": missing,
+				"unannotated": unannotated}
