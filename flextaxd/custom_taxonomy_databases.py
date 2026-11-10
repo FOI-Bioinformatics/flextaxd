@@ -395,6 +395,13 @@ def main():
         if len(dump_prefixes) != 2:
             raise InputError("Argument --dump_prefix requires two comma separated prefixes: names,nodes")
         nameprefix,nodeprefix = dump_prefixes
+        '''The minimal layout (the one --dump_mini and an NCBI type dump write) drops the trailing columns of
+            names.dmp and nodes.dmp, and those are the columns kraken2/krakenuniq read for the name of a
+            taxid: the database it builds lists every taxid without a name. Refuse the combination here,
+            where a clean message is possible, instead of writing a dump that cannot be used (issue #136).'''
+        if args.dbprogram and (args.dump_mini or args.taxonomy_type == "NCBI"):
+            logger.error("#Error: --dbprogram {program} cannot be combined with --dump_mini or an NCBI type dump: the minimal layout drops the columns {program} reads (--dump --dbprogram {program})".format(program=args.dbprogram))
+            exit(1)
         if (os.path.exists(args.outdir.rstrip("/")+"/"+nameprefix+".dmp") or os.path.exists(args.outdir.rstrip("/")+"/"+nodeprefix+".dmp")) and not force:
             ans = input("Warning: {names} and/or {nodes} already exists, overwrite? (y/n): ")
             if ans not in ["y","Y","yes", "Yes"]:

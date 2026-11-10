@@ -5,6 +5,7 @@ Modify tree from database or source
 '''
 
 from .database.DatabaseConnection import ModifyFunctions
+from . import ranks
 import logging,os,datetime
 logger = logging.getLogger(__name__)
 import math,time
@@ -129,11 +130,13 @@ class ModifyTree(object):
 		'''Small function to fix taxid with NCBI, round up to nearest million in internal id'''
 		return int(math.ceil(x / 1000000.0)) * 1000000
 
-	def add_link(self, child=None, parent=None, rank="n"):
-		'''Add relationship in tree'''
+	def add_link(self, child=None, parent=None, rank=None):
+		'''Add relationship in tree. The rank is a rank name: it is added to the rank table when it is new, and
+		   a link that nothing names carries no rank level at all (issue #142) - it used to fall back on the
+		   rank "n", which is the "no rank" level of an NCBI derived database.'''
 		if not child and parent:
 			raise TreeError("A link requires both a child and a parent!")
-		self.taxonomydb.add_link(child=child,parent=parent,rank=self.rank[rank])
+		self.taxonomydb.add_link(child=child,parent=parent,rank=self.add_rank(rank))
 		if self.taxonomydb.check_parent():
 			raise TreeError("Node {child} has more than one parent!".format(child=child))
 		return
@@ -152,7 +155,10 @@ class ModifyTree(object):
 		return self.taxid_base
 
 	def add_rank(self, rank):
-		'''Insert rank into database and store into rank dictionary'''
+		'''Insert rank into database and store into rank dictionary. A rank that names nothing (no rank
+		   column, an empty field, the text None) gets no rank level: the link stays without one (issue #142)'''
+		if ranks.unnamed(rank):
+			return None
 		try:
 			rank_i = self.rank[rank]
 		except KeyError:
@@ -210,8 +216,9 @@ class ModifyTree(object):
 			return i
 			
 
-	def _parse_new_links(self, parent=None,child=None,rank="no rank"):
-		'''Help function for parse_mod_file, gets existing node id or adds new node'''
+	def _parse_new_links(self, parent=None,child=None,rank=None):
+		'''Help function for parse_mod_file, gets existing node id or adds new node. Without a rank name the
+		   link is added without a rank level, it is no longer put on "no rank" (issue #142)'''
 		## add new nodes
 		if not child and parent:
 			raise InputError("links requires both child and parent!")
@@ -292,8 +299,8 @@ class ModifyTree(object):
 				if row.strip() == "":
 					continue
 				line = row.strip().split(self.sep)
-				if len(line) == 2:
-					line +=["no rank"] ## Add no specified rank to line
+			if len(line) == 2:
+				line +=[None] ## the line names no rank: the level stays without one, it is not the "no rank" name NCBI uses (issue #142)
 				parent,child,rank = line
 				if replace_parent:
 					if parent == change_root:
@@ -737,9 +744,13 @@ class ModifyTree(object):
 			logger.warning("The database file could not be compacted: {err}".format(err=str(res)))
 			
 	def keep_levels(self, links):
+		'''The levels the branch being modified already has, so that a node which is re-added can keep the rank
+		   of the node above it. A level that is not a level - "no rank", or a link carrying no rank at all -
+			must not be handed down: the test used to compare the rank NAME with the id 1, so it never fired
+			and every node inherited whatever its parent carried (issue #140).'''
 		parent_levels = {}
 		for c,p,l in links:
-			if self.rank[l] != 1:
+			if not ranks.is_no_rank(self.rank.get(l)):
 				parent_levels[p] = l
 		return parent_levels
 

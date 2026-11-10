@@ -8,8 +8,10 @@ however it is not optimized in any way and uses os.system instead of a proper Po
 import random
 import os
 import glob
+import shlex
 from multiprocessing import Process,Manager,Pool
-from subprocess import Popen,PIPE,check_output,CalledProcessError
+import multiprocessing
+from subprocess import Popen,PIPE,check_output,CalledProcessError,run
 from .database.DatabaseConnection import DatabaseFunctions
 from .functions import zopen, strip_gz
 from time import sleep
@@ -42,12 +44,29 @@ class CreateKrakenDatabase(object):
 			self.tmpdir = outdir
 		self.seqid2taxid = self.outdir+"/seqid2taxid.map"
 		logger.info("seqid2taxid file:{tfile}".format(tfile=self.seqid2taxid))
+		'''The map kraken2 reads beside the library, written to the temp directory by the dump of the
+			database annotations and added to by every sequence that enters the library'''
+		self.prelim_map = self.tmpdir.rstrip("/") + "/prelim_map.txt"
 		self.skip_genomes = kwargs["skip_genomes"]
+		'''Packed multi sequence files (an nt file, a --multifile_prefix file) are never split up into
+			one file per genome: their sequences go into the library as they are and their annotation
+			travels in the taxid map, which is what kraken2 and ganon read for those sequences.'''
+		self.packed_files = []
+		for packed in kwargs.get("multifiles", False) or []:
+			if packed and packed not in self.packed_files:
+				self.packed_files.append(packed)
 		if genome_names and not self.skip_genomes:
 			self.genome_names = list(genome_names.keys())   ## List for multiprocessing
 			self.genome_path = genome_names					## genome_id to path dictionary
 		else:
-			logger.warning("Genome names are missing.") # Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
+			'''An empty genome list is not an error when packed files are given: the library is still
+				built from them and the map still gets its lines (issue #114)'''
+			self.genome_names = []
+			self.genome_path = {}
+			if self.packed_files:
+				logger.warning("Genome names are missing, only the {n} packed sequence files given are added to the library.".format(n=len(self.packed_files)))
+			else:
+				logger.warning("Genome names are missing.") # Make sure your genomes are formatted as GCF_000000000.0.fasta[.gz]")
 		self.accession_to_taxid = self.database.get_genomes(self.database)
 		self.files = []
 		self.params = params
@@ -105,11 +124,17 @@ class CreateKrakenDatabase(object):
 	def kraken_fasta_header_multiproc(self,genomes):
 		'''function to run addition of genomes in paralell'''
 		logger.info("Processing files; create kraken seq.map")
+		'''The children inherit the database connection and the genome path dictionary of this object
+			instead of having them pickled to them, so this pass needs the fork start method whatever
+			the interpreter has as its default: python 3.14 made forkserver the default and that pickles
+			the target, which fails on the open sqlite connection (issue #130). T6 replaces this parallel
+			pass with one streamed read of the inputs.'''
+		ctx = multiprocessing.get_context("fork")
 		jobs = []
-		manager = Manager()
+		manager = ctx.Manager()
 		added = manager.Queue()
 		for i in range(self.processes):
-			p = Process(target=self.kraken_fasta_header, args=(genomes[i],added))
+			p = ctx.Process(target=self.kraken_fasta_header, args=(genomes[i],added))
 			p.daemon=True
 			p.start()
 			jobs.append(p)
@@ -252,37 +277,148 @@ class CreateKrakenDatabase(object):
 			skiptax |= self.taxonomydb.get_children()
 		return skiptax
 
+	def sequence_id(self,header):
+		'''The id of a sequence is the first white space separated word of its FASTA header, the same
+			rule the taxonomy import uses (ReadTaxonomyNCBI.sequence_id), here on text'''
+		words = header.split()
+		if not words:
+			return False
+		return words[0].lstrip(">").strip()
+
+	def write_unannotated_sequences(self,mfile,unannotated):
+		'''The sequences of a packed file the database has no annotation for: the list is written next to
+			the input and only the number is stored in the report, like every other finding of a build'''
+		unannotated = sorted(set(unannotated))
+		unannotated_file = "{mfile}.unannotated".format(mfile=mfile)
+		with open(unannotated_file,"w") as of:
+			for seqid in unannotated:
+				print(seqid, end="\n", file=of)
+		self.database.save_report("unannotated_sequence",mfile,len(unannotated),unannotated_file)
+		logger.warning("{n} sequences of {mfile} have no annotation in the database, they are listed in {file}".format(n=len(unannotated),mfile=mfile,file=unannotated_file))
+		return unannotated_file
+
+	def add_packed_file_to_library(self,mfile,added):
+		'''Add one packed multi sequence file to the library without touching the input file: the file is
+			decompressed into library.fna and its headers keep the accession they have, so the taxid of
+			every one of its sequences is written to the taxid map instead (issue #115). A sequence that
+			has no annotation in the database is counted and listed, it stays in the library without a
+			taxid and is reported by the library check of T4.
+		------
+		Parameters:
+			str - path to the packed file
+			Queue - the shared counter of added sequences
+		------
+		Returns:
+			boolean - True if the file was added, False if it could not be read
+		'''
+		if not os.path.exists(mfile):
+			logger.warning("Packed sequence file {mfile} does not exist, nothing was added to the library".format(mfile=mfile))
+			return False
+		logger.info("Adding the sequences of {mfile} to the library and their taxids to the map".format(mfile=mfile))
+		sequences = 0
+		annotated = 0
+		unannotated = set()
+		'''Stream the headers only: the file is read once for the map, the sequences themselves are
+			copied below, which is what T6 puts into the same single pass'''
+		with zopen(mfile,"r") as library_file, open(self.seqid2taxid,"a") as taxidmap, open(self.prelim_map,"a") as prelim:
+			for line in library_file:
+				if not line.startswith(">"):
+					continue
+				seqid = self.sequence_id(line)
+				if not seqid:
+					logger.debug("Header without sequence id in {mfile}: {line}".format(mfile=mfile,line=line.strip()))
+					continue
+				sequences += 1
+				taxid = self.accession_to_taxid.get(seqid,False)
+				if not taxid:
+					unannotated.add(seqid)
+					logger.debug("No taxid in the database for sequence {seqid} of {mfile}".format(seqid=seqid,mfile=mfile))
+					continue
+				annotated += 1
+				print("{seqid}\t{taxid}".format(seqid=seqid,taxid=taxid),end="\n",file=taxidmap)
+				print("TAXID\t{seqid}\t{taxid}".format(seqid=seqid,taxid=taxid),end="\n",file=prelim)
+		if unannotated:
+			self.write_unannotated_sequences(mfile,unannotated)
+		logger.info("{sequences} sequences of {mfile} are in the library, {annotated} have a taxid in the map, {n} have none".format(sequences=sequences,mfile=mfile,annotated=annotated,n=len(unannotated)))
+		'''Copy the file into the library as it is (decompressed, the header of every sequence keeping
+			its accession), no genome file is written from it and the input file is never modified'''
+		cmd = "cat"
+		if mfile.endswith(".gz"):
+			cmd = "zcat"
+		res = run("{cmd} {file} >> {db_path}/library/library.fna".format(cmd=cmd,
+																		file=shlex.quote(mfile),
+																		db_path=shlex.quote(self.krakendb)),
+					shell=True)
+		if res.returncode != 0:
+			logger.warning("Could not add {mfile} to the library, the command returned {code}".format(mfile=mfile,code=res.returncode))
+			return False
+		added.put(sequences)
+		return True
+
 	def create_library_from_files(self,multifiles=False):
 		'''Create library for kraken and create kraken genome2taxid map'''
 		logger.info("Process datafiles and create library.fna")
 		if os.path.exists(self.outdir+"/seqid2taxid.map"): open(self.seqid2taxid,"w").close() ## clean existing map if file exists
+		'''The files given as packed multi sequence files (the --nt_source file and the files found by
+			--multifile_prefix) are handled the same way: added to the library as they are'''
+		packed_files = list(self.packed_files)
+		for mfile in (multifiles or []):
+			if mfile not in packed_files:
+				packed_files.append(mfile)
 		if self.limit:
 			logger.info("Test use only {n} genomes".format(n=self.limit))
 			self.genome_names = self.genome_names[0:self.limit]
-		self.genome_names_split = self._split(self.genome_names,self.processes)
 		if not os.path.exists("{db_path}/library/".format(db_path=self.krakendb)):
 			logger.info("Create library directory")
-			os.mkdir("{db_path}/library/".format(db_path=self.krakendb))
+			os.makedirs("{db_path}/library/".format(db_path=self.krakendb))
 		if not os.path.exists("{tmpdir}/library/".format(tmpdir=self.tmpdir)):
 			logger.info("Create library directory")
-			os.mkdir("{tmpdir}/library/".format(tmpdir=self.tmpdir))
-		self.kraken_fasta_header_multiproc(self.genome_names_split)
+			os.makedirs("{tmpdir}/library/".format(tmpdir=self.tmpdir))
+		self.added = 0
+		self.sequence_count = 0
+		if self.genome_names:
+			self.genome_names_split = self._split(self.genome_names,self.processes)
+			self.kraken_fasta_header_multiproc(self.genome_names_split)
+		else:
+			logger.info("No genome files to add, the library is built from the packed files only")
 		'''Merge library files into one library'''
-		if self.create_db or self.create_lib: ## Only required if kraken map is required (can be printed from db)
-			check_output("cat {tmpdir}/library/batch*.fasta > {db_path}/library/library.fna".format(db_path=self.krakendb, tmpdir=self.tmpdir),shell=True)
-			check_output("rm {tmpdir}/library/batch*.fasta".format(db_path=self.krakendb, tmpdir=self.tmpdir),shell=True)
-		if multifiles:
-			logger.info("Adding sequences from multifiles to library")
-			cmd = "cat"
-			for mfile in multifiles:
-				logger.info("Processing {mfile}".format(mfile=mfile))
-				if mfile.endswith(".gz"):
-					cmd = "z"+cmd
-				logger.debug("{cmd} {file} >> {db_path}/library/library.fna".format(cmd=cmd,file=mfile,db_path=self.krakendb))
-				os.system("{cmd} {file} >> {db_path}/library/library.fna".format(cmd=cmd,file=mfile,db_path=self.krakendb))
-
+		if (self.create_db or self.create_lib) and self.genome_names: ## Only required if kraken map is required (can be printed from db)
+			batches = glob.glob("{tmpdir}/library/batch*.fasta".format(tmpdir=self.tmpdir))
+			if batches:
+				check_output("cat {tmpdir}/library/batch*.fasta > {db_path}/library/library.fna".format(db_path=self.krakendb, tmpdir=self.tmpdir),shell=True)
+				check_output("rm {tmpdir}/library/batch*.fasta".format(db_path=self.krakendb, tmpdir=self.tmpdir),shell=True)
+		if packed_files:
+			logger.info("Adding sequences from {n} packed sequence files to the library".format(n=len(packed_files)))
+			manager = Manager()
+			sequences = manager.Queue()
+			for mfile in packed_files:
+				self.add_packed_file_to_library(mfile,sequences)
+			self.sequence_count = sequences.qsize()
 		logger.info("Number of genomes (multifiles not counted) succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
+		logger.info("Number of sequences added to the {krakenversion} library from the packed files: {count}".format(count=self.sequence_count,krakenversion=self.krakenversion))
 		return
+
+	def run_program_command(self,cmd,required=True):
+		'''Run one command of the external program and look at its exit status (issue #132): a kraken2
+			that is not installed, or a build step that fails, only printed its error on stderr while the
+			run went on logging that the database was created, leaving a database directory with nothing
+			in it but the library and its map. The build step is required: the run stops there. A step
+			that only adds a report file is reported and the run continues.
+		------
+		Parameters:
+			str - the command to run
+			boolean - False if a failure of this command only needs reporting
+		------
+		Returns:
+			boolean - True when the command succeeded, False when a failure was only reported
+		'''
+		res = run(cmd,shell=True)
+		if res.returncode != 0:
+			logger.error("The command returned {code}: {cmd}".format(code=res.returncode,cmd=cmd))
+			if required:
+				raise CalledProcessError(res.returncode,cmd)
+			return False
+		return True
 
 	def create_database(self,outdir,keep=False):
 		'''For test create a small database and run tests'''
@@ -315,16 +451,17 @@ class CreateKrakenDatabase(object):
 		
 		if self.krakenversion == 'krakenuniq':
 			logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-			os.system(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			self.run_program_command(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 		else:
 			logger.info(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
-			os.system(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
+			self.run_program_command(self.krakenversion+"-build --build --skip-maps --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 
 		if self.krakenversion in ["kraken2"]:
 			logger.info("Create inspect file!")
-			os.system(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes ))
+			inspect_ok = self.run_program_command(self.krakenversion+"-inspect --db {krakendb} --report-zero-counts --threads {threads} > {krakendb}/inspect.txt".format(krakendb=self.krakendb,threads=self.build_processes),required=False)
 			os.system("gzip {krakendb}/*.map".format(krakendb=self.krakendb))
-			os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
+			if inspect_ok:
+				os.system("gzip {krakendb}/inspect.txt".format(krakendb=self.krakendb))
 		if not keep:
 			os.system(self.krakenversion+"-build --clean --db {krakendb}".format(outdir=outdir,krakendb=self.krakendb, threads=self.processes))
 			## re-add taxonomy

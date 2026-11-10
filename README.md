@@ -39,6 +39,21 @@ flextaxd --stats
 flextaxd --help
 ```
 
+### Taxonomy dumps and the format a program reads
+```bash
+# Export the database in the layout kraken2/krakenuniq read
+flextaxd --dump --dbprogram kraken2
+
+# Minimal, tab separated export (no program will read this one)
+flextaxd --dump_mini
+```
+
+kraken2 and krakenuniq take the name of a taxid from the trailing columns of `names.dmp`, and the rank
+from the trailing columns of `nodes.dmp`. `--dump --dbprogram kraken2` writes those columns; `--dump_mini`
+writes a short tab separated file without them, which is meant for reading by a person or another tool.
+The two are never combined: `--dump_mini --dbprogram kraken2` (and an NCBI type dump for a program) stops
+with an error instead of writing a dump that leaves the built database listing every taxid without a name.
+
 
 ## Requirements
 - Python >=3.6

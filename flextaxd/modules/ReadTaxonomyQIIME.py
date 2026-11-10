@@ -17,7 +17,9 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		self.input = taxonomy_file
 		self.names = {}
 		self.taxid_base = taxid_base
-		self.taxonomy = {}
+		'''the name dictionary of this run was seeded from the nodes of the database by the base class:
+		   clearing it here made every name of the file a new node, also when the database already knew it
+		   (issue #145)'''
 		self.length = 0
 		self.ids = 0
 		self.levelDict = {
@@ -59,6 +61,7 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 	def parse_taxonomy(self):
 		'''Parse taxonomy information'''
 		self.qiime_to_tree()
+		self.rank_summary()
 
 	def parse_tree(self,tree,current_i=0):
 		'''The taxonomy tree does not exist in the standard nomenclature, add a new tree'''
@@ -66,7 +69,9 @@ class ReadTaxonomyQIIME(ReadTaxonomy):
 		level,description = self.parse_description(tree,current_i)
 		if description.strip() == "":
 			return False
-		if level not in self.taxonomy:
+		'''the rank of a level is registered once, in the rank dictionary of this reader: the check used to
+		   look the level code up among the node names, which only works by accident (issue #145)'''
+		if level not in self.rank:
 			self.add_rank(level,qiime=True)
 		if current_i == len(tree)-1:
 			'''Top parent reached return top parent id'''

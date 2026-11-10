@@ -172,7 +172,7 @@ class DatabaseConnection(object):
 
 		------
 		Parameters:
-			str - kind of finding, missing_on_disk, unannotated_file or skipped_import
+			str - kind of finding, missing_on_disk, unannotated_file, unannotated_sequence or skipped_import
 			str - the input the findings came from, a genome path or an input file
 			int - how many were found
 			str - where the individual entries can be read, when the step wrote them to a file
@@ -527,7 +527,9 @@ class DatabaseFunctions(DatabaseConnection):
 		if report_date:
 			lines.append("Disk report from {d}, genome path {p}".format(d=report_date,p=self.get_meta("genomes_path") or "unknown"))
 		for kind,description in [("missing_on_disk","Genome annotations without sequence file"),
+						("sequence_annotation","Sequence level annotations (packed file, no genome file expected)"),
 						("unannotated_file","Sequence files without genome annotation"),
+						("unannotated_sequence","Library sequences without taxid"),
 						("skipped_import","Rows skipped by the taxonomy import")]:
 			total, findings, legacy = self.report_findings(kind)
 			if not total:
@@ -629,6 +631,25 @@ class DatabaseFunctions(DatabaseConnection):
 			genomeDict[genome] = node_i
 		return genomeDict
 
+	def get_sequence_annotations(self, database=False, reference="nt"):
+		'''The genome names of the annotations that were made on a sequence instead of on a genome: the
+				packed multi sequence route (ReadTaxonomyNCBI.parse_nt_file, the third column of an
+				accession2taxid file through ReadTaxonomy.parse_genomeid2taxid) stores the source of such
+				a row as its reference, and by the decision of 2026-11-05 those files are never split up -
+				the sequence stays inside the packed file and its taxid travels in the map that goes with
+				library.fna. A row of this kind therefore has no sequence file of its own in a genome
+				folder and must not be counted or deleted as one that is missing (issue #131).
+
+		------
+		Parameters:
+			str - the reference value that marks a sequence level annotation, "nt" as the importers write it
+		------
+		Returns:
+			set - the genome names annotated on sequence level
+		'''
+		rows = self.select('''SELECT genome FROM genomes WHERE reference = ?''', params=(reference,))
+		return set(row[0] for row in rows)
+
 	def get_node(self, name, database=False):
 		'''Retrieve one node by name
 
@@ -707,25 +728,41 @@ class DatabaseFunctions(DatabaseConnection):
 		return taxid_base
 
 	def add_rank(self, rank ,id=False):
-		'''Add node to tree
+		'''Add rank level to the rank table, or return the level that already carries that name
 
 		Returns
 		------
-		int - id of added rank level
+		int - id of the rank level
 		'''
 		if rank == None:
 			raise AttributeError("Rank cannot be None")
+		'''A rank is named, not numbered: every caller asks for a rank by name and works with the id it gets
+		   back, so one row per name is what the tree needs. Inserting unconditionally handed every import
+		   against the same database its own copy of every rank it named, which left one level under several
+		   ids (issue #138). There is no unique constraint on the column: the databases already on disk hold
+		   duplicates, and an index would refuse them. Such a level keeps its lowest id, which is the one new
+		   links hang on; the old duplicates are left where they are.'''
+		levels = self.select("SELECT rank_i FROM rank WHERE rank = ? ORDER BY rank_i",params=(rank,))
+		if levels:
+			logger.debug("Rank level already present: {rank} [{rank_i}]".format(rank=rank,rank_i=levels[0][0]))
+			return levels[0][0]
 		info = { "rank": rank }
 		### If ID is supplied skip autoincrement and add specific ID
-		#logger.debug("rank added: {info}".format(info=info))
+		'''the column of the rank table is rank_i, there is no id: writing "id" made sqlite answer "no such
+		   column: id" and query handed that exception back as the rank id of the new level (issue #139)'''
 		if id:
-			info["id"] = id
+			info["rank_i"] = id
 		rank_id = self.insert(info, table="rank")
 		#logger.debug("rank added: {info}".format(info=info))
 		return rank_id
 
-	def add_link(self, child=None, parent=None, rank=1, table="tree"):
+	def add_link(self, child=None, parent=None, rank=None, table="tree"):
 		'''Add relationship in tree
+
+		The rank is the id of a rank level, or None when nothing names this level of the tree: there is no
+		default rank id. rank_i 1 was, and it was the "no rank" level of every database derived from an NCBI
+		taxdump (the first rank row of NCBI_base.db is rank_i 1, "no rank"), so a level that had no rank
+		silently ended up named with that (issue #142).
 
 		Returns
 		------
@@ -1071,11 +1108,15 @@ class ModifyFunctions(DatabaseFunctions):
 	def get_rank(self,col=1):
 		'''Get rank index from database
 
+		col=1 gives rank_i -> rank name; col=2 gives both directions in one dictionary (rank_i -> name and
+		name -> rank_i), which is what the tree modification code works with. Ordered by rank_i, so a
+		database that still holds duplicate rank rows from before issue #138 answers the same way every run.
+
 		Returns
 		------
 			dict - rank to rank_index and vice versa
 		'''
-		QUERY = "SELECT rank_i,rank FROM rank"
+		QUERY = "SELECT rank_i,rank FROM rank ORDER BY rank_i"
 		logger.debug(QUERY)
 		rankDict = {}
 		for rank in self.query(QUERY).fetchall():

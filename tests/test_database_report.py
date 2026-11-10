@@ -97,6 +97,41 @@ def test_disk_report_lists_missing_genomes_and_unannotated_files(tmp_path):
     assert "GCF_000000002.1" not in lines and "GCF_000000003.1_genomic.fna" not in lines
 
 
+def test_sequence_level_annotations_are_not_missing_genomes(tmp_path):
+    """issue #131: the packed --nt_source route annotates sequences, and by the decision that keeps those
+    files in one piece they have no sequence file of their own in a genome folder. Counting them as
+    annotations without a file made --report name sequences the library had in fact got from the packed
+    file, made --download offer accessions for download, and made --purge_database delete the annotation
+    of sequences that were used."""
+    db, _ = make_annotated_database(tmp_path, ["GCF_000000001.1", "GCF_000000002.1",
+                                               "NC_000913.3", "CP000250.1"])
+    conn = ModifyFunctions(database=db)
+    for accession in ("NC_000913.3", "CP000250.1"):
+        conn.query("UPDATE genomes SET reference='nt' WHERE genome = ?", insert_val=(accession,))
+    conn.commit()
+
+    genomes = tmp_path / "genomes"
+    genomes.mkdir()
+    (genomes / "GCF_000000001.1_genomic.fna").write_text(">a\nACGT\n")
+
+    _, download = ProcessDirectory(db).process_folder(str(genomes))
+    assert [entry["genome_id"] for entry in download] == ["GCF_000000002.1"], \
+        "the accessions of a packed file were offered for download"
+
+    report = ProcessDirectory(db).report_disk(str(genomes))
+    assert report["missing"] == ["GCF_000000002.1"]
+    assert report["sequence_annotations"] == 2, "the sequence level annotations are not counted anywhere"
+
+    stored = ModifyFunctions(database=db)
+    assert stored.get_meta("genomes_missing_on_disk") == "1"
+    assert stored.get_meta("sequence_annotations_on_disk") == "2"
+    lines = "\n".join(stored.report_lines())
+    assert "Genome annotations without sequence file: 1" in lines
+    assert "Sequence level annotations (packed file, no genome file expected): 2" in lines
+    for accession in ("NC_000913.3", "CP000250.1"):
+        assert accession not in lines
+
+
 def test_disk_report_is_replaced_by_the_next_run(tmp_path):
     db, _ = make_annotated_database(tmp_path, ["GCF_000000001.1", "GCF_000000002.1"])
     genomes = tmp_path / "genomes"
