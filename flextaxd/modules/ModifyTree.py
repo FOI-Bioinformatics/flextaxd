@@ -5,7 +5,7 @@ Modify tree from database or source
 '''
 
 from .database.DatabaseConnection import ModifyFunctions, MAX_BIND_PARAMS
-from . import ranks
+from . import ranks, functions
 import logging,os,datetime
 logger = logging.getLogger(__name__)
 import math,time
@@ -283,7 +283,9 @@ class ModifyTree(object):
 		'''Handle file modification'''
 		logger.debug(modfile)
 		logger.info("Parse modification file...")
-		with open(modfile, "r") as f:
+		'''The gz sniffing opener of the builders and the taxonomy readers: a modification file may be
+		   compressed, and plain open() would read the compressed bytes as text (issue #127)'''
+		with functions.zopen(modfile, "r") as f:
 			headers = f.readline().strip().split(self.sep)
 			if replace_parent:
 				new_root = f.readline().strip().split(self.sep)
@@ -304,8 +306,8 @@ class ModifyTree(object):
 				if row.strip() == "":
 					continue
 				line = row.strip().split(self.sep)
-			if len(line) == 2:
-				line +=[None] ## the line names no rank: the level stays without one, it is not the "no rank" name NCBI uses (issue #142)
+				if len(line) == 2:
+					line +=[None] ## the line names no rank: the level stays without one, it is not the "no rank" name NCBI uses (issue #142)
 				parent,child,rank = line
 				if replace_parent:
 					if parent == change_root:
@@ -390,7 +392,7 @@ class ModifyTree(object):
 			logger.info("Modification type is file...")
 			if self.replace_parent:  ## Update the name of the parent to match with parent of "incoming" file
 				logger.info("Replace parent option initiated,  change the name of parent in the database to allow merge")
-				with open(self.modfile, "r") as f:
+				with functions.zopen(self.modfile, "r") as f:
 					headers = f.readline().strip().split(self.sep)
 					branchroot = f.readline().strip().split(self.sep)
 					new_name = branchroot[0]
@@ -435,7 +437,10 @@ class ModifyTree(object):
 		   instead of one to three per genome, which is about 800000 statements for the 394932 genomes of
 		   the GTDB case (issue #126).'''
 		rows = []
-		with open(genomeid2taxid) as f:
+		'''the same gz sniffing opener the build route uses for this file (parse_genomeid2taxid): a
+		   "--genomeid2taxid file.gz" was readable during a build and binary garbage through the
+		   modify route (issue #127)'''
+		with functions.zopen(genomeid2taxid, "r") as f:
 			for row in f:
 				'''The reference belongs to the row it was read with: the argument of the function
 				   labels every genome, otherwise the third column of the file does'''
@@ -674,7 +679,7 @@ class ModifyTree(object):
 		logger.info("Update node names in the database from {refdict}".format(refdict=refdict))
 		updated = 0
 		added = 0
-		with open(refdict) as f:
+		with functions.zopen(refdict, "r") as f:
 			for row in f:
 				try:
 					old_name,name = row.strip().split(self.sep)

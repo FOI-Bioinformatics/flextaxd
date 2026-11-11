@@ -39,7 +39,7 @@ class ReadTaxonomy(object):
 		self.sep = "\t"
 		self.length = 0
 		self.ids = 0
-		self.qiime = 0
+		self.mp = 0			## an input file whose levels are codes (d, p, g) rather than rank names
 		self.skipped = []
 		self.new_nodes = 0          ## nodes this run actually inserted, the ones already in the database are matched (issue #145)
 		self.unknown_levels = set()   ## level codes of an input file that name no rank, reported once (issue #141)
@@ -55,8 +55,8 @@ class ReadTaxonomy(object):
 		## Add basic link
 		self.add_link(child=1, parent=1,rank="no rank")
 
-	def set_qiime(self,opt):
-		self.qiime = opt
+	def set_mp(self,opt):
+		self.mp = opt
 
 	def write_skipped(self):
 		'''Write and print rows/genomes skipped during parsing, so the user knows what was not added to the database'''
@@ -92,14 +92,14 @@ class ReadTaxonomy(object):
 		'''Change separator from default (\t)'''
 		self.sep = sep
 
-	def add_rank(self, rank,qiime=False):
+	def add_rank(self, rank,mp=False):
 		'''Insert the rank level of a rank name into the database and remember its id.
 
 		A name that says nothing - no rank column, an empty field, the text None - gets no rank level: the
 		link of that level stays without one, which the dmp export writes as an empty rank field (issue #134)
 		and which is not the same thing as the name "no rank" that NCBI gives its unnamed taxids (issue #142).
 		'''
-		name = self.rank_name(rank,qiime=qiime)
+		name = self.rank_name(rank,mp=mp)
 		if ranks.unnamed(name):
 			return None
 		try:
@@ -110,16 +110,16 @@ class ReadTaxonomy(object):
 		self.rank[rank] = rank_i
 		return rank_i
 
-	def rank_name(self,rank,qiime=False):
-		'''The rank name a caller means: a QIIME/GTDB file carries level codes (g, s, sk) where the others
+	def rank_name(self,rank,mp=False):
+		'''The rank name a caller means: an MP/GTDB file carries level codes (g, s, sk) where the others
 		   carry the rank name itself. A code outside that vocabulary is reported once, not on every row of
 		   the file, and the levels it names are added without a rank (issue #141)'''
-		if qiime or self.qiime:
+		if mp or self.mp:
 			name = self.levelDict.get(rank)
 			if name is None and rank is not None:
 				if rank not in self.unknown_levels:
 					self.unknown_levels.add(rank)
-					logger.warning("Level {level} is not a QIIME level code: the nodes of that level are added without a rank".format(level=rank))
+					logger.warning("Level {level} is not an MP level code: the nodes of that level are added without a rank".format(level=rank))
 			return name
 		return rank
 

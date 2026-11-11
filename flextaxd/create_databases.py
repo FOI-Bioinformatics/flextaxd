@@ -42,13 +42,12 @@ def main():
     start_time = time.time()
     current_time = start_time
 
-    ### Add base directory to path
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(BASE_DIR)
     ##################################--global functions--###################################
 
     def dynamic_import(abs_module_path, class_name):
-        module = import_module(".".join([abs_module_path,class_name]))
+        '''the modules of the package are imported under the name they really have, the folder of the
+           package is not put on sys.path (issue #109)'''
+        module = import_module(".".join(["flextaxd",abs_module_path,class_name]))
         target_class = getattr(module, class_name)
         return target_class
 

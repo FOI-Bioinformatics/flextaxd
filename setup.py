@@ -20,7 +20,7 @@ setup(
     ##Global version, does not nessesarily follow script versions
     version=__version__,
 
-    description='Script that allows the creation of custom kraken databases from various sources (NCBI, QIIME, CanSNPer)',
+    description='Script that allows the creation of custom kraken databases from various sources (NCBI, MP, CanSNPer)',
     long_description=long_description,
     long_description_content_type="text/markdown",
 
@@ -31,8 +31,11 @@ setup(
     author='David Sundell',
     author_email='david.sundell@foi.se',
 
-    # Choose your license
-    license=' GNU GENERAL PUBLIC LICENSE version 3',
+    # The licence as an SPDX expression (PEP 639): the build backend deprecated the "License :: ..."
+    # trove classifier below, and the free text this field used to hold cannot be read by it either. The
+    # text of the licence is the LICENSE file next to this one, which the build backend picks up by name.
+    license='GPL-3.0-or-later',
+    license_files=['LICENSE'],
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
@@ -41,7 +44,6 @@ setup(
         #'Intended Audience :: Developers bioinformatics',
         #'Topic :: Software Development :: Build Tools',
 
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         "Operating System :: OS Independent"
     ],
     # the commands themselves need nothing beyond the standard library: sqlite3, argparse and

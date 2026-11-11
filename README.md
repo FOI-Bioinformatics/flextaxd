@@ -3,7 +3,7 @@
 FlexTaxD is a versatile tool for the customization and integration of taxonomic classifications from diverse sources. It facilitates the creation, modification, and export of taxonomy databases for bioinformatics applications.
 
 ## Key Features
-- **Supported Taxonomy Formats**: NCBI, TSV, MP-style (GTDB, QIIME, SILVA, CanSNPer).
+- **Supported Taxonomy Formats**: NCBI, TSV, MP-style (GTDB, SILVA, CanSNPer). The lineage format MP names here (`d__Bacteria;p__...;g__...;s__...`, one genome per row) was called QIIME until v0.6.1: the file and the reader are unchanged, only the name of the option (`-tt MP`, and `-tt GTDB` still maps to it).
 - **Database Build Programs**: Compatible with kraken2, ganon, krakenuniq, and centrifuge.
 - **Database Customization**: Modify, annotate, and clean up taxonomy databases to fit specific research needs.
 - **Output**: Export databases to NCBI formatted files or tab-separated values, with customizable options.

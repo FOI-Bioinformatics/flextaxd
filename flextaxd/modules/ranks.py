@@ -7,7 +7,7 @@ A level of the tree is either named by a rank or it is not named at all, and the
 apart:
 
   - the rank of a link is the id of a row in the rank table, one row per name, however that name arrived:
-    an NCBI nodes.dmp rank, a QIIME/GTDB level code, a SILVA file, a custom tree. An import that brings a
+    an NCBI nodes.dmp rank, an MP/GTDB level code, a SILVA file, a custom tree. An import that brings a
     rank name in gets it stored (issue #138 stopped it from storing the same name twice);
   - a link that nothing names carries rank_i NULL, and the dmp export writes an empty rank field for it
     (issue #134). Below the species that is what kraken2 wants: it numbers those levels itself (S1, S2).
@@ -31,7 +31,7 @@ __status__ = "Production"
 NO_RANK = "no rank"
 
 """The rank names NCBI uses. Read off the taxdump in the databases on disk (NCBI_base.db holds these 44),
-with "domain" added: the QIIME/GTDB reader names that level "d" -> domain and the GTDB databases on disk
+with "domain" added: the MP/GTDB reader names that level "d" -> domain and the GTDB databases on disk
 carry it. A name outside this list is kept, but it comes from a custom taxonomy, not from NCBI."""
 NCBI_RANKS = (
 	"no rank", "superkingdom", "domain", "kingdom", "subkingdom", "infrakingdom",
