@@ -1,4 +1,8 @@
-pytest==9.0.3
-inquirer==3.3.0
-biopython==1.85
-matplotlib==3.10.0
+# The versions this development environment has and that the test suite and the command line checks
+# were run on (issue #108: the earlier pins were versions the conda channels on this machine did not
+# carry, so an environment built from this file failed). ete3 is not listed: it was never used, and it
+# does not import on python 3.12 or newer (issue #157).
+biopython==1.88
+inquirer==3.4.1
+matplotlib==3.11.2
+pytest==9.2.0

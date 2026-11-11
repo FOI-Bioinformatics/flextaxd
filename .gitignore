@@ -16,7 +16,4 @@ summary/
 !/FLEXTAXD.md
 .sandbox_settings.txt
 resume_opencode.txt
-release-0.6.0-commands.txt
-merge-v0.6.0-commands.txt
-change_log_v0.6.0.txt
-issues_list_v1.txt
+*-commands.txt

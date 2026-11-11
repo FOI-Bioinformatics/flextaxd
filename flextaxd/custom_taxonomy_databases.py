@@ -237,7 +237,10 @@ def main():
         from modules.database.DatabaseConnection import ModifyFunctions
         db = ModifyFunctions(args.database)
         db.validate_tree()
-        exit("Validation comleted!")
+        '''SystemExit with a string exits with status 1, which would report a completed validation as
+           a failure to whatever called it (issue #154)'''
+        logger.info("Validation completed!")
+        exit()
 
     if args.report:
         from modules.database.DatabaseConnection import ModifyFunctions
@@ -247,7 +250,7 @@ def main():
             ProcessDirectory(args.database).report_disk(args.genomes_path)
         for line in db.report_lines(limit=None):
             print(line)
-        exit("")
+        exit()
 
     if args.stats:
         from modules.database.DatabaseConnection import ModifyFunctions
@@ -256,7 +259,7 @@ def main():
         if args.genomes_path:
             ProcessDirectory(args.database).report_disk(args.genomes_path)
         db.statistics()
-        exit("")
+        exit()
 
     if args.mod_file or args.mod_database:
         if not args.parent:

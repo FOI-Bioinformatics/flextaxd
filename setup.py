@@ -44,7 +44,14 @@ setup(
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         "Operating System :: OS Independent"
     ],
-    python_requires='>=3.6',
+    # the commands themselves need nothing beyond the standard library: sqlite3, argparse and
+    # subprocess cover import, modification, report and dump. The visualisation options read the
+    # constructed tree with biopython, draw its png with matplotlib and ask about nodes that have two
+    # parents through inquirer, so those three are the vis extra (issue #157). ete3, which an earlier
+    # requirement file listed, is not used anywhere: its only reader sat in a dead block of
+    # NewickTree.py and it does not even import on python 3.12 and newer.
+    extras_require={'vis': ['inquirer','biopython','matplotlib']},
+    python_requires='>=3.8',
     keywords='taxonomy NCBI CanSNPer customization GTDB',
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().,

@@ -74,7 +74,14 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			self.ids = self.database.num_rows("tree")
 
 	def read_nodes(self, taxfile):
-		'''Read NCBI node file and store a dictionary with names in object'''
+		'''Read NCBI node file and store a dictionary with names in object
+
+			An id the file links but no names file describes still needs a row in the nodes table: the
+			link below points at it, and a tree link to a node the nodes table does not have makes
+			--validate fail and a merge of the database crash on that row (issue #152), so such an id
+			gets a placeholder node named after itself and a warning naming the count
+		'''
+		linked = set()
 		with open(taxfile, "r") as _taxfile:
 			for taxonomy_row in _taxfile:
 				data = taxonomy_row.strip().split("\t|\t")
@@ -89,9 +96,34 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 					self.add_rank(rank)
 				lev = self.rank.get(rank)
 				self.database.add_link(child=data[0],parent=data[1],rank=lev)
+				linked.add(data[0])
+				linked.add(data[1])
 			self.database.commit()
+		self.add_unnamed_nodes(linked)
 		self.rank_summary()
 		return
+
+	def add_unnamed_nodes(self, linked):
+		'''Give every id that is linked by the taxonomy file but described nowhere a node of its own,
+			named after the taxid, so no tree link points at a missing row (issue #152)
+
+		------
+		Returns:
+			list - the taxids that got a placeholder node, sorted
+		'''
+		described = set()
+		for taxid in self.database.get_nodes(col=1).keys():
+			described.add(int(taxid))
+		unnamed = sorted({int(taxid) for taxid in linked} - described)
+		if not unnamed:
+			return []
+		logger.warning("{n} taxids are linked by the taxonomy file but described by no names file, they get a node named after the taxid: {first}".format(
+						n=len(unnamed), first=",".join(str(taxid) for taxid in unnamed[:5])))
+		for taxid in unnamed:
+			self.database.add_node(str(taxid), id=taxid)
+			self.taxonomy[str(taxid)] = taxid
+		self.database.commit()
+		return unnamed
 
 	def read_names(self, taxfile):
 		'''Read NCBI node file and store a dictionary with nodes in object'''

@@ -6,11 +6,6 @@ from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
 from io import StringIO
 import importlib.util
 
-'''Temporary fix for conda that refuses to select the correct version of ete3 during test installation.
-	It fails due to faces not being available in that ete3 version on import, but it works when ete3 is
-	 being installed manually using conda.
-'''
-
 import sys
 import logging
 logger = logging.getLogger(__name__)
@@ -112,19 +107,27 @@ class NewickTree(object):
 	def __init__(self, database,name="newick",outdir="./",taxid=False,maxdepth=3,label_size=None,vis_clip_labels=False):
 		super(NewickTree, self).__init__()
 		self.database = ModifyFunctions(database) ## Initiate database connection with CanSNPdbFunctions
+		self.taxonomy = self.database.get_nodes()
 		if taxid:
 			logger.info("Visualise {taxid}".format(taxid=taxid))
-			self.taxid = self.database.get_id(taxid)
+			'''a run of digits is read as a taxid, which is what every other option of both commands
+			   takes, anything else is looked up as a name, as --vis_node always did (issue #156)'''
+			if str(taxid).isdigit():
+				self.taxid = int(taxid)
+				if self.taxid not in self.taxonomy:
+					raise VisualisationError("The database has no node {taxid}".format(taxid=taxid))
+			else:
+				self.taxid = self.database.get_id(taxid)
 		self.nodeDict = {}							## Dictionary to store references to all newick nodes
 		self.c_p_set = set()
 		self.tree_file = "{outdir}/{name}_tree.pdf".format(outdir=outdir.rstrip("/"),name=name) ## output file
 		self.tmp_tree = "{outdir}/.newick"
-		self.taxonomy = self.database.get_nodes()
 		## Build the newick tree
 		self.maxdepth = maxdepth
 		self.label_size = label_size
 		self.vis_clip_labels = vis_clip_labels
-		self.newickTree = str(self.build_tree(taxid=self.taxid,maxdepth=self.maxdepth))
+		self.root_node = self.build_tree(taxid=self.taxid,maxdepth=self.maxdepth)
+		self.newickTree = str(self.root_node)
 
 		## Check difference between database and constructed tree
 		# Get nodes from database
@@ -135,17 +138,9 @@ class NewickTree(object):
 			db_nodes.add(node.lower())
 		#/
 		# Get nodes from tree
-		"""
-		# Ete3 returns full node names. Bio-phylo returns only the last work after splitting for spaces. But we dont use Ete3 anywhere else, so I stick with Bio-phylo for now.
-		#                               This means exact-matches between nodes in database and tree cannot be made. We have to resort to comparing number of nodes.
-		from ete3 import Tree
-		tree = Tree(self.newickTree,format=1)
-		num_nodes = 0
-		tree_nodes = set()
-		for node in tree.traverse():
-			tree_nodes.add(node.name.lower())
-			num_nodes += 1
-		"""
+		'''Biopython returns only the last word of a name, so the names of the database and of the tree
+			cannot be matched one by one: what is compared is the number of nodes. The ete3 reader that
+			returned whole names used to sit here, it is gone with the ete3 dependency (issue #157).'''
 		from Bio import Phylo
 		tree = Phylo.read(StringIO(self.newickTree), "newick")
 		tree_nodes = set()
@@ -188,14 +183,18 @@ class NewickTree(object):
 			print(self.newickTree)
 			return
 
+		if type == "newick_vis":
+			'''Biopython draw_ascii dies with an IndexError on a chain of named single child nodes, which
+			   is exactly what a taxon with one child looks like, so the ascii tree is drawn from the
+			   nodes this class built and needs no third party library (issue #155)'''
+			print("\n".join(self.ascii_lines(self.root_node)))
+
 		'''Local import allows default newickTree output to be independent of non standard python libraries'''
 		exists = importlib.util.find_spec('Bio')
 		if not exists:
 			raise VisualisationError("Visualisations other than newick requires biopython package (mamba install biopython)!")
 		from Bio import Phylo
 		self.phylo = Phylo.read(StringIO(self.newickTree), "newick")
-		if type == "newick_vis":
-			Phylo.draw_ascii(self.phylo)
 		exists = importlib.util.find_spec('matplotlib')
 		if not exists:
 			raise VisualisationError("Visualisations using newick tree requires the matplotlib package (mamba install matplotlib-base)!")
@@ -213,6 +212,22 @@ class NewickTree(object):
 		#fig.set_size_inches(5,5)
 		pylab.savefig("flextaxd.vis.png",)
 		return True
+
+	def ascii_lines(self,node,prefix="",is_root=True,is_last=True,path=()):
+		'''The ascii tree of a NewickNode and all its children, drawn here rather than by Biopython:
+			 draw_ascii dies with an IndexError on named single child chains (issue #155)
+
+		------
+		Returns:
+			list - the lines of the tree below node
+		'''
+		branch = "" if is_root else ("`-- " if is_last else "|-- ")
+		lines = ["{prefix}{branch}{name}".format(prefix=prefix,branch=branch,name=node.name)]
+		child_prefix = prefix + ("" if is_root else ("    " if is_last else "|   "))
+		children = sorted((child for child in node.children if child.id not in path), key=lambda child: str(child.name))
+		for number,child in enumerate(children):
+			lines.extend(self.ascii_lines(child,child_prefix,False,number == len(children) - 1,path+(node.id,)))
+		return lines
 
 	def double_opts_vis(self,links,taxid="name",full=False):
 		'''vis double opt'''

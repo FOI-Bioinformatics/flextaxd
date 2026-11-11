@@ -128,10 +128,65 @@ def test_a_second_import_of_the_same_tree_adds_no_second_nodes(tmp_path):
     assert len(names) == len(set(names)), "a name of the tree got a second taxid"
     assert sorted(after_nodes) == sorted(before_nodes), "the second import added nodes"
     assert second.new_nodes == 0, "the importer counted new nodes it did not add"
-    """the parent child relations of the tree did not change either: the second import hangs its levels
-    on the nodes that were already there (the repeated rows a reimport writes are issue #147)"""
+    """the parent child relations of the tree did not change either, not even as copies: the second import
+    hangs its levels on the nodes that were already there (the rank-less copies a reimport used to write
+    are issue #147)"""
+    assert sorted(after_links) == sorted(before_links), "the second import changed the links of the tree"
     assert {(child, parent) for child, parent in after_links} == \
         {(child, parent) for child, parent in before_links}, "the second import made new relations"
+
+
+def test_a_second_import_of_the_same_tree_adds_no_copy_of_a_link(tmp_path):
+    """issue #147: the unique constraint of the tree table covers a ranked link, but a link that carries
+    no rank is covered by nothing, because NULL never equals NULL in a sqlite unique constraint. The
+    levels a CanSNPer tree adds have no rank, so a second run of the same file wrote the identical link
+    again: measured 8 tree rows after the first import, 11 after the second, three of them exact copies.
+    The nodes.dmp of such a database listed those nodes twice and the link counts were too high."""
+    database = make_database(tmp_path)
+    first = ReadTaxonomyCanSNPer(taxonomy_file=make_tree(tmp_path), database=database, rank="species")
+    first.parse_taxonomy()
+    rows = link_rows(database)
+
+    second = ReadTaxonomyCanSNPer(taxonomy_file=make_tree(tmp_path), database=database, rank="species")
+    second.parse_taxonomy()
+    after = link_rows(database)
+    assert sorted(after) == sorted(rows), "a link of the rank-less levels was written twice"
+
+    """a rank-less link is unique through the index over ifnull(rank_i,-1), and the database says so"""
+    conn = ModifyFunctions(database=database)
+    assert conn.get_meta("tree_link_index") is not None
+    indexes = [name for name, in conn.select(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='tree'")]
+    assert "tree_link" in indexes
+
+
+def test_a_database_that_holds_copied_links_loses_them_when_it_is_opened(tmp_path):
+    """issue #147: the fix cannot undo the copies an older version already wrote, so opening such a
+    database removes them and adds the index. The copies are written here directly, the way an older
+    flextaxd did it before the index existed."""
+    database = make_database(tmp_path)
+    reader = ReadTaxonomyCanSNPer(taxonomy_file=make_tree(tmp_path), database=database, rank="species")
+    reader.parse_taxonomy()
+    links_before = link_rows(database)
+
+    conn = ModifyFunctions(database=database)
+    conn.query("DROP INDEX tree_link")
+    conn.query("DELETE FROM meta WHERE key='tree_link_index'")
+    rank_less = conn.select("SELECT parent,child FROM tree WHERE rank_i IS NULL")
+    assert rank_less, "the import added no rank-less link, the case of this issue"
+    for parent, child in rank_less:
+        conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (?,?,?)",
+                   insert_val=(int(parent), int(child), None))
+    conn.commit()
+    """the copies are in the file now: counted on this connection, because opening the database again is
+    what repairs it (and link_rows opens it again)"""
+    assert conn.select("SELECT COUNT(*) FROM tree")[0][0] == len(links_before) + len(rank_less)
+
+    ModifyFunctions(database=database)  ## opens the older database and repairs it
+    after = link_rows(database)
+    assert sorted(after) == sorted(links_before), "the copies of the rank-less links were not removed"
+    assert ModifyFunctions(database=database).get_meta("tree_link_index") is not None
+
 
 
 def test_a_tree_imported_into_a_database_that_knows_the_names_uses_them(tmp_path):
