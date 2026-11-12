@@ -259,8 +259,21 @@ class ReadTaxonomy(object):
 					genomeid,taxid = columns[0],columns[1]
 					## the argument wins over the third column, and extra columns are ignored
 					row_reference = _ref if _ref else (columns[2] if len(columns) > 2 else False)
+					'''the node column is resolved by name first - nodes may be named by digits alone,
+					   issue #161 - and only when no node carries that name does a pure number resolve
+					   as a taxid, the way the annotation route of ModifyTree now does it too'''
+					node_i = nodeDict.get(taxid.strip())
+					if node_i is None:
+						try:
+							number = int(taxid.strip())
+						except ValueError:
+							number = None
+						if number is not None and number in nodeDict:
+							node_i = number
 					try:
-						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()],reference=row_reference)
+						if node_i is None:
+							raise KeyError(taxid)
+						self.database.add_genome(genome=genomeid.strip(),_id=node_i,reference=row_reference)
 					except KeyError:
 						logger.warning("# WARNING: {taxid} not found in the database".format(taxid=taxid))
 						self.skipped.append((genomeid.strip(),"taxid {taxid} not found in the database".format(taxid=taxid)))

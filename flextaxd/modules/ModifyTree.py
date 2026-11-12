@@ -461,17 +461,24 @@ class ModifyTree(object):
 				except ValueError:
 					genome,name = row.strip().split("    ")
 				logger.debug("genome: {genome}, name: {name}".format(genome=genome,name=name))
-				try:
-					if not self._is_int(name.strip()):
-						id = self.nodeDict[name.strip()]
-					else:
-						## a number is taken as a taxid, which the database is asked about below
-						id = int(name.strip())
-				except KeyError:
-					logger.debug("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
-					skipped.append((genome.strip(),"no database entry for node {name}".format(name=name)))
-				else:
+				'''the node column names a node, and a node may be named by digits alone: the Brucella
+				   tree of issue #161 is full of names like "21158" and "1330", and forcing a digit
+				   column to be a taxid skipped 25 of its 91 genomes in a run that had just annotated
+				   all of them through the build route. The name is tried first; only when no node
+				   carries it does a pure number become a taxid, which the database is asked about
+				   below (issue #73)'''
+				node_name = name.strip()
+				if node_name in self.nodeDict:
+					id = self.nodeDict[node_name]
+					if self._is_int(node_name) and int(node_name) in self.nodeDict and int(node_name) != id:
+						logger.warning("{name} is both the name of node {found} and the taxid of another node: the name won, the annotation goes to {found}".format(name=node_name,found=id))
 					rows.append((id,genome.strip(),genome_reference))
+				elif self._is_int(node_name):
+					## a number naming no node is taken as a taxid, which the database is asked about below
+					rows.append((int(node_name),genome.strip(),genome_reference))
+				else:
+					logger.debug("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
+					skipped.append((genome.strip(),"no database entry for node {name}".format(name=node_name)))
 
 		unknown_taxids = self._unknown_taxids([id for id,_,_ in rows if isinstance(id,int)])
 		if unknown_taxids:
