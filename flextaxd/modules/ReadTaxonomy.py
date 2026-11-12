@@ -178,6 +178,8 @@ class ReadTaxonomy(object):
 			if headers[0] == "parent":
 				swap = True
 			logger.debug("Swap: {swap}".format(swap=swap))
+			file_parents = {}   ## node id and name for every id the file puts in a parent column
+			file_children = set()   ## node ids the file links to something, to find the ids that are only parents
 			for tree_row in _treefile:
 				data = tree_row.strip().split(self.sep)
 				logger.debug(data)
@@ -194,6 +196,14 @@ class ReadTaxonomy(object):
 				if data[0] == "":
 					'''Check for empty rows'''
 					continue
+				'''a row whose parent and child are the same node is the root convention, not a level of
+				   the file: the Brucella file of issue #162 opened with "Brucella melitensis	Brucella
+				   melitensis	species" meaning "this is the top of my tree", and the row wrote a
+				   self-link on a normal node instead; the top of the file is attached to the root after
+				   the loop instead'''
+				if data[0].strip() == data[1].strip():
+					logger.warning("#Skipped: the taxonomy file links {node} to itself, the top of an imported tree is attached to the root".format(node=data[0]))
+					continue
 				for node in data:
 					logger.debug(node)
 					node = node.strip()
@@ -205,7 +215,26 @@ class ReadTaxonomy(object):
 						self.ids +=1
 				#logger.debug("Add link: {parent}-{child}".format(parent=data[1].strip(),child=data[0].strip()))
 				self.add_link(child=self.taxonomy[data[0].strip()],parent=self.taxonomy[data[1].strip()],rank=rank)
+				file_parents[self.taxonomy[data[1].strip()]] = data[1].strip()
+				file_children.add(self.taxonomy[data[0].strip()])
 				self.length +=1
+			'''the nodes the file puts above everything else: a file that names its own top node instead
+			   of "root" ("Brucella melitensis" in issue #162, whose author tried the root self-link to
+			   say it) would otherwise leave the whole imported tree hanging off nothing, invisible to
+			   every walk of the validation. They get the database root as parent and no rank level, and
+			   the import says so by name'''
+			for node_id, node_name in file_parents.items():
+				if node_id in file_children or node_id == 1:
+					continue
+				'''the root link may already be there: a second file imported into the same database
+				   names its top after the node the first one brought in, the name matches the existing
+				   id (#145), and the attach must not write the same root link a second time'''
+				if self.database.select("SELECT COUNT(*) FROM tree WHERE parent = 1 AND child = ?;",
+										params=(node_id,))[0][0] > 0:
+					logger.info("{node} is the top of this file too and the root already links it, the two files join there".format(node=node_name))
+					continue
+				self.add_link(child=node_id, parent=1, rank=None)
+				logger.warning("#Attached: {node} is the top of the imported tree and nothing links it, the database root becomes its parent".format(node=node_name))
 			self.database.commit()
 
 	def parse_genomeid2taxid(self,genomeid2taxid,reference=False):

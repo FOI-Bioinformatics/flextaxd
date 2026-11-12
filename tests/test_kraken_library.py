@@ -277,6 +277,38 @@ def test_the_program_of_the_build_indexes_the_library(tmp_path, monkeypatch, cap
 
 
 @pytest.mark.skipif(not KRAKEN2, reason="kraken2 is not installed")
+def test_the_library_of_the_build_is_counted_before_the_program_reads_it(tmp_path, monkeypatch, capfd):
+    """T4: the numbers of the assembled library are reported before kraken2 is called, and they say what
+    kraken2 then does. The acceptance library holds 9 sequences and its map 18 lines: one sequence has no
+    taxid in the header and no line in the map, and it is the one of the 9 that kraken2 leaves out of its
+    8; two map lines name annotated genomes that have no sequence file, while the four sequence level
+    annotations of the packed file are not counted among them (issue #131)."""
+    database = make_database(tmp_path)
+    genomes, packed = copy_inputs(tmp_path)
+    out, tmpdir, dbname = run_build(tmp_path, monkeypatch, database,
+                                    genomes_path=genomes, nt_source=packed)
+
+    stored = ModifyFunctions(database=database)
+    assert stored.get_meta("library_program") == "kraken2"
+    assert stored.get_meta("library_database") == str(dbname)
+    assert stored.get_meta("library_sequences") == "9"
+    assert stored.get_meta("library_map_lines") == "18"
+    assert stored.get_meta("library_without_taxid") == "1"
+    assert stored.get_meta("library_map_without_genome") == "2"
+
+    """the same numbers in the report of the flextaxd database, one line next to the version and the date"""
+    report = "\n".join(stored.report_lines())
+    assert "Library of the last build (kraken2," in report
+    assert "9 sequences, 18 map lines, 1 without a taxid, 2 map lines for a genome without sequence file" in report
+
+    """and the number that means sequences are lost says exactly how many kraken2 left out"""
+    captured = capfd.readouterr()
+    indexed = re.search(r"Completed processing of (\d+) sequences", captured.out + captured.err)
+    assert indexed
+    assert int(indexed.group(1)) == 9 - 1
+
+
+@pytest.mark.skipif(not KRAKEN2, reason="kraken2 is not installed")
 def test_reads_of_a_library_of_real_sequence_find_their_genome(tmp_path, monkeypatch):
     """issue #135: the shipped test genomes are 160 bp of the repeat ACGTACGT, which kraken2 (k=35,
     minimizer l=31) indexes but never matches, so a read check cannot be made on them. Two genomes get

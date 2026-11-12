@@ -86,3 +86,57 @@ def test_the_numbers_of_the_statistics_are_the_numbers_of_the_tables(tmp_path, c
     assert "Links: 3" in stats[0]
     assert "Tree: n(3), l(3)" in stats[0]
     assert "LinkNodes: 3" in stats[0]
+
+
+def test_a_node_that_links_to_itself_is_named(tmp_path, caplog):
+    """issue #162: the Brucella modification file started with "X X species". A self-link on a normal
+    node passes every count of the other checks (the walk meets the node and stops) while its subtree
+    hides from it: only the root may link to itself, and the error names the node like the other checks
+    do, with the example in the log line the check writes before raising"""
+    caplog.set_level(logging.INFO)
+    db = make_database(tmp_path, "selflink.fdb",
+                       nodes=((1, "root"), (2, "Genus one"), (3, "Species one")),
+                       links=((1, 1, 1), (1, 2, 2), (2, 3, 3), (2, 2, 2)))
+    with pytest.raises(TreeError) as error:
+        ModifyFunctions(db).validate_tree()
+    assert "linking to themselves" in str(error.value)
+    assert "total: 1" in str(error.value)
+    found = [record.getMessage() for record in caplog.records if "Genus one" in record.getMessage()]
+    assert found, [record.getMessage() for record in caplog.records]
+
+
+def test_two_root_self_links_are_named(tmp_path):
+    """the root convention is exactly one self-link; brucella_rep_org.fdb holds two because the rank
+    table of a pre-#138 import carried "no rank" twice and one link went to each id"""
+    db = make_database(tmp_path, "rootdouble.fdb",
+                       nodes=((1, "root"), (2, "Genus one")),
+                       links=((1, 1, 1), (1, 2, 2), (1, 1, 2)))
+    with pytest.raises(TreeError) as error:
+        ModifyFunctions(db).validate_tree()
+    assert "root links to itself 2 times" in str(error.value)
+
+
+def test_a_doubled_rank_row_and_its_links_are_folded_when_the_database_is_opened(tmp_path):
+    """the legacy shape of issue #162, built the way the old databases were: a rank table holding
+    "no rank" at rank_i 1 and 2 and the root linking to itself under both ids, which the unique
+    (parent,child,rank_i) index never caught because the rank_i differs. Opening the database folds
+    the rank onto its lowest id, drops the copy of the root link the fold creates and lets the rest
+    of the links follow, so validation can ask for exactly one root self-link and gets it"""
+    import sqlite3
+    db = str(tmp_path / "fold.fdb")
+    old = sqlite3.connect(db)
+    old.executescript(
+        """CREATE TABLE nodes (id integer PRIMARY KEY, name text NOT NULL);
+        CREATE TABLE tree (parent integer NOT NULL, child integer NOT NULL, rank_i integer, unique (parent,child,rank_i));
+        CREATE TABLE rank (rank_i integer PRIMARY KEY, rank VARCHAR(15));
+        CREATE TABLE genomes (id integer NOT NULL, genome VARCHAR(255) NOT NULL UNIQUE, reference VARCHAR(255));
+        INSERT INTO rank (rank_i,rank) VALUES (1,'no rank'),(2,'no rank'),(3,'genus');
+        INSERT INTO nodes (id,name) VALUES (1,'root'),(2,'Genus one');
+        INSERT INTO tree (parent,child,rank_i) VALUES (1,1,1),(1,1,2),(1,2,3);""")
+    old.commit()
+    old.close()
+    assert ModifyFunctions(database=db).validate_tree() is True
+    conn = ModifyFunctions(database=db)
+    assert conn.select("SELECT COUNT(*) FROM tree WHERE parent = 1 AND child = 1")[0][0] == 1
+    assert sorted(row[0] for row in conn.select("SELECT rank_i FROM rank")) == [1, 3]
+    assert conn.select("SELECT COUNT(*) FROM tree WHERE parent = 1 AND child = 2 AND rank_i = 3")[0][0] == 1

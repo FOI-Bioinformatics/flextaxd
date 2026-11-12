@@ -319,6 +319,12 @@ class ModifyTree(object):
 				if swap:
 					## Make sure that the order between parent and child nodes are correct and consistent with the database
 					child,parent = parent,child
+				'''the root convention is the only link that points a node at itself: a row linking a
+				   node to itself hides that node's subtree from the walks of the validation, and the
+				   Brucella modification file of issue #162 started with exactly one such row'''
+				if str(parent).strip() == str(child).strip():
+					logger.warning("#Skipped: the modification file links {node} to itself, only the root links to itself".format(node=child))
+					continue
 				self._parse_new_links(parent=parent,child=child,rank=rank)
 		return
 

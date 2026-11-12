@@ -145,6 +145,8 @@ class DatabaseConnection(object):
 		Returns:
 			boolean - whether the index is in place
 		'''
+		if self.get_meta("rank_fold") is None:
+			self.fold_duplicate_ranks()
 		if self.get_meta("tree_link_index") is not None:
 			return True
 		## a link is the same link when parent, child and rank match, with no rank standing for -1, the
@@ -169,6 +171,48 @@ class DatabaseConnection(object):
 			return False
 		self.set_meta("tree_link_index","1")
 		return True
+
+	def fold_duplicate_ranks(self):
+		'''Fold rank rows that carry the same rank name more than once onto the lowest id of that name.
+			 An import from before issue #138 stored "no rank" twice in the rank table (brucella_rep_org.fdb
+			 holds it at rank_i 1 and 2), and a link written against either id is the same level: the
+			 duplicate id is what let the root link to itself twice, once per id, evading the unique
+			 (parent,child,rank_i) index through the differing rank_i (issue #162). Links whose twin at the
+			 kept level already exists go first, so the unique index of #147 accepts the repoint of the
+			 rest; then the duplicate rank rows go. Runs once per database, on opening it, and before the
+			 link index look of ensure_tree_link_index so a database gated there earlier still gets folded.
+
+		------
+		Returns:
+			int - the number of rank rows folded
+		'''
+		duplicates = self.select("SELECT rank, MIN(rank_i) AS keep FROM rank GROUP BY rank HAVING COUNT(*) > 1;")
+		if not duplicates:
+			self.set_meta("rank_fold","1")
+			return 0
+		folded = 0
+		for rank_name, keep in duplicates:
+			keep = int(keep)
+			## links of a duplicated id that already exist at the kept id are copies of an existing link
+			self.query("DELETE FROM tree WHERE rank_i IN (SELECT rank_i FROM rank WHERE rank = ? AND rank_i != ?)"
+						" AND EXISTS (SELECT 1 FROM tree t2 WHERE t2.parent = tree.parent AND t2.child = tree.child"
+						" AND t2.rank_i = ?);", insert_val=(rank_name, keep, keep))
+			res = self.query("UPDATE tree SET rank_i = ? WHERE rank_i IN"
+							 " (SELECT rank_i FROM rank WHERE rank = ? AND rank_i != ?);",
+							 insert_val=(keep, rank_name, keep))
+			if isinstance(res, Exception):
+				logger.warning("Could not repoint the links of the duplicated rank {rank} of {database}: {err}"
+							   .format(rank=rank_name, database=self.database, err=str(res)))
+				continue
+			num = self.select("SELECT COUNT(*) FROM rank WHERE rank = ? AND rank_i != ?;",
+							  params=(rank_name, keep))[0][0]
+			self.query("DELETE FROM rank WHERE rank = ? AND rank_i != ?;", insert_val=(rank_name, keep))
+			folded += int(num)
+			logger.warning("{num} duplicate rank rows of the name {rank} were folded onto rank_i {keep} in"
+							" {database}, their links follow them (issue #162)".format(
+								num=num, rank=rank_name, keep=keep, database=self.database))
+		self.set_meta("rank_fold","1")
+		return folded
 
 	def set_meta(self,key,value):
 		'''Store a single value in the meta table, replacing any previous value of that key
@@ -565,6 +609,16 @@ class DatabaseFunctions(DatabaseConnection):
 		logger.info(stats)
 
 		try:
+			## a link from a node to itself is the convention of the root and nothing else: a node that
+			## links to itself is visited twice by nothing and by nothing is it cut off, so every count
+			## of the checks below stays happy while the subtree below that node hides from the walk
+			## (issue #162, a --mod_file row "Brucella melitensis	Brucella melitensis	species")
+			self._validate_ids("There are nodes linking to themselves, only the root links to itself!",
+				"SELECT tree.child AS id FROM tree WHERE tree.parent = tree.child AND tree.child != 1")
+			num_root_self = self._table_count("SELECT COUNT(*) FROM tree WHERE parent = 1 AND child = 1;")
+			if num_root_self > 1:
+				raise TreeError("The root links to itself {num} times, the convention is the one link".format(
+					num=num_root_self))
 			## nodes that no link under root reaches: they never reach a dump or a classifier database
 			self._validate_ids("The number of nodes and the number nodes under root does not match!",
 				"SELECT nodes.id FROM nodes WHERE NOT EXISTS"
@@ -628,6 +682,13 @@ class DatabaseFunctions(DatabaseConnection):
 		report_date = self.get_meta("report_date")
 		if report_date:
 			lines.append("Disk report from {d}, genome path {p}".format(d=report_date,p=self.get_meta("genomes_path") or "unknown"))
+		'''what the library of the last build held, counted on the files before the program read them
+			(T4) - one line, next to the version and the date of the build, which is what the report is
+			mainly there for'''
+		from ..library_check import library_report
+		library = library_report(self)
+		if library:
+			lines.append(library)
 		for kind,description in [("missing_on_disk","Genome annotations without sequence file"),
 						("sequence_annotation","Sequence level annotations (packed file, no genome file expected)"),
 						("unannotated_file","Sequence files without genome annotation"),

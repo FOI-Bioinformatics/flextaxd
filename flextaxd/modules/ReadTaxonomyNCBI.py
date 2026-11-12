@@ -86,6 +86,12 @@ class ReadTaxonomyNCBI(ReadTaxonomy):
 			for taxonomy_row in _taxfile:
 				data = taxonomy_row.strip().split("\t|\t")
 				child,parent,rank = data[0],data[1],data[2]
+				'''the root's own row "1 | 1 | no rank" asks for the one self-link the import already added
+				   when it set up the root, under whatever rank name the file gives it; a nodes file that
+				   repeats that row or self-links any other id would break the convention of issue #162'''
+				if child == parent:
+					logger.warning("#Skipped: the nodes file links {node} to itself, the root's own link is added by the import itself".format(node=child))
+					continue
 				'''an empty rank field or the text None names nothing: that level stays without a rank instead
 				   of being called "no rank", which is the name NCBI itself gives the taxids it does not place
 				   in a rank (issue #142)'''

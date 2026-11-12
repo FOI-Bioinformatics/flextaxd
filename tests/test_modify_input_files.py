@@ -123,3 +123,23 @@ def test_a_compressed_name_file_renames_nodes(tmp_path):
         names = node_names(db)
         assert "Shigella boydii" in names and "Shigella dysenteriae" not in names, \
             "compressed: {c}, names: {n}".format(c=compressed, n=names)
+
+
+def test_a_modification_row_that_links_a_node_to_itself_is_skipped(tmp_path):
+    """issue #162: the Brucella file opened with "Brucella melitensis	Brucella melitensis	species".
+    A row whose parent and child are the same node is the one link shape no normal node may have, and
+    it hides that node's subtree from the walk of the validation: the rest of the file is applied and
+    the row is skipped, no self-link of a node other than the root is written"""
+    db = make_database(tmp_path / "modself.fdb")
+    modfile = write(tmp_path / "modself.tsv", [
+        ("parent", "child", "level"),
+        ("root", "Enterobacteriaceae", "family"),
+        ("Enterobacteriaceae", "Enterobacteriaceae", "family"),
+        ("Enterobacteriaceae", "Escherichia coli", "family"),
+    ])
+    modify_module.ModifyTree(database=db, mod_file=modfile, parent="root").update_database()
+    conn = ModifyFunctions(database=db)
+    assert conn.select("SELECT child FROM tree WHERE parent = child AND child != 1") == []
+    ids = conn.get_nodes(col=2)
+    assert (ids["root"], ids["Enterobacteriaceae"]) in links(db), links(db)
+    assert (ids["Enterobacteriaceae"], ids["Escherichia coli"]) in links(db), links(db)
