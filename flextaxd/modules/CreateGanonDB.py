@@ -13,7 +13,7 @@ import shutil
 import multiprocessing
 from subprocess import Popen,PIPE,CalledProcessError,run
 from .database.DatabaseConnection import DatabaseFunctions
-from .functions import zopen
+from .functions import zopen, annotation_hint
 from time import sleep
 from gzip import BadGzipFile
 
@@ -211,6 +211,11 @@ class CreateGanonDB(object):
 				n=len(unannotated),mfile=mfile,names=", ".join(sorted(unannotated)[:10])))
 		logger.info("{sequences} sequences of {mfile} are in the library, {annotated} have a taxid in the map".format(
 			sequences=sequences,mfile=mfile,annotated=annotated))
+		'''issue #71: same advice as the kraken library, a library that loses a large share of its
+		   sequences to a missing taxid is an annotation file that does not describe them'''
+		hint = annotation_hint(sequences,len(unannotated))
+		if hint:
+			logger.warning(hint)
 		return (sequences,annotated)
 
 	def create_library_from_files(self,multifiles=False):

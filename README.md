@@ -54,6 +54,43 @@ writes a short tab separated file without them, which is meant for reading by a 
 The two are never combined: `--dump_mini --dbprogram kraken2` (and an NCBI type dump for a program) stops
 with an error instead of writing a dump that leaves the built database listing every taxid without a name.
 
+## The two levels: taxonomy database and classifier database
+
+`flextaxd` works on one **taxonomy database**, the sqlite file named by `-db`. It is written once and then
+read back: modified with `-mf`/`-gt`, merged with `-md`, cleaned with `--clean_database`, inspected with
+`--stats`/`--report` and dumped with `--dump`. A **classifier database** (kraken2, krakenuniq, ganon,
+centrifuge) is the output of the second command, `flextaxd-create`, in the directory named by `--db_name`.
+It is output only: a built kraken2 database cannot be imported into flextaxd. What can be imported are the
+inputs of such a build — the taxdump files, a genome folder, an `accession2taxid` annotation file, and
+packed sequence files given with `-nt`/`--nt_source` and `--multifile_prefix`.
+
+`-db` is the taxonomy database in both commands, `--db_name` is the classifier database the build writes;
+they are never the same path.
+
+### From a taxonomy to a classifier database, end to end
+
+```bash
+# 1 import a taxonomy once, into the taxonomy database
+flextaxd -db life.ftd -tf bac120_taxonomy.tsv -tt MP
+
+# 2 merge a branch of another taxonomy database into it, then annotate genomes and clean the tree
+flextaxd -db life.ftd -md ncbi.ftd --parent root -gt genome2node.tsv
+flextaxd -db life.ftd -mf changes.tsv -gt genome2node.tsv --clean_database
+
+# 3 see what the database and the sequence files agree on, and dump the taxonomy
+flextaxd -db life.ftd --genomes_path genomes --stats --report
+flextaxd -db life.ftd --dump --dbprogram kraken2 -o dumps
+
+# 4 build the classifier database from it
+flextaxd-create -db life.ftd --db_name kraken_run --dbprogram kraken2 --genomes_path genomes -nt nt.fna.gz --create_db -o build
+```
+
+Step 2 is the merge people look for when they ask to merge two kraken2 databases: merge the taxonomy
+databases, then build the classifier database again. The step that decides whether a clean drops genomes
+is the annotation, `--report` names which annotated genomes have no sequence file and which library
+sequences have no taxid; for an NCBI source the second number is usually an `accession2taxid` file that
+covers only `nucl_gb` and not `nucl_wgs`.
+
 
 ## Requirements
 - Python >=3.6

@@ -13,7 +13,7 @@ from multiprocessing import Process,Manager,Pool
 import multiprocessing
 from subprocess import Popen,PIPE,check_output,CalledProcessError,run
 from .database.DatabaseConnection import DatabaseFunctions
-from .functions import zopen, strip_gz
+from .functions import zopen, strip_gz, annotation_hint
 from time import sleep
 
 '''gzip have changed their error format between python version 3.7 and 3.8, this is at least a temporary fix for that'''
@@ -340,6 +340,11 @@ class CreateKrakenDatabase(object):
 		if unannotated:
 			self.write_unannotated_sequences(mfile,unannotated)
 		logger.info("{sequences} sequences of {mfile} are in the library, {annotated} have a taxid in the map, {n} have none".format(sequences=sequences,mfile=mfile,annotated=annotated,n=len(unannotated)))
+		'''issue #71: a library that loses a large share of its sequences this way is normally an
+		   annotation file that does not describe them, which is what the question in the thread came down to'''
+		hint = annotation_hint(sequences,len(unannotated))
+		if hint:
+			logger.warning(hint)
 		'''Copy the file into the library as it is (decompressed, the header of every sequence keeping
 			its accession), no genome file is written from it and the input file is never modified'''
 		cmd = "cat"

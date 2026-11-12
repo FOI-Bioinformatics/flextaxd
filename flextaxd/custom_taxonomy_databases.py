@@ -42,6 +42,25 @@ __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge","bracken"]
 __suppored_visualizations__ = ["newick","newick_vis","tree"]
 
+WORKFLOW = '''
+the two levels of a flextaxd workflow, and the four commands that go from a taxonomy to a classifier
+
+flextaxd itself works on one taxonomy database, the sqlite file named by -db, which it reads back,
+modifies, merges into and cleans. The classifier databases (kraken2, krakenuniq, ganon, centrifuge)
+are built from it by the second command, flextaxd-create, into the directory named by --db_name. A
+built classifier database cannot be read back into flextaxd; what can be imported are its inputs, the
+taxdump files, the genome folder, the accession2taxid annotation file and the packed sequence files
+(--nt_source and --multifile_prefix).
+
+  1 import   flextaxd -db life.ftd -tf bac120_taxonomy.tsv -tt MP
+  2 modify   flextaxd -db life.ftd -mf changes.tsv -gt genome2node.tsv --clean_database
+  3 report   flextaxd -db life.ftd --stats --report --dump
+  4 build    flextaxd-create -db life.ftd --db_name kraken_run --genomes_path genomes --create_db
+
+-db is the taxonomy database, the one flextaxd always works on; --db_name is the output directory of
+one classifier build. -o is where the dumps of step 3 are written.
+'''
+
 
 ## If script is executed run pipeline of selected options
 def main():
@@ -108,7 +127,10 @@ def main():
 
     #########################################################################################
 
-    parser = argparse.ArgumentParser()
+    '''the tour of the two levels stays verbatim in --help (issue #74), the 50 options below it are flat
+       and give no order to read them in'''
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog=WORKFLOW)
 
     required = parser.add_argument_group('required', 'Required')
     required.add_argument('-db', '--database', '--db' ,metavar="", type=str, default="FlexTaxD.db" , help="FlexTaxD taxonomy sqlite3 database file (fullpath)")

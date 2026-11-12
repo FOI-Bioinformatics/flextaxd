@@ -340,6 +340,46 @@ def test_packed_file_without_a_genome_folder_still_gets_its_map(tmp_path, monkey
     assert open(str(packed) + ".unannotated").read().split() == [UNANNOTATED_SEQUENCE]
 
 
+def test_a_library_losing_many_of_its_sequences_says_why(tmp_path, monkeypatch, caplog):
+    """issue #71: when the annotation covers only part of the packed library, the build has to say what
+    that usually is - an annotation file that describes only nucl_gb accessions - instead of leaving the
+    user to count the .unannotated list and guess"""
+    import logging
+
+    database = make_database(tmp_path)
+    packed = tmp_path / "many.fna"
+    with open(str(packed), "w") as library_file:
+        for accession in NT_TAXIDS:
+            print(">{accession} annotated sequence".format(accession=accession), file=library_file)
+            print("ACGT" * 30, file=library_file)
+        for number in range(90):
+            print(">CPX{number:04d}.1 not in the annotation file".format(number=number), file=library_file)
+            print("ACGT" * 30, file=library_file)
+
+    with caplog.at_level(logging.WARNING):
+        run_build(tmp_path, monkeypatch, database, nt_source=packed)
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    advice = [warning for warning in warnings if "nucl_wgs.accession2taxid" in warning]
+    assert advice, warnings
+    assert "90 of 94" in advice[0], advice[0]
+    assert len(open(str(packed) + ".unannotated").read().split()) == 90
+
+
+def test_a_library_with_a_stray_unannotated_sequence_gives_no_advice(tmp_path, monkeypatch, caplog):
+    """the shipped fixture has one unannotated sequence in five, which is a sequence, not an annotation
+    file that does not cover the library: the advice would be noise here"""
+    import logging
+
+    database = make_database(tmp_path)
+    genomes, packed = copy_inputs(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        run_build(tmp_path, monkeypatch, database, nt_source=packed)
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert not [warning for warning in warnings if "nucl_wgs.accession2taxid" in warning], warnings
+
+
 def test_merge_answer_adds_the_packed_file_to_an_existing_library(tmp_path, monkeypatch):
     """The interactive merge answer keeps the sequences already in the library and adds the packed file
     to it; its taxid map lines used to be missing entirely, the file was only cat'd onto the library."""

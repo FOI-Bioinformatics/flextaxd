@@ -30,6 +30,25 @@ def strip_gz(name):
 		return name[:-3]
 	return name
 
+def annotation_hint(sequences,unannotated):
+	'''What a library with many sequences without taxid usually means: the annotation does not cover
+	   those sequences, the sequences are not broken. NCBI describes the assemblies of its standard set
+	   in nucl_gb.accession2taxid and leaves the contig level assemblies and the metagenome assembled
+	   genomes to nucl_wgs.accession2taxid, so a database imported from the first file alone places
+	   less of its library than it could (issue #71, where 25514 of 41170 sequences of a library were
+	   unannotated exactly that way). A quarter or more is where that is the likely answer rather than
+	   a stray sequence; below it the same advice would only be noise.'''
+	if sequences <= 0 or unannotated < 25:
+		return ""
+	if float(unannotated)/sequences < 0.25:
+		return ""
+	return ("{n} of {total} library sequences ({pct}) have no taxid in the database. When the taxonomy "
+			"came from NCBI this is the annotation file rather than the sequences: nucl_gb.accession2taxid "
+			"describes the assemblies of the standard set and leaves contig level assemblies and metagenome "
+			"assembled genomes to nucl_wgs.accession2taxid, so concatenate the two accession2taxid files and "
+			"import them as one to place them").format(n=unannotated,total=sequences,
+													   pct="{0:.0f}%".format(100.0*unannotated/sequences))
+
 SUPPORTED_TAXONOMIC_GROUPS = [
 	'bacteria',
 	'archaea',
