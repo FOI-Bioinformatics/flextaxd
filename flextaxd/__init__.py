@@ -1,2 +1,2 @@
 name = "custom_taxonomy"
-__version__ = "0.6.1_dev"
+__version__ = "0.6.1"
