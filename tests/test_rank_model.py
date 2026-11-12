@@ -2,7 +2,7 @@
 
 A level of the tree is named by a rank or it is not named: NCBI writes "no rank" for the taxids it does not
 place in a rank and that name is data worth keeping (238,697 such links in NCBI_base.db on disk), while a file
-that carries no rank column at all - a CanSNPer tree, a modification line with two columns, a QIIME level code
+that carries no rank column at all - a CanSNPer tree, a modification line with two columns, an MP level code
 outside the vocabulary - names nothing and the link of that level must carry no rank id. rank_i 1 used to be
 the default of add_link, and rank_i 1 is the "no rank" level of every database derived from an NCBI taxdump,
 so an unnamed level was silently named "no rank" instead of staying unnamed (#142), and the tree modification
@@ -16,7 +16,7 @@ import logging
 from flextaxd.modules import ranks
 from flextaxd.modules.ModifyTree import ModifyTree
 from flextaxd.modules.ReadTaxonomyNCBI import ReadTaxonomyNCBI
-from flextaxd.modules.ReadTaxonomyQIIME import ReadTaxonomyQIIME
+from flextaxd.modules.ReadTaxonomyMP import ReadTaxonomyMP
 from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
 
 """the shape of an NCBI nodes.dmp (rank field followed by the empty gc mask field, as the real files have
@@ -34,7 +34,7 @@ NODES_DMP = "".join(
 		(16, 562, "subsubspecies"),
 	])
 
-QIIME_FILE = (
+MP_FILE = (
 	"GENOME1\td__Bacteria;g__Escherichia;s__Escherichia coli\n"
 	"GENOME2\tg__Escherichia;z__Weird thing\n"
 )
@@ -103,7 +103,7 @@ def test_the_ncbi_reader_can_be_built_without_the_multisource_option(tmp_path):
     assert kept.force_multisource is True
 
 def test_the_vocabulary_covers_the_ranks_of_the_databases_on_disk():
-    """the 44 rank names of the NCBI taxdump in NCBI_base.db, plus the domain level the QIIME/GTDB reader
+    """the 44 rank names of the NCBI taxdump in NCBI_base.db, plus the domain level the MP/GTDB reader
     uses: none of them may be reported as custom, and the ranks a user adds themselves may"""
     assert ranks.custom_ranks(ranks.OBSERVED) == []
     assert ranks.is_defined("domain") and ranks.is_defined("subspecies") and ranks.is_defined("forma specialis")
@@ -126,19 +126,19 @@ def test_a_link_takes_no_rank_id_by_default(tmp_path):
     assert links[(child, parent)] is None, "an unnamed link lands on a rank level of its own account"
 
 
-def test_a_qiime_level_outside_the_vocabulary_is_reported_and_not_fatal(tmp_path, caplog):
-    """a level code the QIIME/GTDB format does not define used to reach add_rank as None, which raised
+def test_an_mp_level_outside_the_vocabulary_is_reported_and_not_fatal(tmp_path, caplog):
+    """a level code the MP/GTDB format does not define used to reach add_rank as None, which raised
     "Rank cannot be None" in the middle of an import (#141)"""
     database = make_database(tmp_path)
     tree_file = tmp_path / "taxonomy.txt"
-    tree_file.write_text(QIIME_FILE)
+    tree_file.write_text(MP_FILE)
 
     with caplog.at_level(logging.WARNING, logger="flextaxd.modules.ReadTaxonomy"):
-        reader = ReadTaxonomyQIIME(taxonomy_file=str(tree_file), database=database)
-        reader.set_qiime(True)
+        reader = ReadTaxonomyMP(taxonomy_file=str(tree_file), database=database)
+        reader.set_mp(True)
         reader.parse_taxonomy()
 
-    assert "not a QIIME level code" in caplog.text
+    assert "not an MP level code" in caplog.text
     conn = ModifyFunctions(database=database)
     nodes = {name: taxid for taxid, name in conn.select("SELECT id,name FROM nodes")}
     assert "Weird thing" in nodes, "the node is still added"

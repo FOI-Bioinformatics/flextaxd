@@ -4,8 +4,8 @@
 Modify tree from database or source
 '''
 
-from .database.DatabaseConnection import ModifyFunctions
-from . import ranks
+from .database.DatabaseConnection import ModifyFunctions, MAX_BIND_PARAMS
+from . import ranks, functions
 import logging,os,datetime
 logger = logging.getLogger(__name__)
 import math,time
@@ -251,6 +251,7 @@ class ModifyTree(object):
 		logger.debug(self.dbmod_annotation)
 		self.dbmod_rank = database.get_rank(col=1)
 		### Translate node ids between databases and add non existing nodes into current database
+		untranslatable = 0
 		for link in database.get_links(database.get_children(set([database.get_id(parent)]))):
 			link = list(link)
 			logger.debug(link)
@@ -266,19 +267,25 @@ class ModifyTree(object):
 					logger.debug("New link: [{p}, {c}, {r}]".format(p=parent,c=child,r=rank))
 					self._parse_new_links(parent=parent,child=child,rank=rank)
 
-				except FileNotFoundError:
-					logger.warning("Warning something is wrong! Check debug option")
-					logger.debug(self.dbmod_annotation)
-					logger.debug(self.dbmod_annotation[link[0]])
-					logger.debug(self.dbmod_annotation[link[1]])
-					exit()
+				except KeyError as error:
+					'''a link that names a node or a rank the source database does not describe is a broken
+					   source database: name what is missing and skip that link, the bare KeyError traceback
+					   this used to die with said nothing about the node (issue #153)'''
+					logger.warning("Link {link} of {db} names {missing}, which that database has no description or rank for, the link is skipped".format(
+									link=link,db=database.database,missing=error))
+					untranslatable += 1
+		if untranslatable:
+			logger.warning("{n} links of {db} could not be translated, they name nodes or ranks that database does not describe".format(
+							n=untranslatable,db=database.database))
 		return database.get_genomes()
 
 	def file_mod(self,modfile,replace_parent=False):
 		'''Handle file modification'''
 		logger.debug(modfile)
 		logger.info("Parse modification file...")
-		with open(modfile, "r") as f:
+		'''The gz sniffing opener of the builders and the taxonomy readers: a modification file may be
+		   compressed, and plain open() would read the compressed bytes as text (issue #127)'''
+		with functions.zopen(modfile, "r") as f:
 			headers = f.readline().strip().split(self.sep)
 			if replace_parent:
 				new_root = f.readline().strip().split(self.sep)
@@ -299,8 +306,8 @@ class ModifyTree(object):
 				if row.strip() == "":
 					continue
 				line = row.strip().split(self.sep)
-			if len(line) == 2:
-				line +=[None] ## the line names no rank: the level stays without one, it is not the "no rank" name NCBI uses (issue #142)
+				if len(line) == 2:
+					line +=[None] ## the line names no rank: the level stays without one, it is not the "no rank" name NCBI uses (issue #142)
 				parent,child,rank = line
 				if replace_parent:
 					if parent == change_root:
@@ -312,6 +319,12 @@ class ModifyTree(object):
 				if swap:
 					## Make sure that the order between parent and child nodes are correct and consistent with the database
 					child,parent = parent,child
+				'''the root convention is the only link that points a node at itself: a row linking a
+				   node to itself hides that node's subtree from the walks of the validation, and the
+				   Brucella modification file of issue #162 started with exactly one such row'''
+				if str(parent).strip() == str(child).strip():
+					logger.warning("#Skipped: the modification file links {node} to itself, only the root links to itself".format(node=child))
+					continue
 				self._parse_new_links(parent=parent,child=child,rank=rank)
 		return
 
@@ -385,7 +398,7 @@ class ModifyTree(object):
 			logger.info("Modification type is file...")
 			if self.replace_parent:  ## Update the name of the parent to match with parent of "incoming" file
 				logger.info("Replace parent option initiated,  change the name of parent in the database to allow merge")
-				with open(self.modfile, "r") as f:
+				with functions.zopen(self.modfile, "r") as f:
 					headers = f.readline().strip().split(self.sep)
 					branchroot = f.readline().strip().split(self.sep)
 					new_name = branchroot[0]
@@ -424,7 +437,16 @@ class ModifyTree(object):
 		updated = 0
 		added = 0
 		skipped = []
-		with open(genomeid2taxid) as f:
+		'''The rows are collected before anything is written. Two things come out of that: the taxids the
+		   file names by number are asked of the database once instead of trusted (issue #73), and the
+		   annotations can be written in batches the way the merge route does it, one statement per batch
+		   instead of one to three per genome, which is about 800000 statements for the 394932 genomes of
+		   the GTDB case (issue #126).'''
+		rows = []
+		'''the same gz sniffing opener the build route uses for this file (parse_genomeid2taxid): a
+		   "--genomeid2taxid file.gz" was readable during a build and binary garbage through the
+		   modify route (issue #127)'''
+		with functions.zopen(genomeid2taxid, "r") as f:
 			for row in f:
 				'''The reference belongs to the row it was read with: the argument of the function
 				   labels every genome, otherwise the third column of the file does'''
@@ -439,31 +461,54 @@ class ModifyTree(object):
 				except ValueError:
 					genome,name = row.strip().split("    ")
 				logger.debug("genome: {genome}, name: {name}".format(genome=genome,name=name))
-				try:
-					if not self._is_int(name.strip()):
-						id = self.nodeDict[name.strip()]
-					else:
-						id = int(name.strip())
-						## The input was already an index not a name, output warning or assume valid index?
-						logger.debug("# WARNING: Input was an index not a name, make sure indexes match the current database!")
-
-				except KeyError:
-					logger.debug("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
-					skipped.append((genome.strip(),"no database entry for node {name}".format(name=name)))
+				'''the node column names a node, and a node may be named by digits alone: the Brucella
+				   tree of issue #161 is full of names like "21158" and "1330", and forcing a digit
+				   column to be a taxid skipped 25 of its 91 genomes in a run that had just annotated
+				   all of them through the build route. The name is tried first; only when no node
+				   carries it does a pure number become a taxid, which the database is asked about
+				   below (issue #73)'''
+				node_name = name.strip()
+				if node_name in self.nodeDict:
+					id = self.nodeDict[node_name]
+					if self._is_int(node_name) and int(node_name) in self.nodeDict and int(node_name) != id:
+						logger.warning("{name} is both the name of node {found} and the taxid of another node: the name won, the annotation goes to {found}".format(name=node_name,found=id))
+					rows.append((id,genome.strip(),genome_reference))
+				elif self._is_int(node_name):
+					## a number naming no node is taken as a taxid, which the database is asked about below
+					rows.append((int(node_name),genome.strip(),genome_reference))
 				else:
-					## If no exception occured add genome
-					update["set_value"] = id
-					update["where"] = genome.strip()
-					res = self.taxonomydb.update_genome(update)
-					if self.taxonomydb.rowcount()!=0:
-						if res:
-							updated += 1
-						else:
-							added += 1
-					if genome_reference:
-						reference_update["set_value"] = genome_reference
-						reference_update["where"] = genome.strip()
-						self.taxonomydb.update_genome(reference_update)
+					logger.debug("# WARNING: there was no database entry for {name} annotation not updated for this entry!".format(name=name))
+					skipped.append((genome.strip(),"no database entry for node {name}".format(name=node_name)))
+
+		unknown_taxids = self._unknown_taxids([id for id,_,_ in rows if isinstance(id,int)])
+		if unknown_taxids:
+			'''a taxid the file names that the database has no node for: the genome keeps the annotation
+			   it had and is listed, instead of being pointed at a node that does not exist and vanishing
+			   from the dump and the classifier build (issue #73)'''
+			logger.warning("{n} taxids named by {file} have no node in the database, the first are: {first}".format(
+				n=len(unknown_taxids),file=genomeid2taxid,
+				first=", ".join(str(taxid) for taxid in sorted(unknown_taxids)[:5])))
+			for id,genome,_ in rows:
+				if id in unknown_taxids:
+					skipped.append((genome,"taxid {id} has no node in the database".format(id=id)))
+			rows = [row for row in rows if row[0] not in unknown_taxids]
+
+		if len(rows) >= 100:
+			updated,added = self._batch_annotations(rows)
+		else:
+			for id,genome,genome_reference in rows:
+				update["set_value"] = id
+				update["where"] = genome
+				res = self.taxonomydb.update_genome(update)
+				if self.taxonomydb.rowcount()!=0:
+					if res:
+						updated += 1
+					else:
+						added += 1
+				if genome_reference:
+					reference_update["set_value"] = genome_reference
+					reference_update["where"] = genome
+					self.taxonomydb.update_genome(reference_update)
 		self.taxonomydb.commit()
 		if skipped:
 			skipped_file = "{file}.skipped".format(file=genomeid2taxid)
@@ -479,6 +524,69 @@ class ModifyTree(object):
 		gid = self.taxonomydb.get_genomes()
 		logger.info("{added} added and {updated} genome annotations were updated!".format(added=added, updated=updated))
 		return
+
+	def _unknown_taxids(self, taxids):
+		'''Which of the taxids an annotation file names by number the database has no node for. Asked in
+				chunks of placeholders, the limit of the connection, so that a file of half a million rows
+				costs a few hundred index lookups instead of half a million queries.
+
+		------
+		Parameters:
+			list - the taxids read as numbers, may repeat
+		------
+		Returns:
+			set - the taxids with no node in the nodes table
+		'''
+		unique = sorted(set(taxids))
+		if not unique:
+			return set()
+		known = set()
+		for start in range(0, len(unique), MAX_BIND_PARAMS):
+			chunk = unique[start:start+MAX_BIND_PARAMS]
+			rows = self.taxonomydb.select("SELECT id FROM nodes WHERE id IN ({})".format(
+				",".join(["?"]*len(chunk))), params=tuple(chunk))
+			known.update(int(id) for id, in rows)
+		return set(unique) - known
+
+	def _batch_annotations(self, rows, batch=20000):
+		'''Write the collected annotations through the batched update the merge route already uses: one
+				statement per batch of literal rows instead of one to three statements per genome (issue
+				#126). A row whose genome is not in the table yet adds it, the rest update the node and the
+				reference of the row that is there, an empty reference keeping the label that is stored
+				(multi_update, issue #116).
+
+		------
+		Parameters:
+			list - rows as (node id, genome, reference)
+			int - how many rows a single statement carries, the statements of the merge route were
+				measured at 14 MB for 400000 rows, which is far past what this route needs
+		------
+		Returns:
+			tuple - (updated, added)
+		'''
+		update = {
+			"set_column": "id",
+			"where_column": "genome",
+			"columns": ["id","genome","reference"]
+		}
+		updated = 0
+		added = 0
+		for start in range(0, len(rows), batch):
+			chunk = rows[start:start+batch]
+			update["data"] = ["({id},'{genome}',{reference})".format(
+				id=id,
+				genome=str(genome).replace("'","''"),
+				reference="NULL" if not reference else "'{ref}'".format(ref=str(reference).replace("'","''")))
+				for id,genome,reference in chunk]
+			num_before = self.taxonomydb.num_rows('genomes')
+			if not self.taxonomydb.multi_update(update,"genomes"):
+				logger.error("{n} genome annotations could not be written, the database keeps the annotations it had".format(n=len(chunk)))
+				continue
+			num_added = self.taxonomydb.num_rows('genomes') - num_before
+			added += num_added
+			updated += len(chunk) - num_added
+		logger.info("{n} genome annotations written in batches of {batch}".format(n=len(rows),batch=batch))
+		return updated, added
 
 	def update_genomes(self):
 		'''When a database is supplied as source for the update genome annotations from that database needs to be transfered to the taxonomydb,
@@ -584,7 +692,7 @@ class ModifyTree(object):
 		logger.info("Update node names in the database from {refdict}".format(refdict=refdict))
 		updated = 0
 		added = 0
-		with open(refdict) as f:
+		with functions.zopen(refdict, "r") as f:
 			for row in f:
 				try:
 					old_name,name = row.strip().split(self.sep)

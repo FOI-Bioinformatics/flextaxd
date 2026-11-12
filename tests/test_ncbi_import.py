@@ -4,6 +4,7 @@ import shutil
 import sqlite3
 
 from flextaxd.modules.ReadTaxonomyNCBI import ReadTaxonomyNCBI
+from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
 
 TESTDATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata", "ncbi")
 
@@ -200,4 +201,41 @@ def test_archive_read_before_the_assembly_does_not_win(tmp_path):
     assert reader.refseqid_to_GCF[b"NC_000913.3"] == "GCF_000005845.2"
     assert reader.refseqid_reference[b"NC_000913.3"] == "refseq"
     assert reader.refseqid_to_GCF[b"CP000250.1"] == "CP000250.1"
+
+
+def write_dmp(path, rows):
+    with open(str(path), "w") as dmp:
+        dmp.write("".join("\t|\t".join(columns) + "\t|\n" for columns in rows))
+    return str(path)
+
+
+def test_taxid_without_a_name_gets_a_placeholder_node(tmp_path):
+    """issue #152: a taxid that nodes.dmp links but names.dmp never described got a tree link pointing
+    at a row the nodes table does not have, which made --validate fail and every merge reading the
+    database crash on it"""
+    nodes = write_dmp(tmp_path / "nodes.dmp", [
+        ["1", "1", "no rank"],
+        ["2", "1", "species"],
+        ["99999", "1", "genus"]])
+    names = write_dmp(tmp_path / "names.dmp", [
+        ["1", "root", "scientific name"],
+        ["2", "Escherichia coli", "scientific name"]])
+    database = str(tmp_path / "unnamed.fdb")
+    reader = ReadTaxonomyNCBI(taxonomy_file=nodes, database=database, force_multisource=False)
+    reader.parse_taxonomy()
+
+    conn = sqlite3.connect(database)
+    assert conn.execute("SELECT name FROM nodes WHERE id = 99999").fetchall() == [("99999",)]
+    assert conn.execute("SELECT parent FROM tree WHERE child = 99999").fetchall() == [(1,)]
+    assert ModifyFunctions(database).validate_tree() is True
+    conn.close()
+    assert reader.taxonomy["99999"] == 99999
+
+
+def test_shipped_ncbi_testdata_validates(tmp_path):
+    """issue #152: the trimmed sample had 123900 (order Enterobacterales) in nodes.dmp with no row in
+    names.dmp, so the database built from it did not validate"""
+    database = str(tmp_path / "validate.fdb")
+    ncbi_reader(tmp_path, database)
+    assert ModifyFunctions(database).validate_tree() is True
 

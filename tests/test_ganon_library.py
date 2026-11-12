@@ -13,8 +13,11 @@ import glob
 import multiprocessing
 import os
 import shutil
+import sys
 
 import pytest
+
+from subprocess import CalledProcessError
 
 from flextaxd.modules.CreateGanonDB import CreateGanonDB
 from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
@@ -202,3 +205,93 @@ def test_the_ganon_header_pass_names_the_start_method_it_needs(tmp_path, monkeyp
             "{0} did not get a map line from the header pass".format(genome)
     library_files = sorted(os.path.basename(path) for path in glob.glob(str(ganondb / ".tmp*.fasta")))
     assert ".tmppacked.fasta" in library_files
+
+
+"""the two files of the taxdump that create_database copies into the database directory"""
+def write_taxonomy(outdir):
+    outdir.mkdir(exist_ok=True)
+    (outdir / "1_nodes.dmp").write_text("1\t|\troot\t|\tno rank\t|\n")
+    (outdir / "1_names.dmp").write_text("1\t|\troot\t|\tscientific name\t|\n")
+
+
+def fake_ganon(tmp_path, monkeypatch, behaviour="ok"):
+    """a ganon on the PATH standing in for the real one, which is not installed here: it writes the marker
+    file where the -d argument points, or fails the way the issue measured (exit 3 with a message on
+    stderr). A build that stops is what the old os.system call threw away."""
+    bin = tmp_path / "bin"
+    bin.mkdir(exist_ok=True)
+    script = bin / "ganon"
+    script.write_text("""#!{python}
+import os, sys
+args = sys.argv[1:]
+if not args or args[0] != "build":
+    sys.exit(0)
+if "{behaviour}" == "fail":
+    print("ganon: the genome files could not be read", file=sys.stderr)
+    sys.exit(3)
+db = args[args.index("-d") + 1]
+open(os.path.join(db, "fake.ganondb"), "w").write("built")
+""".format(python=sys.executable, behaviour=behaviour))
+    os.chmod(str(script), 0o755)
+    monkeypatch.setenv("PATH", str(bin) + os.pathsep + os.environ.get("PATH", ""))
+
+
+def ganon_with_library(tmp_path, packed):
+    """a build that has written its library and its taxonomy dump, as create_databases has it when it
+    reaches the build step"""
+    database = make_database(tmp_path)
+    build, ganondb, out = ganon_build(tmp_path, database, genome_folder(tmp_path), multifiles=[packed])
+    build.create_library_from_files(multifiles=[packed])
+    write_taxonomy(out)
+    return build, ganondb, out
+
+
+def test_a_ganon_that_is_not_installed_stops_the_run(tmp_path, packed, monkeypatch):
+    """issue #148: the build ran through os.system and its exit status was thrown away, so on a machine
+    without ganon the run printed "sh: 1: ganon: not found", deleted every library file it had written and
+    still ended with the database reported as built. The CalledProcessError is what create_databases
+    already turns into "no ganon database was created" and a failing exit status (issue #132)."""
+    build, ganondb, out = ganon_with_library(tmp_path, packed)
+    (tmp_path / "emptybin").mkdir(exist_ok=True)
+    monkeypatch.setenv("PATH", str(tmp_path / "emptybin"))
+    with pytest.raises(CalledProcessError) as failure:
+        build.create_database(str(out))
+    assert failure.value.returncode == 127
+    assert glob.glob(str(ganondb / ".tmp*.fasta*")), "the library of the run was deleted on the way out"
+
+
+def test_a_failing_ganon_build_stops_the_run(tmp_path, packed, monkeypatch):
+    """a ganon that stops with a message is the same failure: the run has no database and says so, with
+    what ganon wrote on stderr"""
+    build, ganondb, out = ganon_with_library(tmp_path, packed)
+    fake_ganon(tmp_path, monkeypatch, behaviour="fail")
+    with pytest.raises(CalledProcessError) as failure:
+        build.create_database(str(out))
+    assert failure.value.returncode == 3
+    assert glob.glob(str(ganondb / ".tmp*.fasta*")), "the library of the run was deleted on the way out"
+
+
+def test_a_ganon_build_keeps_the_library_it_wrote(tmp_path, packed, monkeypatch):
+    """the library files are the library of this build: the next database should be able to use them
+    (T6), so they stay where they are and the taxonomy reaches the database directory"""
+    build, ganondb, out = ganon_with_library(tmp_path, packed)
+    fake_ganon(tmp_path, monkeypatch)
+    build.create_database(str(out))
+
+    assert (ganondb / "fake.ganondb").exists(), "the build was not run over the library"
+    library_files = sorted(os.path.basename(path) for path in glob.glob(str(ganondb / ".tmp*.fasta*")))
+    assert ".tmppacked.fasta" in library_files, "the library of the run is gone: {0}".format(library_files)
+    taxonomy = ganondb / "taxonomy"
+    assert (taxonomy / "nodes.dmp").exists() and (taxonomy / "names.dmp").exists()
+
+
+def test_a_ganon_build_without_any_library_is_not_started(tmp_path, monkeypatch):
+    """the old code logged the empty -i argument and asked ganon to build an empty database anyway"""
+    database = make_database(tmp_path)
+    build, ganondb, out = ganon_build(tmp_path, database, genome_folder(tmp_path))
+    ganondb.mkdir(exist_ok=True)
+    write_taxonomy(out)
+    fake_ganon(tmp_path, monkeypatch)
+    with pytest.raises(CalledProcessError):
+        build.create_database(str(out))
+    assert not (ganondb / "fake.ganondb").exists(), "ganon was started over an empty library"

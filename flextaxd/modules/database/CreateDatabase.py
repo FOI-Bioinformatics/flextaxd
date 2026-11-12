@@ -33,6 +33,14 @@ class CreateDatabase(object):
                                         unique (parent, child,rank_i)
                                     );"""
 
+        ## The constraint above cannot cover a link that carries no rank: NULL never equals NULL in a
+        ## sqlite unique constraint, so importing a taxonomy into a database that already held those links
+        ## wrote the identical rank-less link again on every run (issue #147). An index over
+        ## ifnull(rank_i,-1) covers those links the way the constraint covers the ranked ones, -1 being the
+        ## same stand-in for "no rank" that deleting links already uses (DatabaseConnection.fast_delete_links).
+        self.sql_create_tree_link_index = """CREATE UNIQUE INDEX IF NOT EXISTS tree_link
+                                            ON tree (parent, child, ifnull(rank_i,-1));"""
+
         self.sql_create_rank_table = """CREATE TABLE IF NOT EXISTS rank (
                                         rank_i integer PRIMARY KEY,
                                         rank VARCHAR(15)
@@ -87,6 +95,17 @@ class CreateDatabase(object):
         self.conn.commit()
         return
 
+    def mark_tree_link_index(self):
+        """Record in the meta table that the unique tree link index is in place. An older database gets
+        the index when it is opened (DatabaseConnection.ensure_tree_link_index), which costs a look at
+        every link, so the mark keeps that work to the databases that still need it."""
+        try:
+            c = self.conn.cursor()
+            c.execute("INSERT OR REPLACE INTO meta (key,value) VALUES ('tree_link_index','1')")
+        except Exception as e:
+            logger.debug(e)
+        return
+
     def create_database(self,database=False):
         # create a database connection
         self.conn = self.create_connection(database)
@@ -95,6 +114,7 @@ class CreateDatabase(object):
             self.create_table(self.sql_create_nodes_table)
             # create tree table
             self.create_table(self.sql_create_tree_table)
+            self.create_table(self.sql_create_tree_link_index)
             # create genomes table
             self.create_table(self.sql_create_genomes_table)
             # create rank tables
@@ -103,6 +123,10 @@ class CreateDatabase(object):
             self.create_table(self.sql_create_meta_table)
             # create the report table holding build time findings per input
             self.create_table(self.sql_create_report_table)
+
+            ## record that this database has the link index from the start, so that opening it does not
+            ## look for the duplicate rank-less links a database of an older version can hold
+            self.mark_tree_link_index()
 
             self.conn.commit()
         else:

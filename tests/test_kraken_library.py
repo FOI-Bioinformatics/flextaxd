@@ -277,6 +277,38 @@ def test_the_program_of_the_build_indexes_the_library(tmp_path, monkeypatch, cap
 
 
 @pytest.mark.skipif(not KRAKEN2, reason="kraken2 is not installed")
+def test_the_library_of_the_build_is_counted_before_the_program_reads_it(tmp_path, monkeypatch, capfd):
+    """T4: the numbers of the assembled library are reported before kraken2 is called, and they say what
+    kraken2 then does. The acceptance library holds 9 sequences and its map 18 lines: one sequence has no
+    taxid in the header and no line in the map, and it is the one of the 9 that kraken2 leaves out of its
+    8; two map lines name annotated genomes that have no sequence file, while the four sequence level
+    annotations of the packed file are not counted among them (issue #131)."""
+    database = make_database(tmp_path)
+    genomes, packed = copy_inputs(tmp_path)
+    out, tmpdir, dbname = run_build(tmp_path, monkeypatch, database,
+                                    genomes_path=genomes, nt_source=packed)
+
+    stored = ModifyFunctions(database=database)
+    assert stored.get_meta("library_program") == "kraken2"
+    assert stored.get_meta("library_database") == str(dbname)
+    assert stored.get_meta("library_sequences") == "9"
+    assert stored.get_meta("library_map_lines") == "18"
+    assert stored.get_meta("library_without_taxid") == "1"
+    assert stored.get_meta("library_map_without_genome") == "2"
+
+    """the same numbers in the report of the flextaxd database, one line next to the version and the date"""
+    report = "\n".join(stored.report_lines())
+    assert "Library of the last build (kraken2," in report
+    assert "9 sequences, 18 map lines, 1 without a taxid, 2 map lines for a genome without sequence file" in report
+
+    """and the number that means sequences are lost says exactly how many kraken2 left out"""
+    captured = capfd.readouterr()
+    indexed = re.search(r"Completed processing of (\d+) sequences", captured.out + captured.err)
+    assert indexed
+    assert int(indexed.group(1)) == 9 - 1
+
+
+@pytest.mark.skipif(not KRAKEN2, reason="kraken2 is not installed")
 def test_reads_of_a_library_of_real_sequence_find_their_genome(tmp_path, monkeypatch):
     """issue #135: the shipped test genomes are 160 bp of the repeat ACGTACGT, which kraken2 (k=35,
     minimizer l=31) indexes but never matches, so a read check cannot be made on them. Two genomes get
@@ -338,6 +370,46 @@ def test_packed_file_without_a_genome_folder_still_gets_its_map(tmp_path, monkey
         assert taxids[seqid] == str(taxid)
     assert UNANNOTATED_SEQUENCE not in taxids
     assert open(str(packed) + ".unannotated").read().split() == [UNANNOTATED_SEQUENCE]
+
+
+def test_a_library_losing_many_of_its_sequences_says_why(tmp_path, monkeypatch, caplog):
+    """issue #71: when the annotation covers only part of the packed library, the build has to say what
+    that usually is - an annotation file that describes only nucl_gb accessions - instead of leaving the
+    user to count the .unannotated list and guess"""
+    import logging
+
+    database = make_database(tmp_path)
+    packed = tmp_path / "many.fna"
+    with open(str(packed), "w") as library_file:
+        for accession in NT_TAXIDS:
+            print(">{accession} annotated sequence".format(accession=accession), file=library_file)
+            print("ACGT" * 30, file=library_file)
+        for number in range(90):
+            print(">CPX{number:04d}.1 not in the annotation file".format(number=number), file=library_file)
+            print("ACGT" * 30, file=library_file)
+
+    with caplog.at_level(logging.WARNING):
+        run_build(tmp_path, monkeypatch, database, nt_source=packed)
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    advice = [warning for warning in warnings if "nucl_wgs.accession2taxid" in warning]
+    assert advice, warnings
+    assert "90 of 94" in advice[0], advice[0]
+    assert len(open(str(packed) + ".unannotated").read().split()) == 90
+
+
+def test_a_library_with_a_stray_unannotated_sequence_gives_no_advice(tmp_path, monkeypatch, caplog):
+    """the shipped fixture has one unannotated sequence in five, which is a sequence, not an annotation
+    file that does not cover the library: the advice would be noise here"""
+    import logging
+
+    database = make_database(tmp_path)
+    genomes, packed = copy_inputs(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        run_build(tmp_path, monkeypatch, database, nt_source=packed)
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert not [warning for warning in warnings if "nucl_wgs.accession2taxid" in warning], warnings
 
 
 def test_merge_answer_adds_the_packed_file_to_an_existing_library(tmp_path, monkeypatch):

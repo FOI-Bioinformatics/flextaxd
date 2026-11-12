@@ -13,7 +13,8 @@ from multiprocessing import Process,Manager,Pool
 import multiprocessing
 from subprocess import Popen,PIPE,check_output,CalledProcessError,run
 from .database.DatabaseConnection import DatabaseFunctions
-from .functions import zopen, strip_gz
+from .functions import zopen, strip_gz, annotation_hint
+from .library_check import library_numbers, store_library_numbers
 from time import sleep
 
 '''gzip have changed their error format between python version 3.7 and 3.8, this is at least a temporary fix for that'''
@@ -340,6 +341,11 @@ class CreateKrakenDatabase(object):
 		if unannotated:
 			self.write_unannotated_sequences(mfile,unannotated)
 		logger.info("{sequences} sequences of {mfile} are in the library, {annotated} have a taxid in the map, {n} have none".format(sequences=sequences,mfile=mfile,annotated=annotated,n=len(unannotated)))
+		'''issue #71: a library that loses a large share of its sequences this way is normally an
+		   annotation file that does not describe them, which is what the question in the thread came down to'''
+		hint = annotation_hint(sequences,len(unannotated))
+		if hint:
+			logger.warning(hint)
 		'''Copy the file into the library as it is (decompressed, the header of every sequence keeping
 			its accession), no genome file is written from it and the input file is never modified'''
 		cmd = "cat"
@@ -396,6 +402,10 @@ class CreateKrakenDatabase(object):
 			self.sequence_count = sequences.qsize()
 		logger.info("Number of genomes (multifiles not counted) succesfully added to the {krakenversion} database: {count}".format(count=self.added,krakenversion=self.krakenversion))
 		logger.info("Number of sequences added to the {krakenversion} library from the packed files: {count}".format(count=self.sequence_count,krakenversion=self.krakenversion))
+		if not self.create_db:
+			'''a run that only assembles the library gets its numbers here; a run that builds a program
+			   database is counted in create_database, right before that program reads the files'''
+			self.report_library_numbers()
 		return
 
 	def run_program_command(self,cmd,required=True):
@@ -419,6 +429,31 @@ class CreateKrakenDatabase(object):
 				raise CalledProcessError(res.returncode,cmd)
 			return False
 		return True
+
+	def report_library_numbers(self):
+		'''T4: what the library of this build holds, counted on the files the program is about to read
+			them, and stored in the flextaxd database before the program is called. kraken2 indexes 8 of
+			the 9 sequences of the acceptance library and says nothing about the ninth; these numbers are
+			what shows that while the input of the build can still be fixed.'''
+		library = ["{db_path}/library/library.fna".format(db_path=self.krakendb)]
+		if not os.path.exists(library[0]):
+			library = ["{db_path}/library.fna".format(db_path=self.krakendb)]
+		if self.krakenversion == "krakenuniq":
+			'''the map of krakenuniq is keyed by the sequence id itself, the prelim map of kraken2 puts a
+				TAXID field in front of it'''
+			map_file = "{db_path}/library/prelim.map".format(db_path=self.krakendb)
+			key_column = 0
+		else:
+			map_file = "{db_path}/library/prelim_map.txt".format(db_path=self.krakendb)
+			key_column = 1
+		if not os.path.exists(map_file):
+			map_file = self.prelim_map ## the map of the run, which create_database copies in: the same lines
+		numbers = library_numbers(library,map_file,
+								  annotated_genomes=self.accession_to_taxid,
+								  genome_files=self.genome_path,
+								  sequence_level_annotations=self.database.get_sequence_annotations(),
+								  map_key_column=key_column)
+		return store_library_numbers(self.database,self.krakenversion,self.krakendb,numbers)
 
 	def create_database(self,outdir,keep=False):
 		'''For test create a small database and run tests'''
@@ -449,6 +484,9 @@ class CreateKrakenDatabase(object):
 			os.system("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 			logger.info("cp {outdir}/*.map {krakendb}".format(outdir=outdir,krakendb=self.krakendb))
 		
+		'''the library and its map sit in the database directory from here on: count them before the
+		   program is given them (T4)'''
+		self.report_library_numbers()
 		if self.krakenversion == 'krakenuniq':
 			logger.info(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))
 			self.run_program_command(self.krakenversion+"-build --build --db {krakendb} {params} --threads {threads}".format(krakendb=self.krakendb, threads=self.build_processes, params=self.params))

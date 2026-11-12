@@ -147,3 +147,164 @@ def test_create_route_reference_argument_overrides_the_column(tmp_path):
     rows = genome_rows(db)
     assert rows["GCF_000000001.1"] == (2, "nt")
     assert rows["GCF_000000002.1"] == (3, "nt")
+
+
+def test_a_taxid_the_database_has_no_node_for_is_skipped(tmp_path, caplog):
+    """issue #73: a row whose node is a number was taken as a taxid and never asked of the database, so a
+    file naming a taxid the database does not have pointed the genome at a node that does not exist. The
+    genome then vanished from the dump and from the kraken2 build, and the run said nothing about it,
+    while the same situation under a node NAME was already listed in the skipped file"""
+    db = make_database(tmp_path / "taxid.fdb")
+    annotation_file = write_file(tmp_path / "taxid.tsv", [
+        ("GCF_000000001.1", "2", "refseq"),
+        ("GCF_000000002.1", "999999", "refseq"),
+    ])
+    annotate(db, annotation_file)
+
+    rows = genome_rows(db)
+    assert rows["GCF_000000001.1"] == (2, "refseq"), "a taxid that is in the database stopped working"
+    assert "GCF_000000002.1" not in rows, "a genome was pointed at a node that does not exist"
+
+    with open(annotation_file + ".skipped") as skipped:
+        listed = skipped.read()
+    assert "GCF_000000002.1" in listed and "999999" in listed
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert any("999999" in warning for warning in warnings), warnings
+    assert ModifyFunctions(database=db).get_report("skipped_import", annotation_file) == [
+        (annotation_file, "total\t1\t" + annotation_file + ".skipped")]
+
+
+def test_an_unknown_taxid_is_skipped_by_the_batched_path_as_well(tmp_path):
+    """the check is not tied to the size of the file: a large file takes the batched write and still loses
+    the rows whose taxid has no node, before anything is written"""
+    db = make_database(tmp_path / "bigtaxid.fdb")
+    annotation_file = write_file(tmp_path / "bigtaxid.tsv", [
+        ("GCF_{:09d}.1".format(i),
+         "999999" if i % 10 == 0 else ("2" if i % 2 == 0 else "Salmonella enterica"),
+         "refseq")
+        for i in range(150)
+    ])
+    annotate(db, annotation_file)
+
+    rows = genome_rows(db)
+    assert len(rows) == 135, "the rows naming an unknown taxid were written anyway: {n}".format(n=len(rows))
+    for i in range(150):
+        genome = "GCF_{:09d}.1".format(i)
+        if i % 10 == 0:
+            assert genome not in rows
+        else:
+            assert rows[genome][0] == (2 if i % 2 == 0 else 3)
+    with open(annotation_file + ".skipped") as skipped:
+        assert len(skipped.read().strip().splitlines()) == 15
+
+
+def test_a_large_annotation_file_is_written_in_batches(tmp_path, monkeypatch):
+    """issue #126: the file driven route had no batched path, every row cost one or two single UPDATE
+    statements, about 800000 statements for the 394932 genomes of the GTDB case, where the merge route
+    does it in one (multi_update, issue #116). Above the 100 row threshold of the merge route the file
+    route now batches too, and keeps the same numbers of added and updated annotations."""
+    db = make_database(tmp_path / "many.fdb")
+    annotation_file = write_file(tmp_path / "many.tsv", [
+        ("GCF_{:09d}.1".format(i),
+         "2" if i % 2 == 0 else "Salmonella enterica",
+         "refseq" if i % 3 else "genbank")
+        for i in range(250)
+    ])
+
+    single = []
+    original_update_genome = ModifyFunctions.update_genome
+    def spy_update_genome(self, data):
+        single.append(data["where"])
+        return original_update_genome(self, data)
+    monkeypatch.setattr(ModifyFunctions, "update_genome", spy_update_genome)
+
+    batches = []
+    original_multi_update = ModifyFunctions.multi_update
+    def spy_multi_update(self, data, table):
+        batches.append(len(data["data"]))
+        return original_multi_update(self, data, table)
+    monkeypatch.setattr(ModifyFunctions, "multi_update", spy_multi_update)
+
+    annotate(db, annotation_file)
+
+    assert single == [], "{n} single UPDATE statements were still run".format(n=len(single))
+    assert batches and sum(batches) == 250
+    rows = genome_rows(db)
+    assert len(rows) == 250
+    for i in range(250):
+        genome = "GCF_{:09d}.1".format(i)
+        assert rows[genome] == (2 if i % 2 == 0 else 3, "refseq" if i % 3 else "genbank")
+
+
+def test_a_small_annotation_file_keeps_the_row_by_row_path(tmp_path, monkeypatch):
+    """the numbers of the row by row path (a genome that is not in the table yet is added, the others are
+    updated) are kept for the small files that are annotated one at a time"""
+    db = make_database(tmp_path / "few.fdb")
+    seed = ModifyFunctions(database=db)
+    seed.query("INSERT INTO genomes (id,genome) VALUES (2,'GCF_000000001.1')")
+    seed.commit()
+    annotation_file = write_file(tmp_path / "few.tsv", [
+        ("GCF_000000001.1", "Escherichia coli", "refseq"),
+        ("GCF_000000002.1", "Salmonella enterica", "genbank"),
+    ])
+
+    batches = []
+    monkeypatch.setattr(ModifyFunctions, "multi_update",
+                        lambda self, data, table: batches.append(len(data["data"])) or True)
+    annotate(db, annotation_file)
+
+    assert batches == [], "a file of two rows was batched"
+    assert genome_rows(db) == {"GCF_000000001.1": (2, "refseq"), "GCF_000000002.1": (3, "genbank")}
+
+
+def test_a_node_named_by_digits_alone_is_found_by_name(tmp_path):
+    """issue #161: trees built from strain labels carry nodes named "21158", "1330" and worse; the
+    annotation route read every digit column as a taxid and skipped them ("taxid 21158 has no node")
+    in a run whose build route had just annotated the same file, 25 of 91 genomes lost"""
+    db = make_database(tmp_path / "digit.fdb")
+    conn = ModifyFunctions(database=db)
+    conn.query("INSERT INTO nodes (id,name) VALUES (4,'21158')")
+    conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (1,4,4)")
+    conn.commit()
+    annotation_file = write_file(tmp_path / "digit.tsv", [("GCF_000000004.1", "21158")])
+    annotate(db, annotation_file)
+    assert genome_rows(db)["GCF_000000004.1"] == (4, None)
+
+
+def test_a_number_naming_no_node_is_still_taken_as_the_taxid(tmp_path):
+    """the old reading of a number stays for files that truly mean taxids: Escherichia coli has id 2
+    here and no node is called "2" """
+    db = make_database(tmp_path / "taxid.fdb")
+    annotation_file = write_file(tmp_path / "taxid.tsv", [("GCF_000000001.1", "2")])
+    annotate(db, annotation_file)
+    assert genome_rows(db)["GCF_000000001.1"] == (2, None)
+
+
+def test_a_number_that_is_both_a_name_and_a_taxid_warns_and_takes_the_name(tmp_path, caplog):
+    """the one case the order changes for anyone: name and taxid both exist, the name wins, and the
+    choice is said out loud rather than silently"""
+    db = make_database(tmp_path / "ambig.fdb")
+    conn = ModifyFunctions(database=db)
+    conn.query("INSERT INTO nodes (id,name) VALUES (4,'7')")
+    conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (1,4,4)")
+    conn.query("INSERT INTO nodes (id,name) VALUES (7,'Strain seven')")
+    conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (1,7,4)")
+    conn.commit()
+    annotation_file = write_file(tmp_path / "ambig.tsv", [("GCF_000000007.1", "7")])
+    annotate(db, annotation_file)
+    assert genome_rows(db)["GCF_000000007.1"] == (4, None)
+    assert any("name won" in record.getMessage() for record in caplog.records)
+
+
+def test_the_create_route_takes_a_pure_number_as_the_taxid_when_no_name_bears_it(tmp_path):
+    """the mirror of issue #161: the build route already matched a digit-named node through its name
+    keys ("21158" above), it now also resolves a number that names no node as the taxid"""
+    db = make_database(tmp_path / "create_digit.fdb")
+    annotation_file = write_file(tmp_path / "create_digit.tsv", [
+        ("GCF_000000001.1", "2"),
+        ("GCF_000000002.1", "3"),
+    ])
+    assert read_annotate(db, annotation_file) == []
+    rows = genome_rows(db)
+    assert rows["GCF_000000001.1"] == (2, None)
+    assert rows["GCF_000000002.1"] == (3, None)

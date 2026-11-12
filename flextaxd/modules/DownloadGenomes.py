@@ -6,7 +6,7 @@ Download source genomes for building databases
 import logging
 logger = logging.getLogger(__name__)
 
-from modules.functions import download_genomes
+from .functions import download_genomes
 from multiprocessing import Process,Manager
 from subprocess import Popen,PIPE,STDOUT
 import subprocess

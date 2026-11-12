@@ -60,6 +60,8 @@ class DatabaseConnection(object):
 			self.cursor = self.create_cursor(self.conn)
 		## Databases written by older flextaxd versions have no meta table
 		self.ensure_meta_table()
+		## and no unique index covering the links that carry no rank
+		self.ensure_tree_link_index()
 		if created and self.get_meta("built_with") is None:
 			self.set_meta("built_with",flextaxd_version())
 			self.set_meta("built",datetime.datetime.now().isoformat(timespec="seconds"))
@@ -130,6 +132,87 @@ class DatabaseConnection(object):
 		self.conn.commit()
 		self.meta_ready = True
 		return True
+
+	def ensure_tree_link_index(self):
+		'''Give a database written before the link index existed the unique index over the links of the
+				tree, first removing the links that an older version wrote twice. The unique constraint of the
+				tree table cannot cover a link that carries no rank: NULL never equals NULL in a sqlite unique
+				constraint, so importing a taxonomy into a database that already held those links added the
+				identical rank-less link again on every run (issue #147). Databases created now get the index
+				from CreateDatabase and are marked there, so this runs once per older database.
+
+		------
+		Returns:
+			boolean - whether the index is in place
+		'''
+		if self.get_meta("rank_fold") is None:
+			self.fold_duplicate_ranks()
+		if self.get_meta("tree_link_index") is not None:
+			return True
+		## a link is the same link when parent, child and rank match, with no rank standing for -1, the
+		## same stand-in the delete of a link uses
+		find_copies = ("rowid NOT IN (SELECT MIN(rowid) FROM tree"
+						" GROUP BY parent,child,ifnull(rank_i,-1))")
+		copies = self.select("SELECT COUNT(*) FROM tree WHERE {where};".format(where=find_copies))
+		if not copies:
+			## no tree table at all: a database that nothing has been imported into yet
+			return True
+		num_duplicates = int(copies[0][0])
+		if num_duplicates:
+			self.query("DELETE FROM tree WHERE {where};".format(where=find_copies))
+			logger.warning("{num} tree links of {database} were written twice by an older flextaxd,"
+							" they are removed now that the link is unique (issue #147)".format(
+								num=num_duplicates, database=self.database))
+		res = self.query("""CREATE UNIQUE INDEX IF NOT EXISTS tree_link
+							ON tree (parent,child,ifnull(rank_i,-1));""")
+		if isinstance(res, Exception):
+			logger.warning("Could not add the unique tree link index to {database}: {err}".format(
+				database=self.database, err=str(res)))
+			return False
+		self.set_meta("tree_link_index","1")
+		return True
+
+	def fold_duplicate_ranks(self):
+		'''Fold rank rows that carry the same rank name more than once onto the lowest id of that name.
+			 An import from before issue #138 stored "no rank" twice in the rank table (brucella_rep_org.fdb
+			 holds it at rank_i 1 and 2), and a link written against either id is the same level: the
+			 duplicate id is what let the root link to itself twice, once per id, evading the unique
+			 (parent,child,rank_i) index through the differing rank_i (issue #162). Links whose twin at the
+			 kept level already exists go first, so the unique index of #147 accepts the repoint of the
+			 rest; then the duplicate rank rows go. Runs once per database, on opening it, and before the
+			 link index look of ensure_tree_link_index so a database gated there earlier still gets folded.
+
+		------
+		Returns:
+			int - the number of rank rows folded
+		'''
+		duplicates = self.select("SELECT rank, MIN(rank_i) AS keep FROM rank GROUP BY rank HAVING COUNT(*) > 1;")
+		if not duplicates:
+			self.set_meta("rank_fold","1")
+			return 0
+		folded = 0
+		for rank_name, keep in duplicates:
+			keep = int(keep)
+			## links of a duplicated id that already exist at the kept id are copies of an existing link
+			self.query("DELETE FROM tree WHERE rank_i IN (SELECT rank_i FROM rank WHERE rank = ? AND rank_i != ?)"
+						" AND EXISTS (SELECT 1 FROM tree t2 WHERE t2.parent = tree.parent AND t2.child = tree.child"
+						" AND t2.rank_i = ?);", insert_val=(rank_name, keep, keep))
+			res = self.query("UPDATE tree SET rank_i = ? WHERE rank_i IN"
+							 " (SELECT rank_i FROM rank WHERE rank = ? AND rank_i != ?);",
+							 insert_val=(keep, rank_name, keep))
+			if isinstance(res, Exception):
+				logger.warning("Could not repoint the links of the duplicated rank {rank} of {database}: {err}"
+							   .format(rank=rank_name, database=self.database, err=str(res)))
+				continue
+			num = self.select("SELECT COUNT(*) FROM rank WHERE rank = ? AND rank_i != ?;",
+							  params=(rank_name, keep))[0][0]
+			self.query("DELETE FROM rank WHERE rank = ? AND rank_i != ?;", insert_val=(rank_name, keep))
+			folded += int(num)
+			logger.warning("{num} duplicate rank rows of the name {rank} were folded onto rank_i {keep} in"
+							" {database}, their links follow them (issue #162)".format(
+								num=num, rank=rank_name, keep=keep, database=self.database))
+		self.set_meta("rank_fold","1")
+		return folded
 
 	def set_meta(self,key,value):
 		'''Store a single value in the meta table, replacing any previous value of that key
@@ -402,6 +485,78 @@ class DatabaseFunctions(DatabaseConnection):
 		logger.debug("Load DatabaseFunctions")
 
 	'''Validate tree function'''
+	def _table_count(self, statement):
+		'''A count run by the validation: 0 when the tables are not there yet, the way validation of a
+				database that nothing has been imported into used to pass on empty lists.
+
+		------
+		Returns:
+			int
+		'''
+		rows = self.select(statement)
+		if not rows:
+			return 0
+		return int(rows[0][0])
+
+	def _node_names(self, node_ids):
+		'''The names of a handful of node ids for a message, the id itself for an id the database has no
+				node row for (which is one of the things validation reports).
+
+		------
+		Returns:
+			list of str
+		'''
+		ids = [int(node_id) for node_id in node_ids]
+		if not ids:
+			return []
+		names = {int(node_id): name for node_id, name in self.select(
+			"SELECT id,name FROM nodes WHERE id IN ({})".format(",".join(["?"]*len(ids))), params=tuple(ids))}
+		return [str(names.get(node_id, node_id)) for node_id in ids]
+
+	def _root_walk_table(self, name="ftx_temp_under_root"):
+		'''Walk the tree once into a temporary table: the ids that can be reached as children from the root
+				node, which is the set the python walk of the children of node 1 built before. The checks of
+				the validation all look at that set, so it is walked once and holds its id as primary key for
+				the checks to probe; walking it again for every check cost a quarter of a minute each on the
+				2.7 million links of a taxdump the size of the NCBI one (issue #107). sqlite ends a recursive
+				with clause at the first row it has seen before, so a database that holds a link back to an
+				ancestor stops here instead of running on for ever. A database whose tree table is not there
+				yet ends with an empty set, which is what the validation read from an empty tree before.
+
+		------
+		Returns:
+			str - the name of the temporary table
+		'''
+		self.query("DROP TABLE IF EXISTS {name}".format(name=name))
+		self.query("CREATE TEMP TABLE {name} (id integer PRIMARY KEY)".format(name=name))
+		res = self.query(
+			"INSERT OR IGNORE INTO {name} (id)"
+			" WITH RECURSIVE under_root(id) AS ("
+			" SELECT tree.child FROM tree WHERE tree.parent = 1"
+			" UNION"
+			" SELECT tree.child FROM tree JOIN under_root ON tree.parent = under_root.id)"
+			" SELECT id FROM under_root;".format(name=name))
+		if isinstance(res, Exception):
+			logger.debug("The tree under root could not be walked: {err}".format(err=str(res)))
+		return name
+
+	def _validate_ids(self, message, id_select):
+		'''One check of the validation: how many ids the select finds, and a few of them named in the
+				message. Raises the TreeError of that check, the wording the set comparison in python used
+				to give.
+
+		------
+		Returns:
+			boolean - False when nothing was found
+		'''
+		num = self._table_count("SELECT COUNT(*) FROM ({ids});".format(ids=id_select))
+		if not num:
+			return False
+		examples = self.select("SELECT id FROM ({ids}) LIMIT 10;".format(ids=id_select))
+		found = ", ".join(self._node_names([row[0] for row in examples]))
+		logger.info("{num} ids fail here, for example: {found}".format(num=num, found=found))
+		raise TreeError("{message} total: {num}".format(message=message, num=num))
+
 	def validate_tree(self):
 		'''This function validates the tree structure in the databases
 			1. All nodes must only have one parent (check_parent)
@@ -409,30 +564,30 @@ class DatabaseFunctions(DatabaseConnection):
 			3. All nodes must be attatched to the tree (match tree nodes and nodes)
 			4. All nodes from links must have a node description (match the number of nodes from links with number of annotated nodes)
 
+			Every check but the names in the message runs as SQL against the two tables and gives a number
+			and a few ids: the nodes and the links were read into python containers before, and every node
+			under root was written into the text of one query, which took 221 seconds on a database of 2.7
+			million nodes and never finished the purge of a real one (issue #107).
+
 		------
 		Returns
 			True: if all edges has one and only one parent
 		'''
-		self.taxonomy = self.get_nodes()
+		logger.info("Count nodes, links and the tree under root")
+		under_root = self._root_walk_table()
+		num_nodes = self._table_count("SELECT COUNT(*) FROM nodes;")
+		num_links = self._table_count("SELECT COUNT(*) FROM tree;")
+		num_under = self._table_count("SELECT COUNT(*) FROM {u};".format(u=under_root))
+		num_under_links = self._table_count(
+			"SELECT COUNT(*) FROM tree WHERE EXISTS (SELECT 1 FROM {u} WHERE {u}.id = tree.parent);".format(u=under_root))
+		num_endpoints = self._table_count(
+			"SELECT COUNT(*) FROM (SELECT child AS id FROM tree UNION SELECT parent AS id FROM tree);")
 
-		logger.info("Get all database nodes")
-		self.nodes = self.get_nodes(col=1)					## get all nodes
-		logger.info("Get all database edges")
-		self.edges = self.get_links()					## Get all links
-		logger.info("Get all children from root node")
-		self.tree_connections = self.get_children([1])  ## Get all chilren from root
-		logger.info("Get tree edges from children")
-		self.tree_links = self.get_links(self.tree_connections) ## get all links from rooted tree
-		logger.info("Get nodes from tree edges")
-		self.tree_nodes = set()
-		for edge in self.edges:
-			self.tree_nodes.add(edge[0])
-			self.tree_nodes.add(edge[1])
 		logger.info("Validate parents")
 		res = self.check_parent()
 		extra = ""
 		if len(res) > 0:
-			failed_nodes = [self.nodes[x[0]] for x in list(res)]
+			failed_nodes = self._node_names([x[0] for x in res])
 			logger.debug(failed_nodes)
 			if len(failed_nodes) > 10:
 				logger.info(failed_nodes[:10])
@@ -445,42 +600,43 @@ class DatabaseFunctions(DatabaseConnection):
 					Tree: n({tnodes}), l({tlinks})
 					LinkNodes: {link_nodes}
 					Parent_ok: True
-					""".format(nodes = len(self.nodes),
-								links=len(self.edges),
-								tnodes=len(self.tree_connections),
-								tlinks = len(self.tree_links),
-								link_nodes = len(self.tree_nodes)
+					""".format(nodes = num_nodes,
+								links=num_links,
+								tnodes=num_under,
+								tlinks = num_under_links,
+								link_nodes = num_endpoints
 		)
 		logger.info(stats)
-		nodeset = set(self.nodes.keys())
-		if len(nodeset - self.tree_connections) != 0:
-			lset = nodeset - self.tree_connections
-			if len(lset) > 10:
-				lset = len(lset)
-				#logger.debug([self.taxonomy[x] for x in lset])
-			logger.info("{}".format(lset))
-			raise TreeError("The number of nodes and the number nodes under root does not match!")
-		if len(set(self.edges) - set(self.tree_links)) != 0:
-			lset = set(self.edges) - set(self.tree_links)
-			if len(lset) > 10:
-				lset = len(lset)
-				#logger.debug([self.taxonomy[x] for x in lset])
-			logger.info("{}".format(lset))
-			raise TreeError("The number of edges and the number edges under root does not match!")
-		if len(self.tree_nodes - nodeset) != 0:
-			lset = self.tree_nodes - nodeset
-			if len(lset) > 10:
-				lset = len(lset)
-				#logger.debug([self.taxonomy[x] for x in lset])
-			logger.info("{}".format(lset))
-			raise TreeError("The number of annotated nodes does not match with the number of nodes connected to edges!")
-		if len(self.tree_connections - nodeset) != 0:
-			lset = self.tree_connections - nodeset
-			if len(lset) > 10:
-				lset = len(lset)
-				#logger.debug([self.taxonomy[x] for x in lset])
-			logger.info("{}".format(lset))
-			raise TreeError("There are nodes in the database not connected to the tree")
+
+		try:
+			## a link from a node to itself is the convention of the root and nothing else: a node that
+			## links to itself is visited twice by nothing and by nothing is it cut off, so every count
+			## of the checks below stays happy while the subtree below that node hides from the walk
+			## (issue #162, a --mod_file row "Brucella melitensis	Brucella melitensis	species")
+			self._validate_ids("There are nodes linking to themselves, only the root links to itself!",
+				"SELECT tree.child AS id FROM tree WHERE tree.parent = tree.child AND tree.child != 1")
+			num_root_self = self._table_count("SELECT COUNT(*) FROM tree WHERE parent = 1 AND child = 1;")
+			if num_root_self > 1:
+				raise TreeError("The root links to itself {num} times, the convention is the one link".format(
+					num=num_root_self))
+			## nodes that no link under root reaches: they never reach a dump or a classifier database
+			self._validate_ids("The number of nodes and the number nodes under root does not match!",
+				"SELECT nodes.id FROM nodes WHERE NOT EXISTS"
+				" (SELECT 1 FROM {u} WHERE {u}.id = nodes.id)".format(u=under_root))
+			## links whose parent is not under root, named by the node they cut off
+			self._validate_ids("The number of edges and the number edges under root does not match!",
+				"SELECT tree.child AS id FROM tree WHERE NOT EXISTS"
+				" (SELECT 1 FROM {u} WHERE {u}.id = tree.parent)".format(u=under_root))
+			## the two ends of a link that have no node description of their own
+			self._validate_ids("The number of annotated nodes does not match with the number of nodes connected to edges!",
+				"SELECT ends.id FROM (SELECT child AS id FROM tree UNION SELECT parent AS id FROM tree) AS ends"
+				" WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.id = ends.id)")
+			## a node under root that has no description: the last check of the original order
+			self._validate_ids("There are nodes in the database not connected to the tree",
+				"SELECT {u}.id FROM {u} WHERE NOT EXISTS"
+				" (SELECT 1 FROM nodes WHERE nodes.id = {u}.id)".format(u=under_root))
+		finally:
+			self.drop_temp_tables([under_root])
 		logger.info("Validation OK!")
 		return True
 
@@ -526,6 +682,13 @@ class DatabaseFunctions(DatabaseConnection):
 		report_date = self.get_meta("report_date")
 		if report_date:
 			lines.append("Disk report from {d}, genome path {p}".format(d=report_date,p=self.get_meta("genomes_path") or "unknown"))
+		'''what the library of the last build held, counted on the files before the program read them
+			(T4) - one line, next to the version and the date of the build, which is what the report is
+			mainly there for'''
+		from ..library_check import library_report
+		library = library_report(self)
+		if library:
+			lines.append(library)
 		for kind,description in [("missing_on_disk","Genome annotations without sequence file"),
 						("sequence_annotation","Sequence level annotations (packed file, no genome file expected)"),
 						("unannotated_file","Sequence files without genome annotation"),

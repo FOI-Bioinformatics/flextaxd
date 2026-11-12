@@ -39,7 +39,7 @@ class ReadTaxonomy(object):
 		self.sep = "\t"
 		self.length = 0
 		self.ids = 0
-		self.qiime = 0
+		self.mp = 0			## an input file whose levels are codes (d, p, g) rather than rank names
 		self.skipped = []
 		self.new_nodes = 0          ## nodes this run actually inserted, the ones already in the database are matched (issue #145)
 		self.unknown_levels = set()   ## level codes of an input file that name no rank, reported once (issue #141)
@@ -55,8 +55,8 @@ class ReadTaxonomy(object):
 		## Add basic link
 		self.add_link(child=1, parent=1,rank="no rank")
 
-	def set_qiime(self,opt):
-		self.qiime = opt
+	def set_mp(self,opt):
+		self.mp = opt
 
 	def write_skipped(self):
 		'''Write and print rows/genomes skipped during parsing, so the user knows what was not added to the database'''
@@ -92,14 +92,14 @@ class ReadTaxonomy(object):
 		'''Change separator from default (\t)'''
 		self.sep = sep
 
-	def add_rank(self, rank,qiime=False):
+	def add_rank(self, rank,mp=False):
 		'''Insert the rank level of a rank name into the database and remember its id.
 
 		A name that says nothing - no rank column, an empty field, the text None - gets no rank level: the
 		link of that level stays without one, which the dmp export writes as an empty rank field (issue #134)
 		and which is not the same thing as the name "no rank" that NCBI gives its unnamed taxids (issue #142).
 		'''
-		name = self.rank_name(rank,qiime=qiime)
+		name = self.rank_name(rank,mp=mp)
 		if ranks.unnamed(name):
 			return None
 		try:
@@ -110,16 +110,16 @@ class ReadTaxonomy(object):
 		self.rank[rank] = rank_i
 		return rank_i
 
-	def rank_name(self,rank,qiime=False):
-		'''The rank name a caller means: a QIIME/GTDB file carries level codes (g, s, sk) where the others
+	def rank_name(self,rank,mp=False):
+		'''The rank name a caller means: an MP/GTDB file carries level codes (g, s, sk) where the others
 		   carry the rank name itself. A code outside that vocabulary is reported once, not on every row of
 		   the file, and the levels it names are added without a rank (issue #141)'''
-		if qiime or self.qiime:
+		if mp or self.mp:
 			name = self.levelDict.get(rank)
 			if name is None and rank is not None:
 				if rank not in self.unknown_levels:
 					self.unknown_levels.add(rank)
-					logger.warning("Level {level} is not a QIIME level code: the nodes of that level are added without a rank".format(level=rank))
+					logger.warning("Level {level} is not an MP level code: the nodes of that level are added without a rank".format(level=rank))
 			return name
 		return rank
 
@@ -178,6 +178,8 @@ class ReadTaxonomy(object):
 			if headers[0] == "parent":
 				swap = True
 			logger.debug("Swap: {swap}".format(swap=swap))
+			file_parents = {}   ## node id and name for every id the file puts in a parent column
+			file_children = set()   ## node ids the file links to something, to find the ids that are only parents
 			for tree_row in _treefile:
 				data = tree_row.strip().split(self.sep)
 				logger.debug(data)
@@ -194,6 +196,14 @@ class ReadTaxonomy(object):
 				if data[0] == "":
 					'''Check for empty rows'''
 					continue
+				'''a row whose parent and child are the same node is the root convention, not a level of
+				   the file: the Brucella file of issue #162 opened with "Brucella melitensis	Brucella
+				   melitensis	species" meaning "this is the top of my tree", and the row wrote a
+				   self-link on a normal node instead; the top of the file is attached to the root after
+				   the loop instead'''
+				if data[0].strip() == data[1].strip():
+					logger.warning("#Skipped: the taxonomy file links {node} to itself, the top of an imported tree is attached to the root".format(node=data[0]))
+					continue
 				for node in data:
 					logger.debug(node)
 					node = node.strip()
@@ -205,7 +215,26 @@ class ReadTaxonomy(object):
 						self.ids +=1
 				#logger.debug("Add link: {parent}-{child}".format(parent=data[1].strip(),child=data[0].strip()))
 				self.add_link(child=self.taxonomy[data[0].strip()],parent=self.taxonomy[data[1].strip()],rank=rank)
+				file_parents[self.taxonomy[data[1].strip()]] = data[1].strip()
+				file_children.add(self.taxonomy[data[0].strip()])
 				self.length +=1
+			'''the nodes the file puts above everything else: a file that names its own top node instead
+			   of "root" ("Brucella melitensis" in issue #162, whose author tried the root self-link to
+			   say it) would otherwise leave the whole imported tree hanging off nothing, invisible to
+			   every walk of the validation. They get the database root as parent and no rank level, and
+			   the import says so by name'''
+			for node_id, node_name in file_parents.items():
+				if node_id in file_children or node_id == 1:
+					continue
+				'''the root link may already be there: a second file imported into the same database
+				   names its top after the node the first one brought in, the name matches the existing
+				   id (#145), and the attach must not write the same root link a second time'''
+				if self.database.select("SELECT COUNT(*) FROM tree WHERE parent = 1 AND child = ?;",
+										params=(node_id,))[0][0] > 0:
+					logger.info("{node} is the top of this file too and the root already links it, the two files join there".format(node=node_name))
+					continue
+				self.add_link(child=node_id, parent=1, rank=None)
+				logger.warning("#Attached: {node} is the top of the imported tree and nothing links it, the database root becomes its parent".format(node=node_name))
 			self.database.commit()
 
 	def parse_genomeid2taxid(self,genomeid2taxid,reference=False):
@@ -230,8 +259,21 @@ class ReadTaxonomy(object):
 					genomeid,taxid = columns[0],columns[1]
 					## the argument wins over the third column, and extra columns are ignored
 					row_reference = _ref if _ref else (columns[2] if len(columns) > 2 else False)
+					'''the node column is resolved by name first - nodes may be named by digits alone,
+					   issue #161 - and only when no node carries that name does a pure number resolve
+					   as a taxid, the way the annotation route of ModifyTree now does it too'''
+					node_i = nodeDict.get(taxid.strip())
+					if node_i is None:
+						try:
+							number = int(taxid.strip())
+						except ValueError:
+							number = None
+						if number is not None and number in nodeDict:
+							node_i = number
 					try:
-						self.database.add_genome(genome=genomeid.strip(),_id=nodeDict[taxid.strip()],reference=row_reference)
+						if node_i is None:
+							raise KeyError(taxid)
+						self.database.add_genome(genome=genomeid.strip(),_id=node_i,reference=row_reference)
 					except KeyError:
 						logger.warning("# WARNING: {taxid} not found in the database".format(taxid=taxid))
 						self.skipped.append((genomeid.strip(),"taxid {taxid} not found in the database".format(taxid=taxid)))

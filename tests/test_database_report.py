@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import sys
 
 import pytest
 
@@ -174,3 +175,18 @@ def test_an_older_database_still_lists_the_entries_it_stored(tmp_path):
     lines = "\n".join(ModifyFunctions(database=db).report_lines())
     assert "Genome annotations without sequence file: 1" in lines
     assert "GCF_000000001.1" in lines
+
+
+def test_report_stats_and_validate_end_with_a_clean_status(tmp_path, monkeypatch):
+    """issue #154: the three commands ended in exit("..."), and SystemExit with a string always exits
+    with status 1, so a run that had printed its answer still reported failure to the shell"""
+    from flextaxd import custom_taxonomy_databases
+
+    db, _ = make_annotated_database(tmp_path, ["GCF_000000001.1"])
+    monkeypatch.chdir(tmp_path)
+    for flag in ("--report", "--stats", "--validate"):
+        monkeypatch.setattr(sys, "argv", ["flextaxd", "-db", db, flag])
+        with pytest.raises(SystemExit) as stop:
+            custom_taxonomy_databases.main()
+        assert stop.value.code in (None, 0), "{} ended with status {}".format(flag, stop.value.code)
+

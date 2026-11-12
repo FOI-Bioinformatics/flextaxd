@@ -15,13 +15,13 @@ __status__ = "Beta"
 __pkgname__="flextaxd-create"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 try:
-    from .custom_taxonomy_databases import __version__
+    from .custom_taxonomy_databases import __version__, WORKFLOW
     from .modules.functions import read_skip_file
 except ImportError:
     ### Script executed directly, add the package parent to path and import absolutely
     import os, sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from flextaxd.custom_taxonomy_databases import __version__
+    from flextaxd.custom_taxonomy_databases import __version__, WORKFLOW
     from flextaxd.modules.functions import read_skip_file
 from importlib import import_module
 import shutil
@@ -42,13 +42,12 @@ def main():
     start_time = time.time()
     current_time = start_time
 
-    ### Add base directory to path
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(BASE_DIR)
     ##################################--global functions--###################################
 
     def dynamic_import(abs_module_path, class_name):
-        module = import_module(".".join([abs_module_path,class_name]))
+        '''the modules of the package are imported under the name they really have, the folder of the
+           package is not put on sys.path (issue #109)'''
+        module = import_module(".".join(["flextaxd",abs_module_path,class_name]))
         target_class = getattr(module, class_name)
         return target_class
 
@@ -89,10 +88,13 @@ def main():
 
     programs = ["kraken2", "krakenuniq","ganon"]
 
-    parser = argparse.ArgumentParser()
+    '''the same tour of the two levels as the flextaxd command gives, this is the second of the four
+       commands it lists (issue #74)'''
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog=WORKFLOW)
     basic = parser.add_argument_group('basic', 'Basic commands')
     basic.add_argument('-o', '--outdir',metavar="", default=".", help="Output directory (same directory as custom_taxonomy_databases dump)")
-    basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="Custom taxonomy sqlite3 database file")
+    basic.add_argument('-db', '--database', '--db' ,metavar="", type=str, default=".ctdb" , help="taxonomy database, the sqlite3 file flextaxd built and works on")
     #basic.add_argument('--dump_map',metavar="", type=str, default=False , help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
     basic.add_argument('--dump_map',action='store_true',help="dump kraken2 prelim and seq2taxid maps, required for files with multiseq")
     basic.add_argument('-nt', '--nt_source', '--nt', metavar="",type=str, default=False, help="If part of your data is merged into one file, add path to file here, example nt")
@@ -113,7 +115,7 @@ def main():
     classifier_opts.add_argument('--create_db', action ='store_true',  help="Start create db after loading databases")
     classifier_opts.add_argument('--create_lib', action ='store_true',  help="Add to create kraken library file but no DB")
     classifier_opts.add_argument('--dbprogram','--db_program', metavar="", default="kraken2", choices=programs,help="Select one of the supported programs ["+", ".join(programs)+"]")
-    classifier_opts.add_argument('--db_name', metavar="",default=None, help="database directory (fullpath)")
+    classifier_opts.add_argument('--db_name', metavar="",default=None, help="classifier database directory the build writes (fullpath), never the taxonomy database of -db")
     classifier_opts.add_argument('--params', metavar="", default="",  help="Add extra params to create command (supports kraken*)")
     classifier_opts.add_argument('--test', action='store_true', help="test database structure, only use 100 seqs")
     classifier_opts.add_argument('--keep', action='store_true', help="Keep temporary files")

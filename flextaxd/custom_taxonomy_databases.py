@@ -2,23 +2,30 @@
 
 '''
 This script is built to handle import and modification of different taxonomy sources
-v0.1.1 (NCBI, QIIME(GTDB), CanSNPer)
+v0.1.1 (NCBI, MP(GTDB), CanSNPer)
 
 The custom_taxonomy_databases script contains a parser and a database handler to allow customization of databases
-from NCBI, QIIME or CanSNPer sources and supports export functions into NCBI formatted names and nodes.dmp files
+from NCBI, MP or CanSNPer sources and supports export functions into NCBI formatted names and nodes.dmp files
 as well as a slimmed tab separated file. The database allows databases to be merged at selected
 nodes(taxonomy IDs) as well as adding resolution to certain subgroups (ie using a tab separated file).
 
 The script was initially written to allow the use of GTDB with some custom modifications to allow separation of
 subgroups. GTDB was created by an Australian group aimed to restructure the taxonomy relation from the NCBI
 taxonomy tree to strictly follow a phylogenetic structure (http://gtdb.ecogenomic.org/) this script can use the
-taxonomy.tsv files from the GTDB downloads page as input (with the --taxonomy_type selected as QIIME). By default
+taxonomy.tsv files from the GTDB downloads page as input (with the --taxonomy_type selected as MP). By default
 the script will read a Tab separated file containing parent and child (defined by column headers).
 All data is kept in a sqlite3 database (.ctdb by default) and can be dumped at will to NCBI formatted names
 and nodes.dmp files. Supported export formats in version 0.2b is NCBI and TSV). The TSV dump format is similar to
 the NCBI dump except that it contains a header (parent/child), has parent on the left and only uses tab to separate
 each column (not <tab>|<tab>).
 '''
+
+if __package__ in (None,''):
+    '''run as a file instead of through the installed command or python -m, this module has no package
+       name and nothing of the package can be imported until the folder holding it is reachable
+       (issue #109)'''
+    import os, sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flextaxd import __version__  ## kept here so that setup.py and --version can read it, the
                                    ## value itself lives in flextaxd/__init__.py, which is also
@@ -34,6 +41,25 @@ __pkgname__="custom_taxonomy_databases"
 __github__="https://github.com/FOI-Bioinformatics/flextaxd"
 __programs_supported__ = ["kraken2", "krakenuniq","ganon","centrifuge","bracken"]
 __suppored_visualizations__ = ["newick","newick_vis","tree"]
+
+WORKFLOW = '''
+the two levels of a flextaxd workflow, and the four commands that go from a taxonomy to a classifier
+
+flextaxd itself works on one taxonomy database, the sqlite file named by -db, which it reads back,
+modifies, merges into and cleans. The classifier databases (kraken2, krakenuniq, ganon, centrifuge)
+are built from it by the second command, flextaxd-create, into the directory named by --db_name. A
+built classifier database cannot be read back into flextaxd; what can be imported are its inputs, the
+taxdump files, the genome folder, the accession2taxid annotation file and the packed sequence files
+(--nt_source and --multifile_prefix).
+
+  1 import   flextaxd -db life.ftd -tf bac120_taxonomy.tsv -tt MP
+  2 modify   flextaxd -db life.ftd -mf changes.tsv -gt genome2node.tsv --clean_database
+  3 report   flextaxd -db life.ftd --stats --report --dump
+  4 build    flextaxd-create -db life.ftd --db_name kraken_run --genomes_path genomes --create_db
+
+-db is the taxonomy database, the one flextaxd always works on; --db_name is the output directory of
+one classifier build. -o is where the dumps of step 3 are written.
+'''
 
 
 ## If script is executed run pipeline of selected options
@@ -51,13 +77,15 @@ def main():
     start_time = time.time()
     current_time = start_time
 
-    ### Add base directory to path
+    ### the folder of the package, only to list the taxonomy reader modules below it. It is deliberately
+    ### not put on sys.path: that made modules, database and friends top level names in every process that
+    ### imported flextaxd, which is how the wrong imports of issue #151 stayed invisible (issue #109)
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(BASE_DIR)
     ##################################--global functions--###################################
 
     def dynamic_import(abs_module_path, class_name):
-        module = import_module(".".join([abs_module_path,class_name]))
+        '''the modules of the package are imported under the name they really have'''
+        module = import_module(".".join(["flextaxd",abs_module_path,class_name]))
         target_class = getattr(module, class_name)
         return target_class
 
@@ -77,7 +105,7 @@ def main():
 
     def get_read_modules():
         '''Find (ReadTaxonomy) modules and return options'''
-        read_modules = ['GTDB'] # GTDB will be remapped to QIIME when argparse'd
+        read_modules = ['GTDB'] # GTDB will be remapped to MP when argparse'd
         for script in os.listdir(BASE_DIR+"/modules"):
             if script.startswith("ReadTaxonomy"):
                 modname = script[len("ReadTaxonomy"):]
@@ -99,7 +127,10 @@ def main():
 
     #########################################################################################
 
-    parser = argparse.ArgumentParser()
+    '''the tour of the two levels stays verbatim in --help (issue #74), the 50 options below it are flat
+       and give no order to read them in'''
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog=WORKFLOW)
 
     required = parser.add_argument_group('required', 'Required')
     required.add_argument('-db', '--database', '--db' ,metavar="", type=str, default="FlexTaxD.db" , help="FlexTaxD taxonomy sqlite3 database file (fullpath)")
@@ -116,7 +147,7 @@ def main():
     rmodules = get_read_modules()
     read_opts = parser.add_argument_group('read_opts', "Source options")
     read_opts.add_argument('-tf', '--taxonomy_file',metavar="", default=None,                   help="Taxonomy source file")
-    read_opts.add_argument('-tt', '--taxonomy_type',metavar="", default="", choices=rmodules,   help="Source format of taxonomy input file ({modules})".format(modules=",".join(rmodules)))
+    read_opts.add_argument('-tt', '--taxonomy_type',metavar="", default="", choices=rmodules+['QIIME'],   help="Source format of taxonomy input file ({modules})".format(modules=",".join(rmodules)))
     read_opts.add_argument('--taxid_base', metavar="", type=int, default=1,                     help="The base for internal taxonomy ID numbers, when using NCBI as base select base at minimum 3000000 (default = 1)")
 
     mod_opts = parser.add_argument_group('mod_opts', "Database modification options")
@@ -169,9 +200,15 @@ def main():
 
     args = parser.parse_args()
 
-    # Remap input taxonomy_type, if GTDB, set it to QIIME (its more intuitive. Is GTDB officially a QIIME formet?)
+    '''Remap input taxonomy_type: GTDB is an MP style lineage file. The name this format carried until
+       v0.6.1 was QIIME, which is the name of a program and not of the layout, and the publication calls it
+       MP: the reader is the same code and the file is the same file, so a script that passes QIIME is told
+       what to write instead of getting the bare list of choices.'''
     if args.taxonomy_type and args.taxonomy_type.lower() == 'gtdb':
-        args.taxonomy_type = 'QIIME'
+        args.taxonomy_type = 'MP'
+    if args.taxonomy_type and args.taxonomy_type.lower() == 'qiime':
+        parser.error("--taxonomy_type QIIME is gone: the lineage file it read is an MP file, the same file "
+                     "read the same way, pass --taxonomy_type MP (or GTDB for a file from the GTDB download page)")
     #/
 
     if args.version:
@@ -234,29 +271,32 @@ def main():
 
     '''Check argument input logics'''
     if args.validate:
-        from modules.database.DatabaseConnection import ModifyFunctions
+        from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
         db = ModifyFunctions(args.database)
         db.validate_tree()
-        exit("Validation comleted!")
+        '''SystemExit with a string exits with status 1, which would report a completed validation as
+           a failure to whatever called it (issue #154)'''
+        logger.info("Validation completed!")
+        exit()
 
     if args.report:
-        from modules.database.DatabaseConnection import ModifyFunctions
-        from modules.ProcessDirectory import ProcessDirectory
+        from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
+        from flextaxd.modules.ProcessDirectory import ProcessDirectory
         db = ModifyFunctions(args.database)
         if args.genomes_path:
             ProcessDirectory(args.database).report_disk(args.genomes_path)
         for line in db.report_lines(limit=None):
             print(line)
-        exit("")
+        exit()
 
     if args.stats:
-        from modules.database.DatabaseConnection import ModifyFunctions
-        from modules.ProcessDirectory import ProcessDirectory
+        from flextaxd.modules.database.DatabaseConnection import ModifyFunctions
+        from flextaxd.modules.ProcessDirectory import ProcessDirectory
         db = ModifyFunctions(args.database)
         if args.genomes_path:
             ProcessDirectory(args.database).report_disk(args.genomes_path)
         db.statistics()
-        exit("")
+        exit()
 
     if args.mod_file or args.mod_database:
         if not args.parent:
@@ -340,7 +380,7 @@ def main():
             read_obj.parse_taxonomy()                                                           ## Parse taxonomy file
 
             '''Parse genome2taxid file'''                                                       ## Fix at some point only one function should be needed
-            if not args.genomeid2taxid and not args.taxonomy_type == "QIIME":
+            if not args.genomeid2taxid and not args.taxonomy_type == "MP":
                 logger.warning("Warning no genomeid2taxid file given!")
 
             if args.taxonomy_type == "NCBI" and args.genomeid2taxid:

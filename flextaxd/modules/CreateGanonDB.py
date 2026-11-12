@@ -1,17 +1,19 @@
 #!/usr/bin/env python3 -c
 
 '''
-This part of the script is kept because it is convenient when creating ganon2 or ganonuniq databases
-however it is not optimized in any way and uses os.system instead of a proper Popen for subprocessing.
+This part of the script is kept because it is convenient when creating ganon2 or ganonuniq databases.
+It is not optimized in any way, but the build of the external program runs as an argument list through
+subprocess and a build that did not finish stops the run (issue #148).
 '''
 
 import random
 import os
 import glob
+import shutil
 import multiprocessing
-from subprocess import Popen,PIPE
+from subprocess import Popen,PIPE,CalledProcessError,run
 from .database.DatabaseConnection import DatabaseFunctions
-from .functions import zopen
+from .functions import zopen, annotation_hint
 from time import sleep
 from gzip import BadGzipFile
 
@@ -209,6 +211,11 @@ class CreateGanonDB(object):
 				n=len(unannotated),mfile=mfile,names=", ".join(sorted(unannotated)[:10])))
 		logger.info("{sequences} sequences of {mfile} are in the library, {annotated} have a taxid in the map".format(
 			sequences=sequences,mfile=mfile,annotated=annotated))
+		'''issue #71: same advice as the kraken library, a library that loses a large share of its
+		   sequences to a missing taxid is an annotation file that does not describe them'''
+		hint = annotation_hint(sequences,len(unannotated))
+		if hint:
+			logger.warning(hint)
 		return (sequences,annotated)
 
 	def create_library_from_files(self,multifiles=False):
@@ -253,32 +260,91 @@ class CreateGanonDB(object):
 		k, m = divmod(len(a), n)
 		return list(a[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n))
 
+	def run_program_command(self,cmd,required=True):
+		'''Run the build of the external program as an argument list, with no shell in between. os.system
+				returned the exit status to a caller that threw it away, so a machine without ganon (the shell
+				said "ganon: not found" and the status was ignored) still ended with the run reporting a
+				database that had never been built, and the library it had written was deleted on the way out
+				(issue #148).
+
+		------
+		Parameters:
+			list - the program and its arguments
+			boolean - whether a program that is missing or failed stops the run
+		------
+		Returns:
+			boolean - False when the failure is allowed
+		'''
+		logger.info(" ".join(cmd))
+		try:
+			res = run(cmd,stdout=PIPE,stderr=PIPE)
+		except OSError as error:
+			logger.error("{program} could not be run: {err}".format(program=cmd[0],err=str(error)))
+			if required:
+				raise CalledProcessError(127," ".join(cmd))
+			return False
+		if res.returncode != 0:
+			logger.error("The command returned {code}: {cmd}".format(code=res.returncode,cmd=" ".join(cmd)))
+			'''what ganon did not like is on its stderr, and that is the part of the failure a user can act
+			   on; the last part of it, because a build can have written a lot before it stopped'''
+			message = (res.stderr or b"").decode(errors="replace").strip()
+			if message:
+				logger.error(message[-2000:])
+			if required:
+				raise CalledProcessError(res.returncode," ".join(cmd))
+			return False
+		return True
+
 	def create_database(self,outdir,keep=False):
-		'''For test create a small database and run tests'''
-		if not os.path.exists("{ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb)):
-			logger.debug("mkdir -p {ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb))
-			os.system("mkdir -p {ganon}/taxonomy".format(outdir=outdir, ganon=self.ganondb))
-		logger.debug("cp {outdir}/*.dmp {ganon}/taxonomy".format(outdir=outdir,ganon=self.ganondb))
-		os.system("cp {outdir}/*nodes.dmp {ganon}/taxonomy/nodes.dmp".format(outdir=outdir,ganon=self.ganondb))
-		os.system("cp {outdir}/*names.dmp {ganon}/taxonomy/names.dmp".format(outdir=outdir,ganon=self.ganondb))
+		'''Copy the taxonomy of the dump into the database directory and build the ganon database over the
+				library files this run wrote.
+
+				The library files stay in the directory: they are the library of this build, and deleting them
+				(a `rm {ganondb}/.tmp*` over everything the run had written) left a ganon database with nothing
+				to inspect and nothing to build the next database from, which is what T6 wants to build on
+				(issue #148). The build itself is checked: ganon missing, ganon failing or no library at all
+				raise a CalledProcessError, which create_databases turns into the "no database was created"
+				error and a failing exit status, the way the kraken route has since issue #132.
+
+		------
+		Parameters:
+			str - the directory the taxonomy dump was written to
+			boolean - unused here: the library is kept in either case
+		'''
+		taxonomy = "{ganon}/taxonomy".format(ganon=self.ganondb.rstrip("/"))
+		if not os.path.exists(taxonomy):
+			logger.info("mkdir -p {taxonomy}".format(taxonomy=taxonomy))
+			os.makedirs(taxonomy, exist_ok=True)
+		for pattern,target in (("*nodes.dmp","nodes.dmp"),("*names.dmp","names.dmp")):
+			source = sorted(glob.glob("{outdir}/{pattern}".format(outdir=outdir.rstrip("/"),pattern=pattern)))
+			if not source:
+				'''a database built without one half of the taxdump gets a taxonomy it cannot name, which is
+				   worse than saying what is missing here'''
+				logger.error("No {pattern} in {outdir}: the ganon database would be built without a taxonomy".format(
+					pattern=pattern,outdir=outdir))
+				continue
+			logger.debug("cp {source} {taxonomy}/{target}".format(source=source[0],taxonomy=taxonomy,target=target))
+			shutil.copyfile(source[0],"{taxonomy}/{target}".format(taxonomy=taxonomy,target=target))
 
 		logger.info("Build ganon database")
 		'''the library files this run wrote: one per process plus the packed sequences, whatever they are
 		   named - listing them by hand over the process numbers left the packed file out of the build'''
-		logger.debug("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta{usezip}".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes,usezip=self.usezip))
-		#os.system("ganon build -d {ganondb} --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {ganondb}/library.fasta{usezip}".format(ganondb=self.ganondb,seqid2taxid=self.seqid2taxid,processes=self.build_processes,usezip=self.usezip))
-		inputlist = " ".join(sorted(glob.glob("{outdir}/.tmp*.fasta*".format(outdir=self.ganondb.rstrip("/")))))
-		if not inputlist:
-			logger.error("No library files in {ganondb}, the ganon build has nothing to read".format(ganondb=self.ganondb))
-		os.system("ganon build -d {ganondb}/ --seq-info-file {seqid2taxid} -t {processes} --taxdump-file {ganondb}/taxonomy/nodes.dmp {ganondb}/taxonomy/names.dmp -i {inputlist}".format(ganondb=self.ganondb.rstrip("/"),seqid2taxid=self.seqid2taxid,processes=self.build_processes,outdir=outdir,usezip=self.usezip,inputlist=inputlist))
+		library_files = sorted(glob.glob("{ganondb}/.tmp*.fasta*".format(ganondb=self.ganondb.rstrip("/"))))
+		if not library_files:
+			logger.error("No library files in {ganondb}, the ganon build has nothing to read".format(
+				ganondb=self.ganondb.rstrip("/")))
+			raise CalledProcessError(1,"ganon build: no library files in {ganondb}".format(
+				ganondb=self.ganondb.rstrip("/")))
+		logger.info("Building the ganon database from {n} library files".format(n=len(library_files)))
+		self.run_program_command(["ganon","build",
+			"-d",self.ganondb.rstrip("/"),
+			"--seq-info-file",self.seqid2taxid,
+			"-t",str(self.build_processes),
+			"--taxdump-file","{taxonomy}/nodes.dmp".format(taxonomy=taxonomy),
+			"{taxonomy}/names.dmp".format(taxonomy=taxonomy),
+			"-i"] + library_files)
+		logger.info("The library of this build is kept in {ganondb}: {files}".format(
+			ganondb=self.ganondb.rstrip("/"),
+			files=", ".join(os.path.basename(name) for name in library_files)))
+		return
 
-		# logger.debug("Merge gene library map")
-		# os.system("cat {outdir}/.tmp*{usezip} > {ganondb}/library.fasta".format(outdir=self.outdir, ganondb=self.ganondb,usezip=self.usezip))
-		os.system("rm {outdir}/.tmp*{usezip}".format(outdir=self.ganondb.rstrip("/"),usezip=self.usezip))
-		# logger.info("zip library")
-		# try:
-		# 	os.system("pigz -p 8 {ganondb}/library.fasta{usezip}".format(usezip=""))
-		# except:
-		# 	os.system("gzip {ganondb}/library.fasta{usezip}".format(usezip=""))
-		#logger.info(self.ganon+"-build --build --db {ganon} --threads {threads}".format(ganon=self.ganon, threads=self.processes))
-		#logger.info("{ganon} database created".format(ganon=self.ganon))

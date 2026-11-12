@@ -160,3 +160,28 @@ def test_merge_lists_genomes_it_could_not_transfer_in_a_file(tmp_path):
     assert findings[0][1].startswith("total\t1\t")
     entries = " ".join(entry for _, entry in findings)
     assert "GCF_000000009.1" not in entries
+
+
+def test_merge_skips_a_link_the_source_database_cannot_name(tmp_path, caplog):
+    """issue #153: a source database holding a tree link to an id that its own nodes table does not
+    describe used to die with a bare KeyError in the middle of the merge; the link is now named and
+    skipped and the rest of the merge goes through"""
+    caplog.set_level(logging.WARNING)
+    target = make_database(tmp_path / "target.fdb", "Salmonella enterica", 2,
+                           [("GCF_000000001.1", "refseq")])
+    source = make_database(tmp_path / "source.fdb", "Escherichia coli", 412,
+                           [("GCF_000000002.1", "refseq")])
+    conn = ModifyFunctions(database=source)
+    conn.query("INSERT INTO nodes (id,name) VALUES (900,'Clostridium botulinum')")
+    conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (412,900,4)")
+    conn.query("INSERT INTO tree (parent,child,rank_i) VALUES (900,901,4)")
+    conn.commit()
+    conn.query("DELETE FROM nodes WHERE id = 900")
+    conn.commit()
+
+    merge(target, source)
+
+    rows = genome_rows(target)
+    assert "GCF_000000001.1" in rows and "GCF_000000002.1" in rows
+    assert "901" in caplog.text and "900" in caplog.text
+
